@@ -120,6 +120,7 @@ herdr plugin uninstall herdr-automatic-rename
 
 - **Manual renames win.** Rename a tab yourself and naming leaves it alone. Numbering still applies. `clear` the label or `reset` to hand it back.
 - **Agents number only in grouped (`spaces`) sort**, where the CLI order matches the panel `focus_agent` follows. In `priority` sort that order is API-invisible, so numbers are stripped. Switch back and they return.
+- **Collapsing a space renumbers.** `alt+N` counts the sidebar's visible rows, so a collapsed space hides its worktree workspaces from numbering and every row below it moves up. The hidden ones go bare until you expand. Focusing one of those worktrees while the space stays collapsed renders that row again, which shifts the rows below it back down. herdr publishes collapse only in `session.json`, on a 5-second debounce and with no event to hook, so the first jump right after a collapse can still use the old numbers.
 - **Stops at 9.** No binding reaches a 10th item, so `10+` stay bare.
 
 ## Development

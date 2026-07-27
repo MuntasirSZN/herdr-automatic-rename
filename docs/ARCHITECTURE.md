@@ -83,16 +83,43 @@ sampling fails the engine renames nothing rather than guess.
 ## Numbering caveats
 
 - **Tabs** are numbered by array order, not the non-contiguous `.number` field.
-- **Workspaces** are numbered by herdr's grouped sidebar order, not the raw
-  `workspace list` order. Same-repo workspaces nest into one "space" keyed by
-  `.worktree.repo_key`, and `alt+N` follows the sidebar, so `ar_renumber_workspaces`
-  rebuilds that visible order before numbering.
+- **Workspaces** are numbered by herdr's visible sidebar order, not the raw
+  `workspace list` order. `alt+N` resolves through herdr's own
+  `workspace_at_visible_position`, so a row the sidebar does not render is a row no
+  keybind reaches, and a collapsed space both hides rows and moves the ones below
+  it. `ar_workspace_positions` mirrors herdr's `workspace_list_entries_inner` and
+  owns the rules (which workspaces nest, which member heads a space, what a
+  collapsed one still renders); its header comment is the copy to keep in sync with
+  upstream. Hidden rows come back as position 0 and drop their prefix like 10+.
 - **Agents** are numbered only when `agent_panel_sort` is grouped (`spaces`). In
   `priority` sort the panel reorders behind an order the CLI never exposes, so
   the plugin strips agent numbers there rather than guess wrong, and renumbers
   when you switch back. Agent renames use a two-phase park to dodge herdr's
   duplicate-name rejection when several agents share a base like `claude`.
 - Nothing numbers past 9, since no keybind reaches a 10th item.
+
+## Collapse is readable, but only from session.json
+
+herdr publishes sidebar collapse nowhere in its API: no field on `workspace list`
+or `api snapshot`, no request method, and none of the events a plugin can subscribe
+to (checked against protocol 17). Toggling a space flips `collapsed_space_keys` in
+memory and marks the session dirty, which leaves one readable copy: the top-level
+`collapsed_space_keys` array in that session's `session.json`. `ar_collapsed_spaces`
+reads it, at the path `ar_herdr_session_dir` derives by stripping the filename off
+`$HERDR_SOCKET_PATH`. herdr keeps a session's socket, `session.json`, and
+`config.toml` in one directory and exports that variable into plugin commands and
+pane environments both, so the herdr-invoked pass and the shell hooks resolve the
+same files, in a named session as well as the default one. `ar_agent_sort` reads its
+`config.toml` through the same helper for that reason.
+
+Two consequences follow. The file is written atomically (temp plus rename, so no
+torn reads) on a 5-second debounce, so a pass that runs right after the click still
+reads the old value and corrects itself on a later event. And because the toggle
+emits no event, nothing wakes the plugin when collapse changes: the numbers settle
+on whatever event arrives next, which in an active session is usually seconds away
+(`pane.agent_status_changed` fires constantly). So the first `alt+N` after a
+collapse can still jump by the old numbering. Upstream support, either an event or
+a `collapsed` field on `WorkspaceInfo`, is what would close that window.
 
 ## The placeholder rule
 

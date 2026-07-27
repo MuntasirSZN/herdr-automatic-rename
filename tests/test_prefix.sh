@@ -32,6 +32,7 @@ CLEAR=0; AUTO_INDEX=1
 check "desired pos 1"        "[1] api" "$(ar_desired 1 api)"
 check "desired pos 9"        "[9] api" "$(ar_desired 9 api)"
 check "desired pos 10 bare"  "api"     "$(ar_desired 10 api)"
+check "desired pos 0 bare"   "api"     "$(ar_desired 0 api)"   # hidden row, no keybind
 AUTO_INDEX=0
 check "desired index-off"    "api"     "$(ar_desired 1 api)"
 AUTO_INDEX=1; CLEAR=1

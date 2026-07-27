@@ -6,6 +6,20 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Fixed
+
+- Collapsing a worktree space no longer leaves stale workspace numbers behind.
+  `alt+N` counts the sidebar's visible rows, so the members a collapsed space hides
+  now give up their `[N]` and every row below them moves up. Collapse state is read
+  from `collapsed_space_keys` in herdr's `session.json`, the only place herdr
+  publishes it (no API field, no event), on herdr's 5-second save debounce.
+- A space now takes its number from its main checkout instead of whichever member
+  happens to come first in `workspace list`, matching the row herdr renders at the
+  head of the group.
+- Two linked worktrees of a repo with no main workspace open no longer group
+  together. herdr nests a space only with 2+ members and a non-linked checkout
+  among them, so these number as the separate top-level rows they render as.
+
 ## [0.2.0] - 2026-07-17
 
 ### Added

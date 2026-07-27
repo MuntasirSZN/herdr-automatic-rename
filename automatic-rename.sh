@@ -96,7 +96,9 @@ ar_index_prefix() {
 #   --clear             -> always the bare base (strip numbering)
 #   AUTO_INDEX off       -> bare base (self-heals a stale prefix as items reconcile)
 #   AUTO_INDEX on, 1..9  -> "[N] base"
-#   AUTO_INDEX on, 10+   -> bare base (no keybind reaches it)
+# Any other position -> bare base, because no keybind reaches the item: it sits
+# past the 9th slot, or (position 0) the sidebar does not render it at all, which
+# is how ar_workspace_positions reports a row hidden inside a collapsed space.
 ar_desired() {
   local n=$1 base=$2
   if [ "$CLEAR" = "1" ] || [ "$AUTO_INDEX" != "1" ]; then printf '%s' "$base"; return; fi
@@ -294,35 +296,98 @@ ar_tab_name() {
 # reconcilers
 # ======================================================================
 
-# Workspaces: alt+N follows the SIDEBAR (grouped visible) order, which is NOT the
-# raw `workspace list` array order. herdr groups workspaces that share a repo into
-# a nested "space" keyed by .worktree.repo_key (the repo's .git path): the space
-# renders at the array position of its first-appearing member, members nested in
-# array order; a workspace with no worktree is its own singleton space. A newly
-# created worktree is APPENDED at the array end but nests with its earlier repo
-# group, so we rebuild the grouped order and number by THAT (tag each workspace
-# with its array index _i, map each group key to its members' min _i as the
-# anchor, sort by [anchor, _i]). A COLLAPSED space hides its members from alt+N
-# but herdr persists collapse only in session.json, so we assume expanded.
-# Arg 1 is a cached `workspace list` JSON.
+# ar_herdr_session_dir -> the directory herdr keeps this session's state in: the
+# config dir for the default session, ~/.config/herdr/sessions/<name>/ for a named
+# one. Both session.json and that session's config.toml live there, and herdr puts
+# the API socket there too and exports HERDR_SOCKET_PATH into plugin commands AND
+# pane environments, so stripping the socket's filename names the right directory
+# from the herdr-invoked pass and the shell hooks alike. Falls back to the default
+# session's dir when the variable is unset.
+ar_herdr_session_dir() {
+  if [ -n "${HERDR_SOCKET_PATH:-}" ]; then
+    printf '%s' "${HERDR_SOCKET_PATH%/*}"
+  else
+    printf '%s/herdr' "${XDG_CONFIG_HOME:-$HOME/.config}"
+  fi
+}
+
+# ar_collapsed_spaces -> JSON array of the space keys (repo_key strings) whose
+# sidebar group is collapsed right now. herdr exposes collapse NOWHERE in the API
+# (no field on workspace list / api snapshot, no event, protocol 17), and stores
+# it only as session.json's top-level collapsed_space_keys, so we read that file
+# the way ar_agent_sort reads config.toml. See docs/ARCHITECTURE.md for why that
+# leaves the numbers up to herdr's 5-second save debounce behind a collapse. A
+# missing or unreadable file means "nothing collapsed", which is how the plugin
+# behaved before it read this at all.
+ar_collapsed_spaces() {
+  jq -c '[ .collapsed_space_keys[]? | strings ]' \
+    "$(ar_herdr_session_dir)/session.json" 2>/dev/null || printf '[]'
+}
+
+# ar_workspace_positions <workspace-list-json> <collapsed-spaces-json>
+#   -> one "<workspace_id>\t<label>\t<position>" row per workspace, where position
+#      is its 1-based slot in herdr's VISIBLE sidebar order, or 0 when the sidebar
+#      does not render it at all.
+#
+# alt+N resolves through that visible order (herdr's workspace_at_visible_position
+# -> visible_workspace_order), NOT the raw `workspace list` array order, so this
+# mirrors herdr's own workspace_list_entries_inner (src/ui/sidebar.rs). Keep the
+# rules in this one place, in herdr's order, so re-checking them against upstream
+# stays cheap:
+#   * Workspaces sharing a .worktree.repo_key nest into one "space", but ONLY when
+#     the repo has 2+ open workspaces AND one of them is the main checkout
+#     (is_linked_worktree false). Two linked worktrees with no main workspace stay
+#     separate top-level rows in array order.
+#   * A space renders at the slot of its first-appearing member, and the row that
+#     heads it is the MAIN checkout, with the other members nested after it in
+#     array order, so a worktree listed before its main repo does not lead.
+#   * A COLLAPSED space renders its head row alone. Its other members are hidden,
+#     which is what position 0 means. The one exception herdr makes is the FOCUSED
+#     member: a collapsed space keeps the active workspace rendered under its
+#     parent, so that row still counts and every row after it shifts down. Numbers
+#     therefore move when the user only collapses, expands, or switches workspaces.
+#
+# No herdr calls and no file reads: both inputs are passed in, so this is directly
+# testable (see tests/test_ws_order.sh).
+ar_workspace_positions() {
+  printf '%s' "$1" | jq -r --argjson collapsed "$2" '
+    [ (.result.workspaces // .workspaces // []) | to_entries[]
+      | .value + { _i: .key,
+                   _k: (.value.worktree.repo_key // ""),
+                   _linked: (.value.worktree.is_linked_worktree // false) } ] as $rows
+    # repo_key -> its members in SIDEBAR order (head first), for the keys that nest
+    | ( reduce $rows[] as $r ({}; if $r._k == "" then . else .[$r._k] += [$r._i] end)
+        | with_entries(
+            ( [ .value[] | select($rows[.]._linked == false) ] | first ) as $head
+            | select($head != null and (.value | length) >= 2)
+            | .value = [ $head ] + [ .value[] | select(. != $head) ] ) ) as $spaces
+    | ( [ $rows[] | select(.focused) | ._i ] | first ) as $active
+    | ( [ $rows[]
+          | ._k as $k | ._i as $i | $spaces[$k] as $mem
+          | if $mem == null then $i                 # renders as its own row
+            elif $i != ($mem | min) then empty      # space already rendered at its first member
+            else $mem[0],                           # the main checkout heads it
+                 ( if $collapsed | index($k)
+                   then ( $active | select(. != null and . != $mem[0] and $rows[.]._k == $k) )
+                   else $mem[1:][] end )
+            end ] ) as $order
+    | $rows[] | ._i as $i | ($order | index($i)) as $pos
+    | [ .workspace_id, (.label // ""), (if $pos == null then 0 else $pos + 1 end) ]
+    | @tsv' 2>/dev/null
+}
+
+# Workspaces: number them by herdr's visible sidebar order. Arg 1 is a cached
+# `workspace list` JSON.
 ar_renumber_workspaces() {
-  local json=$1 rows wid label base want i=0
+  local json=$1 rows wid label pos base want
   [ -n "$json" ] || return 0
-  rows=$(printf '%s' "$json" | jq -r '
-    (.result.workspaces // .workspaces // [])
-    | [ to_entries[] | .value + {_i: .key} ]
-    | ( group_by(.worktree.repo_key // ("@ws:" + .workspace_id))
-        | map({ (.[0].worktree.repo_key // ("@ws:" + .[0].workspace_id)): (map(._i) | min) })
-        | add ) as $anchor
-    | sort_by([ $anchor[(.worktree.repo_key // ("@ws:" + .workspace_id))], ._i ])
-    | .[] | [.workspace_id, (.label // "")] | @tsv' 2>/dev/null)
+  rows=$(ar_workspace_positions "$json" "$(ar_collapsed_spaces)")
   [ -n "$rows" ] || return 0
-  while IFS=$'\t' read -r wid label; do
+  while IFS=$'\t' read -r wid label pos; do
     [ -n "$wid" ] || continue
-    i=$(( i + 1 ))
     base=$(ar_strip_prefix "$label")
     [ -n "$base" ] || continue          # empty label: nothing to number, leave it
-    want=$(ar_desired "$i" "$base")
+    want=$(ar_desired "$pos" "$base")   # position 0 (hidden) -> bare, like 10+
     [ "$want" = "$label" ] && continue
     "$HERDR" workspace rename "$wid" "$want" >/dev/null 2>&1 || true
   done <<< "$rows"
@@ -442,9 +507,10 @@ ar_unpark_base() {
 # and strip the prefixes in "priority" mode (see ar_renumber_agents). herdr
 # rewrites agent_panel_sort into config.toml the instant the sort is toggled, so
 # the file is the live source of truth; default (key unset) is "spaces".
-# HERDR_CONFIG_FILE overrides the path (for non-default sessions or testing).
+# A named session keeps its own config.toml beside its session.json, so the path
+# comes from ar_herdr_session_dir; HERDR_CONFIG_FILE overrides it for testing.
 ar_agent_sort() {
-  local cfg="${HERDR_CONFIG_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/config.toml}" line
+  local cfg="${HERDR_CONFIG_FILE:-$(ar_herdr_session_dir)/config.toml}" line
   line=$(grep -E '^[[:space:]]*agent_panel_sort[[:space:]]*=' "$cfg" 2>/dev/null | tail -n1)
   case "${line#*=}" in
     *priority*) printf 'priority' ;;

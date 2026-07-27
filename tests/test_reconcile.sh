@@ -23,6 +23,7 @@ setup() {
   export HERDR_AUTOMATIC_RENAME_CONFIG="$SB/none.sh"   # absent -> env toggles win
   export HERDR_CONFIG_FILE="$SB/herdr.toml"
   printf 'agent_panel_sort = "spaces"\n' >"$HERDR_CONFIG_FILE"
+  export HERDR_SOCKET_PATH="$SB/herdr.sock"   # keeps herdr state reads (session.json) in the sandbox
   export SHELL_NAME=zsh
 }
 fixture() { cat >"$HERDR_MOCK_DIR/$1"; }   # fixture <name>  (JSON on stdin)

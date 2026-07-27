@@ -28,6 +28,7 @@ setup() {
   export HERDR_BIN_PATH="$MOCK"
   export XDG_STATE_HOME="$SB/state"
   export HERDR_AUTOMATIC_RENAME_CONFIG="$SB/none.sh"
+  export HERDR_SOCKET_PATH="$SB/herdr.sock"   # keeps herdr state reads (session.json) in the sandbox
   export SHELL_NAME=zsh
   export NAME_TABS=1 AUTO_INDEX=1
   export HERDR_TAB_ID=t1 HERDR_PANE_ID=p1
