@@ -12,6 +12,31 @@ Each feature can be toggled and work independently.
 
 <img width="3216" height="2088" alt="readme-demo-screenshot" src="https://github.com/user-attachments/assets/43f620c0-d667-4fa9-b76c-dbafde41b7ec" />
 
+## Before and after
+
+herdr labels a new tab with a number, and leaves workspace and agent rows at their plain names. One four-tab workspace, before and after (stock config: `NAME_TABS=1`, `AUTO_INDEX=1`):
+
+```
+herdr alone      │ 1       │ 2        │ 3       │ notes     │
+with the plugin  │ [1] zsh │ [2] nvim │ [3] zsh │ [4] notes │
+```
+
+| Tab is running | herdr alone | with the plugin |
+| --- | --- | --- |
+| a bare shell prompt | `1` | `[1] zsh` |
+| `nvim README.md` | `2` | `[2] nvim` |
+| `ls -la`, an `IGNORED_PROGRAMS` entry | `3` | `[3] zsh` |
+| a tab you renamed `notes` yourself | `notes` | `[4] notes` |
+
+Workspaces and agents get numbered, never renamed, so only the prefix is new:
+
+| Sidebar row | herdr alone | with the plugin |
+| --- | --- | --- |
+| workspace | `dotfiles` | `[1] dotfiles` |
+| agent | `claude` | `[1] claude` |
+
+Turn one feature off and you keep the other half: `AUTO_INDEX=0` names without the prefix (`zsh`, `nvim`), and `NAME_TABS=0` leaves every base name as herdr or you left it and adds only the `[N]`. `SHOW_PROGRAM_ARGS=1` swaps a program's name for its whole command line, so a `npm run dev` tab reads `[2] npm run dev` rather than `[2] npm`.
+
 ## Requirements
 
 herdr `>= 0.7.1`, `jq`, and bash. Linux or macOS.
@@ -57,6 +82,18 @@ end
 No-op outside a herdr pane. On bash it cooperates with bash-preexec / atuin / ble.sh, else owns `DEBUG` without clobbering an existing trap.
 
 A command word that is not an external program (a shell function, builtin, or typo) never renames the tab directly. The hook flags it, and the engine reads the pane's real foreground process a moment later: an instant function leaves the tab name alone, and a function that opens `nvim` names the tab `nvim`.
+
+### Turn off herdr's new-tab name prompt
+
+herdr asks each new tab for a name (`prompt_new_tab_name`, on by default). Under `NAME_TABS=1` that prompt has nothing left to do, and a name typed into it counts as a hand rename, which opts the tab out of naming until you `reset` it. Turn it off:
+
+```toml
+# ~/.config/herdr/config.toml
+[ui]
+prompt_new_tab_name = false
+```
+
+New tabs then arrive with herdr's generated number for the plugin to name. Accepting the prompt's prefilled number works as well, since a bare integer reads as a placeholder, but it costs a keystroke per tab. Keep `prompt_new_workspace_name` if you use it: the plugin only prefixes workspace names, it never generates them.
 
 ## Configuration
 
