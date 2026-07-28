@@ -54,7 +54,7 @@ fixture procinfo_p1.json <<'JSON'
 {"result":{"process_info":{"foreground_process_group_id":100,
   "foreground_processes":[{"pid":100,"argv0":"-zsh","cmdline":"-zsh"}]}}}
 JSON
-/bin/bash "$ENGINE" preexec "l" shell
+/usr/bin/env bash "$ENGINE" preexec "l" shell
 check "instant function: no rename" "" "$(log)"
 teardown
 
@@ -68,7 +68,7 @@ fixture procinfo_p1.json <<'JSON'
 {"result":{"process_info":{"foreground_process_group_id":200,
   "foreground_processes":[{"pid":200,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
 JSON
-/bin/bash "$ENGINE" preexec "v" shell
+/usr/bin/env bash "$ENGINE" preexec "v" shell
 check "wrapped program: named by foreground" "tab rename t1 [1] nvim" "$(log)"
 teardown
 
@@ -77,7 +77,7 @@ teardown
 # ======================================================================
 setup
 # NOTE: no procinfo_p1.json -> the mock serves "{}" -> no resolvable process.
-/bin/bash "$ENGINE" preexec "l" shell
+/usr/bin/env bash "$ENGINE" preexec "l" shell
 check "sample failure: no rename" "" "$(log)"
 teardown
 
@@ -86,7 +86,7 @@ teardown
 # path must be untouched (renames from the typed word, no process-info call).
 # ======================================================================
 setup
-/bin/bash "$ENGINE" preexec "nvim README.md"
+/usr/bin/env bash "$ENGINE" preexec "nvim README.md"
 check "external command: instant rename" "tab rename t1 [1] nvim" "$(log)"
 teardown
 
@@ -99,7 +99,7 @@ fixture tab_t1.json <<'JSON'
 JSON
 printf '{"t1":{"auto":"nvim","enabled":true}}\n' \
   >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
-/bin/bash "$ENGINE" precmd zsh
+/usr/bin/env bash "$ENGINE" precmd zsh
 check "precmd: back to shell name" "tab rename t1 [1] zsh" "$(log)"
 teardown
 

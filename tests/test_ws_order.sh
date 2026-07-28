@@ -67,7 +67,7 @@ setup() {
 fixture() { cat >"$HERDR_MOCK_DIR/$1"; }
 # collapsed <json-array>  -- write the session file herdr would have persisted.
 collapsed() { printf '{"version":7,"collapsed_space_keys":%s,"workspaces":[]}\n' "$1" >"$SB/session.json"; }
-run_event() { /bin/bash "$ENGINE" "$1"; }
+run_event() { /usr/bin/env bash "$ENGINE" "$1"; }
 log() { cat "$HERDR_MOCK_LOG"; }
 teardown() { rm -rf "$SB" 2>/dev/null || true; }
 
