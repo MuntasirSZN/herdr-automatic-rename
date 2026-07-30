@@ -9,15 +9,15 @@ here=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$here/.." && pwd)
 
 # ---- bash ----
-got=$(HERDR_PANE_ID=x HAL_HOOK="$REPO/shell/hook.bash" /bin/bash -c 'source "$HAL_HOOK"; echo "$_har_bin"')
+got=$(HERDR_PANE_ID=x HAL_HOOK="$REPO/shell/hook.bash" /usr/bin/env bash -c 'source "$HAL_HOOK"; echo "$_har_bin"')
 check "bash: self-locates engine next to hook" "$REPO/automatic-rename.sh" "$got"
 
-got=$(HERDR_PANE_ID=x HAL_HOOK="$REPO/shell/hook.bash" /bin/bash -c \
+got=$(HERDR_PANE_ID=x HAL_HOOK="$REPO/shell/hook.bash" /usr/bin/env bash -c \
   'source "$HAL_HOOK"; source "$HAL_HOOK"; printf "%s\n" "$PROMPT_COMMAND" | grep -c _har_precmd_wrap')
 check "bash: double-source adds PROMPT_COMMAND once" "1" "$got"
 
 # Trap behavior only makes sense in an interactive shell (the only place a hook
-# is sourced). Non-interactive `bash -c` has different DEBUG-trap scoping, so we
+# is sourced). Non-interactive `/usr/bin/env bash -c` has different DEBUG-trap scoping, so we
 # simulate a real .bashrc: set a DEBUG trap, source the hook after it, then run a
 # command. The pre-existing trap must still fire (proof it was not clobbered).
 _rc=$(mktemp "${TMPDIR:-/tmp}/hal-rc.XXXXXX")
@@ -25,15 +25,15 @@ cat >"$_rc" <<EOF
 trap 'echo KEEP_FIRED' DEBUG
 source "$REPO/shell/hook.bash"
 EOF
-got=$(printf 'true\nexit\n' | HERDR_PANE_ID=x /bin/bash --rcfile "$_rc" -i 2>&1)
+got=$(printf 'true\nexit\n' | HERDR_PANE_ID=x /usr/bin/env bash --rcfile "$_rc" -i 2>&1)
 rm -f "$_rc"
 check_contains "bash: never clobbers a pre-existing DEBUG trap" "$got" "KEEP_FIRED"
 
-got=$(HERDR_PANE_ID=x HAL_HOOK="$REPO/shell/hook.bash" /bin/bash -c \
+got=$(HERDR_PANE_ID=x HAL_HOOK="$REPO/shell/hook.bash" /usr/bin/env bash -c \
   'preexec_functions=(); source "$HAL_HOOK"; printf "%s " "${preexec_functions[@]}"')
 check_contains "bash: cooperates with a preexec framework" "$got" "_har_preexec"
 
-got=$(HAL_HOOK="$REPO/shell/hook.bash" /bin/bash -c 'unset HERDR_PANE_ID; source "$HAL_HOOK"; echo "${_har_installed:-unset}"')
+got=$(HAL_HOOK="$REPO/shell/hook.bash" /usr/bin/env bash -c 'unset HERDR_PANE_ID; source "$HAL_HOOK"; echo "${_har_installed:-unset}"')
 check "bash: no-ops outside a herdr pane" "unset" "$got"
 
 # ---- command-word classification (both shells) ----
@@ -46,7 +46,7 @@ clsbox() { # <hook file> -> sets $CLS_SB, $CLS_LOG
   CLS_LOG="$CLS_SB/args.log"; : >"$CLS_LOG"
   mkdir -p "$CLS_SB/shell"
   cp "$REPO/shell/$1" "$CLS_SB/shell/"
-  printf '#!/bin/bash\nprintf "%%s\\n" "$*" >> "%s"\n' "$CLS_LOG" >"$CLS_SB/automatic-rename.sh"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\n' "$CLS_LOG" >"$CLS_SB/automatic-rename.sh"
   chmod +x "$CLS_SB/automatic-rename.sh"
 }
 clswait() { # poll until the log has 2 lines (or ~1s passes)
@@ -58,7 +58,7 @@ clswait() { # poll until the log has 2 lines (or ~1s passes)
 }
 
 clsbox hook.bash
-HERDR_PANE_ID=x HAL_HOOK="$CLS_SB/shell/hook.bash" /bin/bash -c \
+HERDR_PANE_ID=x HAL_HOOK="$CLS_SB/shell/hook.bash" /usr/bin/env bash -c \
   'source "$HAL_HOOK"; l() { :; }; _har_preexec "l"; _har_preexec "ls -a"; wait' 2>/dev/null
 got=$(clswait)
 check_contains "bash: function word marked shell"     "$got" "preexec l shell"
@@ -80,16 +80,17 @@ else
 fi
 
 # fish classifies with `type --type`, where an external command reads "file".
-# Use /bin/ls (not bare ls): fish wraps ls in a color function, and a function
-# word is exactly what must take the sampled path.
+# Use /usr/bin/env (not bare ls): fish wraps ls in a color function, and a
+# function word is exactly what must take the sampled path. /usr/bin/env is
+# portable across NixOS (no /bin) and standard Linux.
 if command -v fish >/dev/null 2>&1; then
   clsbox hook.fish
   HERDR_PANE_ID=x HAL_HOOK="$CLS_SB/shell/hook.fish" fish -c \
-    'source "$HAL_HOOK"; function l; end; _har_preexec "l"; _har_preexec "/bin/ls -a"' 2>/dev/null
+    'source "$HAL_HOOK"; function l; end; _har_preexec "l"; _har_preexec "/usr/bin/env -a"' 2>/dev/null
   got=$(clswait)
   check_contains "fish: function word marked shell"    "$got" "preexec l shell"
-  check_contains "fish: external command left instant" "$got" "preexec /bin/ls -a"
-  check_absent   "fish: external command not marked"   "$got" "preexec /bin/ls -a shell"
+  check_contains "fish: external command left instant" "$got" "preexec /usr/bin/env -a"
+  check_absent   "fish: external command not marked"   "$got" "preexec /usr/bin/env -a shell"
   rm -rf "$CLS_SB"
 else
   echo "# skip: fish not installed (classification)"

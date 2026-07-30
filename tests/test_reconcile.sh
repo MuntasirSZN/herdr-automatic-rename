@@ -27,7 +27,7 @@ setup() {
   export SHELL_NAME=zsh
 }
 fixture() { cat >"$HERDR_MOCK_DIR/$1"; }   # fixture <name>  (JSON on stdin)
-run_event() { /bin/bash "$ENGINE" "$1"; }
+run_event() { /usr/bin/env bash "$ENGINE" "$1"; }
 log() { cat "$HERDR_MOCK_LOG"; }
 teardown() { rm -rf "$SB" 2>/dev/null || true; }
 

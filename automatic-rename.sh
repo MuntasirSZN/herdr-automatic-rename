@@ -135,7 +135,7 @@ ar_lock() {
   fi
   local now mt age
   now=$(date +%s 2>/dev/null || echo 0)
-  mt=$(stat -f %m "$LOCK_DIR" 2>/dev/null || stat -c %Y "$LOCK_DIR" 2>/dev/null || echo "$now")
+  mt=$(stat -c %Y "$LOCK_DIR" 2>/dev/null || stat -f %m "$LOCK_DIR" 2>/dev/null || echo "$now")
   age=$(( now - mt ))
   if [ "$age" -gt 30 ]; then
     rm -f "$LOCK_DIR/owner" 2>/dev/null
