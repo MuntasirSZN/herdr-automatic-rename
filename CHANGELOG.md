@@ -6,6 +6,18 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Fixed
+
+- `ICONS_ENABLED=1` now actually prepends a Nerd Font glyph. Every arm of
+  `ar_icon` shipped as `printf ''`, so the lookup always returned the empty
+  string, the `[ -n "$ic" ]` guard in `ar_format` never passed, and all three
+  `ICON_STYLE` modes did nothing. The glyphs were absent from `naming.sh` from
+  its first commit, which means icons never worked in any release up to 0.2.1
+  ([#3](https://github.com/qu8n/herdr-automatic-rename/issues/3)). Each arm now
+  carries its codepoint in a comment so a stripped glyph can be restored, and
+  the tests assert the exact bytes rather than only checking that `ICON_STYLE=name`
+  suppresses the glyph, which passed happily against an empty string.
+
 ## [0.2.1] - 2026-07-26
 
 ### Fixed

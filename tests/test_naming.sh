@@ -46,8 +46,64 @@ check "multibyte truncation is clean" "ünïcödé" \
   "$(MAX_NAME_LEN=7 ar_format 'x' 'ünïcödéxxxxxxx')"
 
 # ---- icons ----
+# Expected glyphs are built from explicit UTF-8 byte escapes rather than pasted
+# literals: bash 3.2 has no $'\uXXXX', and the Private Use Area codepoints these
+# tests assert on are precisely what an editor or a copy-paste silently ate once
+# before (ar_icon shipped with every arm returning "", so ICONS_ENABLED was a
+# no-op through v0.2.1). Byte escapes cannot be eaten that way, so these tests
+# still fail loudly if the glyphs ever vanish from naming.sh again.
+g_nvim=$(printf '\xee\x9a\xae')    # U+E6AE nf-custom-neovim
+g_vim=$(printf '\xee\x98\xab')     # U+E62B nf-custom-vim
+g_git=$(printf '\xee\x9c\x82')     # U+E702 nf-dev-git
+g_node=$(printf '\xee\x9c\x98')    # U+E718 nf-dev-nodejs_small
+g_python=$(printf '\xee\x9c\xbc')  # U+E73C nf-dev-python
+g_docker=$(printf '\xef\x8c\x88')  # U+F308 nf-linux-docker
+g_cargo=$(printf '\xee\x9e\xa8')   # U+E7A8 nf-dev-rust
+g_go=$(printf '\xee\x98\xa7')      # U+E627 nf-seti-go
+g_agent=$(printf '\xf3\xb0\x9a\xa9')  # U+F06A9 nf-md-robot
+
+# ar_icon must return a real glyph per program group, not the empty string.
+check "ar_icon nvim"   "$g_nvim"   "$(ar_icon nvim)"
+check "ar_icon vim"    "$g_vim"    "$(ar_icon vim)"
+check "ar_icon gvim"   "$g_vim"    "$(ar_icon gvim)"
+check "ar_icon git"    "$g_git"    "$(ar_icon git)"
+check "ar_icon lazygit" "$g_git"   "$(ar_icon lazygit)"
+check "ar_icon node"   "$g_node"   "$(ar_icon node)"
+check "ar_icon pnpm"   "$g_node"   "$(ar_icon pnpm)"
+check "ar_icon python3" "$g_python" "$(ar_icon python3)"
+check "ar_icon docker" "$g_docker" "$(ar_icon docker)"
+check "ar_icon cargo"  "$g_cargo"  "$(ar_icon cargo)"
+check "ar_icon go"     "$g_go"     "$(ar_icon go)"
+check "ar_icon claude" "$g_agent"  "$(ar_icon claude)"
+check "ar_icon codex"  "$g_agent"  "$(ar_icon codex)"
+
+# An unknown program has no glyph. This is the documented contract ("or empty")
+# and it is what keeps the `[ -n "$ic" ]` guard in ar_format meaningful, so it
+# must stay empty rather than gaining a fallback icon.
+check "ar_icon unknown -> empty" "" "$(ar_icon htop)"
+check "ar_icon empty arg -> empty" "" "$(ar_icon '')"
+
+# ICON_STYLE wiring, end to end through ar_format.
+check "icon style default is icon+name" "$g_nvim nvim" \
+  "$(ICONS_ENABLED=1 ar_format 'nvim' 'nvim')"
+check "icon style 'name_and_icon' is icon+name" "$g_git git" \
+  "$(ICONS_ENABLED=1 ICON_STYLE=name_and_icon ar_format 'git' 'git status')"
+check "icon style 'icon' is glyph only" "$g_nvim" \
+  "$(ICONS_ENABLED=1 ICON_STYLE=icon ar_format 'nvim' 'nvim')"
 check "icon style 'name' suppresses glyph" "nvim" \
   "$(ICONS_ENABLED=1 ICON_STYLE=name ar_format 'nvim' 'nvim')"
+
+# Icons off (the default) never prepends a glyph, even for a known program.
+check "icons off -> no glyph" "nvim" "$(ar_format 'nvim' 'nvim')"
+# A program with no glyph keeps its plain name even with icons on.
+check "icons on, unknown program -> plain name" "htop" \
+  "$(ICONS_ENABLED=1 SHOW_PROGRAM_ARGS=0 ar_format 'htop' 'htop -d 5')"
+
+# A glyph is one codepoint, so "<glyph> <name>" must be truncated by codepoint,
+# never mid-byte. node is not name-only, so its cmdline is long enough to cut:
+# MAX_NAME_LEN=6 keeps the glyph, the space, and 4 chars of the name.
+check "icon+name truncates on codepoint boundary" "$g_node node" \
+  "$(ICONS_ENABLED=1 MAX_NAME_LEN=6 SHOW_PROGRAM_ARGS=1 ar_format 'node' 'nodeandmore')"
 
 # ---- default: SHOW_PROGRAM_ARGS defaults to 0 (regular program -> name only) ----
 got=$(bash -c 'SHELL_NAME=zsh; . "$1"; ar_format htop "htop -d 5"' _ "$here/../naming.sh")

@@ -80,17 +80,28 @@ ar_subst() {
 }
 
 # ar_icon <program> -> a Nerd Font glyph, or empty. Edit freely.
+#
+# The glyphs below are literal Private Use Area characters and render as blank
+# boxes without a Nerd Font installed. They also went missing once: every arm
+# shipped as `printf ''` from this file's first commit through v0.2.1, which made
+# ICONS_ENABLED=1 a silent no-op (issue #3). Each arm carries its codepoint in a
+# comment so a stripped glyph can be restored, and tests/test_naming.sh asserts
+# the exact bytes, so the same loss fails the suite instead of passing quietly.
+#
+# An unmatched program returns empty on purpose: ar_format only prepends when the
+# glyph is non-empty, so an unknown program keeps a clean, text-only label.
 ar_icon() {
   case "$1" in
-    nvim|vim|vi|view|gvim)            printf '' ;;
-    git|lazygit|gitui)               printf '' ;;
-    node|npm|npx|yarn|pnpm|deno|bun) printf '' ;;
-    python|python3|ipython|ipython3) printf '' ;;
-    docker|lazydocker)               printf '' ;;
-    cargo|rustc|rustup)              printf '' ;;
-    go)                              printf '' ;;
-    claude|codex|aider)              printf '' ;;
-    *)                               printf '' ;;
+    nvim)                             printf '' ;;  # U+E6AE nf-custom-neovim
+    vim|vi|view|gvim)                 printf '' ;;  # U+E62B nf-custom-vim
+    git|lazygit|gitui)                printf '' ;;  # U+E702 nf-dev-git
+    node|npm|npx|yarn|pnpm|deno|bun)  printf '' ;;  # U+E718 nf-dev-nodejs_small
+    python|python3|ipython|ipython3)  printf '' ;;  # U+E73C nf-dev-python
+    docker|lazydocker)                printf '' ;;  # U+F308 nf-linux-docker
+    cargo|rustc|rustup)               printf '' ;;  # U+E7A8 nf-dev-rust
+    go)                               printf '' ;;  # U+E627 nf-seti-go
+    claude|codex|aider)               printf '󰚩' ;;  # U+F06A9 nf-md-robot
+    *) ;;
   esac
 }
 
