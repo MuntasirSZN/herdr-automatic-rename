@@ -221,4 +221,47 @@ check_absent   "snapshot: placeholder deferred" "$out" "tab rename w2:t1"
 check_contains "snapshot: agent numbered"      "$out" "agent rename term_a [1] claude"
 teardown
 
+# ======================================================================
+# Scenario 6: process-info without an argv0 field (issue #6).
+#   herdr's Linux builds report no argv0 at all -- only argv/cmdline/name. On
+#   NixOS `name` is the on-disk executable, which for a wrapped program is the
+#   internal `.<prog>-wrapped` binary, while argv[0] still carries what the user
+#   typed. Naming must follow argv[0], not the wrapper.
+#   p1: the reporter's payload -- `nh os switch` must read "nh", not ".nh-wrapped".
+#   p2: a login shell, where argv[0] keeps the leading "-" that argv0 lacks.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[
+  {"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true},
+  {"tab_id":"w1:t2","label":"2","pane_count":1,"focused":false}
+]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t1","focused":true},
+  {"pane_id":"p2","tab_id":"w1:t2","focused":false}
+]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":75757,
+  "foreground_processes":[
+    {"pid":75757,"argv":["nh","os","switch"],"cmdline":"nh os switch","name":".nh-wrapped"},
+    {"pid":75998,"argv":["nix","build","x"],"cmdline":"nix build x","name":"nix"}]}}}
+JSON
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv":["-zsh"],"cmdline":"-zsh","name":".zsh-wrapped"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "argv[0] names the tab, not the wrapper" "$out" "tab rename w1:t1 nh"
+check_absent   "wrapper name never shown"               "$out" "wrapped"
+check_contains "login shell argv[0] strips the dash"    "$out" "tab rename w1:t2 zsh"
+teardown
+
 t_summary

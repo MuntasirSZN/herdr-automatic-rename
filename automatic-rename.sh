@@ -256,8 +256,15 @@ ar_resolve_pane() {
 # ar_pane_program <pane_id> -> TSV "program<TAB>cmdline".
 # The foreground command is the process-group leader (pid == group id). At a bare
 # prompt the leader IS the login shell, whose argv0 ("-zsh") strips to "zsh".
-# program comes from argv0 (NOT .name -- agents like claude report a version
-# string as .name), with a login shell's leading "-" removed and the path stripped.
+#
+# program comes from how the process was INVOKED, preferring .argv0, then argv[0].
+# .name is the last resort because it is the on-disk executable, which is often
+# not what the user typed: agents like claude report a version string there, and
+# on NixOS a wrapped program reports the internal ".<prog>-wrapped" binary while
+# argv[0] still holds the real name (issue #6). herdr only emits .argv0 on some
+# platforms -- Linux builds send argv/cmdline/name alone -- so argv[0] is what
+# keeps those from falling through to .name.
+# A login shell's leading "-" is removed and any path stripped.
 ar_pane_program() {
   local out
   out=$("$HERDR" pane process-info --pane "$1" 2>/dev/null) || return 1
@@ -269,7 +276,7 @@ ar_pane_program() {
     | if ($p == null) then
         ["", ""]
       else
-        [ (($p.argv0 // $p.name // "") | sub("^-"; "") | split("/") | last),
+        [ (($p.argv0 // (($p.argv // [])[0]) // $p.name // "") | sub("^-"; "") | split("/") | last),
           ($p.cmdline // (($p.argv // []) | join(" "))) ]
       end
     | @tsv
