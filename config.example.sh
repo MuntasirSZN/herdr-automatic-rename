@@ -56,3 +56,17 @@
 # name_and_icon (default), name, or icon.
 # ICONS_ENABLED=0
 # ICON_STYLE=name_and_icon
+
+# Glyph shown when a program is missing from the builtin map (which comes from
+# tmux-nerd-font-window-name's defaults.yml, ~170 programs). An empty string
+# turns the fallback off, so unknown programs get no icon. Quick tools on
+# IGNORED_PROGRAMS never get an icon either way: the tab is showing the shell,
+# not the program.
+# ICON_FALLBACK='?'
+
+# Per-program icon overrides, "<program>=<glyph>" pairs; wins over the builtin
+# map and the fallback. Glyphs are literal Nerd Font characters.
+# ICON_MAP=(
+#   "claude=󰚩"
+#   "lazygit=󰊢"
+# )

@@ -26,8 +26,10 @@ skip-if-correct, so re-firing the pass (herdr's own rename re-emits
 `naming.sh` turns `(program, cmdline)` into a display name and touches neither
 herdr nor the filesystem. That keeps the naming rules (shells, name-only
 programs, ignored programs, aliases, substitutions, truncation, icons) unit
-testable in isolation. The engine calls `ar_format` across that seam. Every
-function in both files uses the `ar_` prefix.
+testable in isolation. The icon knobs, glyph map, and lookup live in `icons.sh`
+(sourced by `naming.sh`) so the 100+ arm case statement stays out of the naming
+logic. The engine calls `ar_format` across that seam. Every function in these
+files uses the `ar_` prefix.
 
 ## Why config and state sit at fixed paths
 

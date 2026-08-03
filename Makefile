@@ -10,5 +10,5 @@ test:
 # per-shell (zsh/fish) so only the portable bash sources are checked.
 lint:
 	@command -v shellcheck >/dev/null 2>&1 \
-		&& shellcheck -s bash automatic-rename.sh naming.sh shell/hook.bash tests/*.sh \
+		&& shellcheck -s bash automatic-rename.sh naming.sh icons.sh shell/hook.bash tests/*.sh \
 		|| echo "shellcheck not installed; skipping"

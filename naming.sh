@@ -15,11 +15,18 @@
 # clearing one in config.sh (e.g. IGNORED_PROGRAMS=()) actually takes effect:
 # `${VAR+x}` reports a zero-element array as unset and would overwrite it.
 
+# Icon knobs, the glyph map, and ar_icon live in icons.sh (same directory) so
+# this file stays free of the 100+ entry glyph table. Sourcing it here keeps
+# every caller of naming.sh (automatic-rename.sh and the test suite) working
+# unchanged. icons.sh loads after config.sh has run, so its defaults only fill
+# unset vars.
+_ar_icons_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$_ar_icons_dir/icons.sh"
+unset _ar_icons_dir
+
 # ---- configurable knobs (override in config.sh / $HERDR_AUTOMATIC_RENAME_CONFIG) ----
-: "${MAX_NAME_LEN:=20}"        # truncate the final label to this many chars
-: "${SHOW_PROGRAM_ARGS:=0}"   # 1 = regular programs show their full command line; 0 = name only
-: "${ICONS_ENABLED:=0}"       # prepend a Nerd Font glyph (needs a Nerd Font)
-: "${ICON_STYLE:=name_and_icon}"  # name_and_icon (icon+name) | name (name only) | icon (icon only)
+: "${MAX_NAME_LEN:=20}"     # truncate the final label to this many chars
+: "${SHOW_PROGRAM_ARGS:=0}" # 1 = regular programs show their full command line; 0 = name only
 
 # Name shown at a bare prompt (no foreground program), and while an
 # IGNORED_PROGRAMS command runs, so the tab holds steady instead of flickering.
@@ -65,7 +72,10 @@ ar_alias() {
   [ -n "$n" ] || return 0
   for pair in "${PROGRAM_ALIASES[@]}"; do
     case "$pair" in
-      "$n="*) printf '%s' "${pair#*=}"; return 0 ;;
+    "$n="*)
+      printf '%s' "${pair#*=}"
+      return 0
+      ;;
     esac
   done
 }
@@ -79,33 +89,7 @@ ar_subst() {
   printf '%s' "$s"
 }
 
-# ar_icon <program> -> a Nerd Font glyph, or empty. Edit freely.
-#
-# The glyphs below are literal Private Use Area characters and render as blank
-# boxes without a Nerd Font installed. They also went missing once: every arm
-# shipped as `printf ''` from this file's first commit through v0.2.1, which made
-# ICONS_ENABLED=1 a silent no-op (issue #3). Each arm carries its codepoint in a
-# comment so a stripped glyph can be restored, and tests/test_naming.sh asserts
-# the exact bytes, so the same loss fails the suite instead of passing quietly.
-#
-# An unmatched program returns empty on purpose: ar_format only prepends when the
-# glyph is non-empty, so an unknown program keeps a clean, text-only label.
-ar_icon() {
-  case "$1" in
-    nvim)                             printf '' ;;  # U+E6AE nf-custom-neovim
-    vim|vi|view|gvim)                 printf '' ;;  # U+E62B nf-custom-vim
-    git|lazygit|gitui)                printf '' ;;  # U+E702 nf-dev-git
-    node|npm|npx|yarn|pnpm|deno|bun)  printf '' ;;  # U+E718 nf-dev-nodejs_small
-    python|python3|ipython|ipython3)  printf '' ;;  # U+E73C nf-dev-python
-    docker|lazydocker)                printf '' ;;  # U+F308 nf-linux-docker
-    cargo|rustc|rustup)               printf '' ;;  # U+E7A8 nf-dev-rust
-    go)                               printf '' ;;  # U+E627 nf-seti-go
-    claude|codex|aider)               printf '󰚩' ;;  # U+F06A9 nf-md-robot
-    *) ;;
-  esac
-}
-
-# ar_format <program|""> <cmdline> -> final tab label
+# ---- helpers ----
 #   program == "" means a bare prompt (name by the shell).
 ar_format() {
   local prog=$1 cmdline=$2 name="" ic aliased
@@ -113,26 +97,31 @@ ar_format() {
   if [ -z "$prog" ]; then
     name=$SHELL_NAME
   elif [ -n "$aliased" ]; then
-    name=$aliased                             # user rename (PROGRAM_ALIASES) wins
+    name=$aliased # user rename (PROGRAM_ALIASES) wins
   elif ar_in_list "$prog" "${SHELLS[@]}"; then
-    name=$prog                                # a shell shows its own name (zsh)
+    name=$prog # a shell shows its own name (zsh)
   elif ar_in_list "$prog" "${IGNORED_PROGRAMS[@]}"; then
-    name=$SHELL_NAME                          # quick tools: keep showing the shell
+    name=$SHELL_NAME # quick tools: keep showing the shell
   elif ar_in_list "$prog" "${NAME_ONLY_PROGRAMS[@]}"; then
-    name="$(ar_subst "$prog")"               # nvim, claude, ...: just the name
+    name="$(ar_subst "$prog")" # nvim, claude, ...: just the name
   elif [ "${SHOW_PROGRAM_ARGS:-1}" = "1" ] && [ -n "$cmdline" ]; then
     name="$(ar_subst "$cmdline")"
   else
     name="$(ar_subst "$prog")"
   fi
 
-  if [ "${ICONS_ENABLED:-0}" = "1" ] && [ -n "$prog" ]; then
+  # Icons annotate the program the tab is named after. A program on
+  # IGNORED_PROGRAMS deliberately keeps showing SHELL_NAME (so the tab does not
+  # flicker), so it gets no icon either -- otherwise the fallback would make
+  # every `ls` flash "? zsh". ar_icon itself supplies the fallback glyph.
+  if [ "${ICONS_ENABLED:-0}" = "1" ] && [ -n "$prog" ] &&
+    ! ar_in_list "$prog" "${IGNORED_PROGRAMS[@]}"; then
     ic=$(ar_icon "$prog")
     if [ -n "$ic" ]; then
       case "${ICON_STYLE:-name_and_icon}" in
-        icon)            name=$ic ;;          # icon only
-        name)            : ;;                 # name only (icon suppressed)
-        name_and_icon|*) name="$ic $name" ;;  # icon + name (default)
+      icon) name=$ic ;;                      # icon only
+      name) : ;;                             # name only (icon suppressed)
+      name_and_icon | *) name="$ic $name" ;; # icon + name (default)
       esac
     fi
   fi
