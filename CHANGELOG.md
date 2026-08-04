@@ -6,6 +6,12 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-04
+
+Catches up with herdr 0.7.5 and 0.8.0. `min_herdr_version` stays at `0.7.1`: a
+requirement above the running herdr is a hard load failure, so every new
+capability is gated at runtime instead.
+
 ### Fixed
 
 - Agent numbering has been silently failing since herdr `0.7.5`, in two ways at
@@ -130,7 +136,8 @@ First public release.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers,
   the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.0...v0.2.1
