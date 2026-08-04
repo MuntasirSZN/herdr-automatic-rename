@@ -11,8 +11,10 @@
 # prompt). Set to 0 to leave tab names alone.
 # NAME_TABS=1
 
-# Prefix workspaces, tabs, and agents with their 1-9 jump-key number, e.g.
-# "[2] api". Set to 0 to name without numbering.
+# Prefix workspaces and tabs with their 1-9 jump-key number, e.g. "[2] api". Set
+# to 0 to name without numbering. Agents are included only on herdr < 0.7.5:
+# newer herdr rejects a bracketed agent name, so those rows keep their detected
+# names (and lose any prefix an older setup left on them).
 # AUTO_INDEX=1
 
 # ---- naming knobs (only used when NAME_TABS=1) ----

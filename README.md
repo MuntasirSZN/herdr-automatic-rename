@@ -6,7 +6,7 @@
 
 **1. Automatic tab rename with the foreground process.** Inspired by [tmux](https://github.com/tmux/tmux)'s `automatic-rename`, each tab shows its foreground process (e.g., `nvim`, `claude`) or the shell at a bare prompt (e.g., `zsh`). Custom renames are respected.
 
-**2. Automatic prefix spaces/tabs/agents with the 1-9 keybind jump number**. Add an `[N]` prefix to each workspace, tab, and agent matching the `1-9` binding for that slot. Glance at the tabs or sidebar, see what runs where, and quickly jump by number.
+**2. Automatic prefix spaces/tabs with the 1-9 keybind jump number**. Add an `[N]` prefix to each workspace and tab matching the `1-9` binding for that slot. Glance at the tabs or sidebar, see what runs where, and quickly jump by number. Agents get one too on herdr `< 0.7.5`, which is the last release whose agent names allow it.
 
 Each feature can be toggled and work independently.
 
@@ -28,12 +28,14 @@ with the plugin  │ [1] zsh │ [2] nvim │ [3] zsh │ [4] notes │
 | `ls -la`, an `IGNORED_PROGRAMS` entry | `3` | `[3] zsh` |
 | a tab you renamed `notes` yourself | `notes` | `[4] notes` |
 
-Workspaces and agents get numbered, never renamed, so only the prefix is new:
+Workspaces get numbered, never renamed, so only the prefix is new:
 
 | Sidebar row | herdr alone | with the plugin |
 | --- | --- | --- |
 | workspace | `dotfiles` | `[1] dotfiles` |
-| agent | `claude` | `[1] claude` |
+| agent | `claude` | `claude` (see below) |
+
+Agents are the exception. herdr `0.7.5` restricted agent names to `^[a-z][a-z0-9_-]{0,31}$`, which no `[N] ` prefix can satisfy, so on herdr `>= 0.7.5` agent rows are left at their detected names and any `[N]` a previous version of this plugin managed to set is stripped back off. On herdr `< 0.7.5` agents still get `[1] claude`.
 
 Turn one feature off and you keep the other half: `AUTO_INDEX=0` names without the prefix (`zsh`, `nvim`), and `NAME_TABS=0` leaves every base name as herdr or you left it and adds only the `[N]`. `SHOW_PROGRAM_ARGS=1` swaps a program's name for its whole command line, so a `npm run dev` tab reads `[2] npm run dev` rather than `[2] npm`.
 
@@ -42,6 +44,8 @@ Turn one feature off and you keep the other half: `AUTO_INDEX=0` names without t
 herdr `>= 0.7.1`, `jq`, and bash. Linux or macOS.
 
 herdr `>= 0.7.4` is recommended. There a plugin rename repaints the tab bar immediately, so live renames appear the instant they happen; on older herdr the new name still lands but the tab bar only catches up on the next redraw (a focus change or resize). herdr `>= 0.7.2` also lets a full reconcile read its whole state in one `api snapshot` call — without it the plugin falls back to per-list queries automatically.
+
+Two newer versions add smaller wins, both detected at runtime: on herdr `>= 0.7.5` a restored session is reconciled the moment herdr comes up rather than at the first event, and on `>= 0.8.0` reordering a worktree group renumbers immediately. Everything else works down to `0.7.1`.
 
 ## Install
 
@@ -110,7 +114,7 @@ Override the path with `HERDR_AUTOMATIC_RENAME_CONFIG`.
 | Knob | Default | What it does |
 | --- | --- | --- |
 | `NAME_TABS` | `1` | Rename each tab to its foreground program. `0` leaves tab names alone. |
-| `AUTO_INDEX` | `1` | Add the `[N]` jump-key number (1-9) in front of each workspace, tab, and agent. |
+| `AUTO_INDEX` | `1` | Add the `[N]` jump-key number (1-9) in front of each workspace and tab (and agent on herdr `< 0.7.5`). |
 | `SHOW_PROGRAM_ARGS` | `0` | `0` shows just the program name (`git`), `1` shows its full command line (`git log --oneline`). |
 | `MAX_NAME_LEN` | `20` | Cut the finished label off after this many characters. |
 | `SHELL_NAME` | `$SHELL` basename | Label shown at an idle prompt when no program is running (e.g. `zsh`). |
@@ -156,7 +160,7 @@ herdr plugin uninstall herdr-automatic-rename
 ## Notes
 
 - **Manual renames win.** Rename a tab yourself and naming leaves it alone. Numbering still applies. `clear` the label or `reset` to hand it back.
-- **Agents number only in grouped (`spaces`) sort**, where the CLI order matches the panel `focus_agent` follows. In `priority` sort that order is API-invisible, so numbers are stripped. Switch back and they return.
+- **Agent numbering needs herdr `< 0.7.5`.** That release added a name rule (`^[a-z][a-z0-9_-]{0,31}$`) that rejects a bracketed number outright, so newer herdr leaves agent rows alone and strips any prefix an older setup left behind. Where it does apply, it also needs grouped (`spaces`) sort, the mode whose CLI order matches the panel `focus_agent` follows. In `priority` sort that order is API-invisible, so numbers are stripped there too.
 - **Collapsing a space renumbers.** `alt+N` counts the sidebar's visible rows, so a collapsed space hides its worktree workspaces from numbering and every row below it moves up. The hidden ones go bare until you expand. Focusing one of those worktrees while the space stays collapsed renders that row again, which shifts the rows below it back down. herdr publishes collapse only in `session.json`, on a 5-second debounce and with no event to hook, so the first jump right after a collapse can still use the old numbers.
 - **Stops at 9.** No binding reaches a 10th item, so `10+` stay bare.
 

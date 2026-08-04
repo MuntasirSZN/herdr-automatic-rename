@@ -28,6 +28,15 @@ group="$1"; shift 2>/dev/null || true
 action="$1"; shift 2>/dev/null || true
 
 case "$group" in
+  # $HERDR_MOCK_VERSION picks the herdr the engine thinks it is talking to, which
+  # gates agent numbering (herdr >= 0.7.5 rejects a bracketed agent name). The
+  # default matches the real world; a scenario that wants the numbering path sets
+  # it to an older version explicitly. $HERDR_MOCK_NO_VERSION=1 makes the query
+  # fail outright, standing in for a herdr whose version cannot be read.
+  --version|-V)
+    [ "${HERDR_MOCK_NO_VERSION:-0}" = "1" ] && exit 1
+    printf 'herdr %s\n' "${HERDR_MOCK_VERSION:-0.8.0}"
+    exit 0 ;;
   workspace)
     case "$action" in
       list)   serve workspaces.json '{"result":{"workspaces":[]}}' ;;

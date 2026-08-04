@@ -6,6 +6,28 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Fixed
+
+- Agent numbering has been silently failing since herdr `0.7.5`, in two ways at
+  once, both swallowed by the `|| true` on every rename. That release stopped
+  resolving `terminal_id` as an agent target (`resolve_agent_target` takes a
+  current pane id or a unique agent name), and the plugin passed exactly that,
+  since `terminal_id` is always present in `agent list`. It also added
+  `valid_agent_name` (`^[a-z][a-z0-9_-]{0,31}$`), which rejects `[1] claude`
+  outright. Renames now target `.pane_id`, the one form every supported herdr
+  accepts, and agents are numbered only below `0.7.5`. At or above it the
+  prefixes are stripped instead, which is also the only way to unstick an
+  `[N] claude` an older herdr and older plugin left behind: that name fails
+  every rename a newer herdr accepts, the documented uninstall `--clear`
+  included. An unreadable herdr version counts as restricted.
+
+### Documentation
+
+- `docs/ARCHITECTURE.md` covers the agent-name restriction and why herdr
+  `0.7.5`'s `agent.view.set` would have made static agent numbers unreliable
+  regardless: an active view redefines the order `focus_agent` follows, and no
+  event or request exposes one.
+
 ## [0.2.3] - 2026-08-02
 
 ### Fixed
