@@ -31,6 +31,15 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 - A `[[startup]]` hook (herdr `>= 0.7.5`) reconciles once as soon as herdr
   restores a session and after a live handoff. Restored sessions previously kept
   herdr's own labels and stale numbers until the first event happened to arrive.
+- The agents herdr `0.8.0` detects are all recognized by name now, in
+  `NAME_ONLY_PROGRAMS` and in the Nerd Font robot glyph: `pi`, `gemini`,
+  `cursor`/`cursor-agent`, `devin`, `agy`/`antigravity`, `cline`, `omp`,
+  `mastracode`, `opencode`, `copilot`, `kimi`, `kiro`/`kiro-cli`, `droid`,
+  `amp`, `grok`, `hermes`, `kilo`, and `qodercli`. Two spellings differ from
+  herdr's `--kind` id (`cursor-agent`, `kiro-cli`) and both forms are listed.
+  Previously only `claude`, `codex`, and `aider` were, so every other agent went
+  without an icon, and showed its whole command line under
+  `SHOW_PROGRAM_ARGS=1`.
 
 ### Documentation
 
