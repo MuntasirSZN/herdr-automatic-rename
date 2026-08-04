@@ -43,6 +43,9 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ### Documentation
 
+- The README records that tab naming does nothing on a Linux runtime where herdr
+  cannot see a foreground process group, and points at herdr `0.8.0`'s opt-in
+  `HERDR_PROCESS_DETECTION=child-groups`.
 - `docs/ARCHITECTURE.md` covers the agent-name restriction and why herdr
   `0.7.5`'s `agent.view.set` would have made static agent numbers unreliable
   regardless: an active view redefines the order `focus_agent` follows, and no
