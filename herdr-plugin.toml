@@ -26,9 +26,19 @@ command = ["bash", "automatic-rename.sh", "workspace.renamed"]
 
 # herdr 0.7.3 added a drag-reorder event (0.7.1 had none). alt+N follows the
 # sidebar order, so a reorder must renumber; the reconcile is idempotent.
+# workspace.moved covers a PLAIN workspace drag (workspace.move).
 [[events]]
 on = "workspace.moved"
 command = ["bash", "automatic-rename.sh", "workspace.moved"]
+
+# herdr 0.8.0 added workspace.move_block for atomic worktree-group reordering,
+# and it emits workspace.reordered INSTEAD of workspace.moved. Dragging any
+# member of a worktree space takes that path (src/app/input/mouse.rs), so without
+# this hook a worktree-group drag left every "[N]" stale until an unrelated event
+# happened to fire. Older herdr does not know the name and only warns.
+[[events]]
+on = "workspace.reordered"
+command = ["bash", "automatic-rename.sh", "workspace.reordered"]
 
 # --- Worktrees: reorder the grouped/visible workspace order, can add/remove one ---
 [[events]]
@@ -66,10 +76,15 @@ command = ["bash", "automatic-rename.sh", "tab.renamed"]
 on = "tab.moved"
 command = ["bash", "automatic-rename.sh", "tab.moved"]
 
-# The interactive close_pane keybind (cmd+w) does NOT deliver tab.closed to
-# plugins in herdr 0.7.1 -- it only moves focus. tab.focused fires on that
-# post-close focus move (and every tab switch), and the reconcile is idempotent,
-# so hooking it makes a keyboard close renumber/rename promptly.
+# Focus itself changes numbering: a collapsed worktree space keeps its FOCUSED
+# member rendered, so which rows the sidebar shows (and therefore every alt+N
+# slot below them) depends on what is focused. See ar_workspace_positions.
+#
+# tab.focused also backs up the close paths. The interactive close_pane keybind
+# (cmd+w) still does not deliver tab.closed to plugins as of herdr 0.8.0, even
+# when the pane was the tab's last one; it emits pane.closed (hooked below), and
+# tab.focused fires on the post-close focus move. The reconcile is idempotent, so
+# the overlap costs nothing.
 [[events]]
 on = "tab.focused"
 command = ["bash", "automatic-rename.sh", "tab.focused"]

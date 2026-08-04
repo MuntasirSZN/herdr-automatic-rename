@@ -20,6 +20,11 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   `[N] claude` an older herdr and older plugin left behind: that name fails
   every rename a newer herdr accepts, the documented uninstall `--clear`
   included. An unreadable herdr version counts as restricted.
+- Reordering a worktree group no longer leaves stale `[N]` numbers. herdr
+  `0.8.0` added `workspace.move_block` and routes any drag of a worktree-space
+  member through it, which emits the new `workspace.reordered` event instead of
+  `workspace.moved`. The plugin now subscribes to both, so a group drag
+  renumbers immediately rather than waiting for an unrelated event.
 
 ### Documentation
 
