@@ -26,6 +26,12 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   `workspace.moved`. The plugin now subscribes to both, so a group drag
   renumbers immediately rather than waiting for an unrelated event.
 
+### Added
+
+- A `[[startup]]` hook (herdr `>= 0.7.5`) reconciles once as soon as herdr
+  restores a session and after a live handoff. Restored sessions previously kept
+  herdr's own labels and stale numbers until the first event happened to arrive.
+
 ### Documentation
 
 - `docs/ARCHITECTURE.md` covers the agent-name restriction and why herdr

@@ -11,6 +11,18 @@ platforms = ["linux", "macos"]
 # under shell/ (see the README), because herdr has no "foreground command
 # changed" event.
 
+# herdr 0.7.5 runs [[startup]] once per enabled plugin after it restores the
+# session and the API socket is ready, and again when a new server takes over
+# during live handoff. Without it the first pass waited for an unrelated event, so
+# a restored session showed herdr's own labels (and stale numbers) until the user
+# touched something. Not delivered on client attach, config reload, or plugin
+# enable/link, so this is genuinely one-shot. Older herdr ignores the whole
+# section, which is why min_herdr_version stays at 0.7.1. "startup" is not a
+# special mode in the engine: it lands on the same idempotent full reconcile any
+# unrecognized event name gets.
+[[startup]]
+command = ["bash", "automatic-rename.sh", "startup"]
+
 # --- Workspaces: order changes (alt+N target) or label edits ---
 [[events]]
 on = "workspace.created"
