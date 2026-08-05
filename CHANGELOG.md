@@ -6,6 +6,11 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-05
+
+Adds `HIDE_SHELL`, for leaving shell tabs to herdr's own tab number instead of a
+row of `zsh`.
+
 ### Added
 
 - `HIDE_SHELL=1` leaves a shell tab unnamed instead of labeling it `zsh`, so
@@ -151,7 +156,8 @@ First public release.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers,
   the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.1...v0.2.2
