@@ -29,6 +29,12 @@
 # Name shown at a bare prompt. Defaults to your $SHELL's basename.
 # SHELL_NAME=zsh
 
+# 1 = don't name a shell tab at all: a bare prompt, an explicit shell, and an
+# IGNORED_PROGRAMS command all leave the label empty, and herdr shows its own tab
+# number there instead of "zsh". With AUTO_INDEX=1 the label keeps the jump number
+# alone ("[3]"). Programs are named as usual either way.
+# HIDE_SHELL=0
+
 # Programs that count as "a shell prompt" and are shown by their own name.
 # Assigning the array replaces the default; SHELLS=() disables the category.
 # SHELLS=(zsh bash sh fish dash ksh)

@@ -39,6 +39,16 @@ Agents are the exception. herdr `0.7.5` restricted agent names to `^[a-z][a-z0-9
 
 Turn one feature off and you keep the other half: `AUTO_INDEX=0` names without the prefix (`zsh`, `nvim`), and `NAME_TABS=0` leaves every base name as herdr or you left it and adds only the `[N]`. `SHOW_PROGRAM_ARGS=1` swaps a program's name for its whole command line, so a `npm run dev` tab reads `[2] npm run dev` rather than `[2] npm`.
 
+If a row of `zsh` tabs tells you nothing, `HIDE_SHELL=1` names only the tabs actually running something and leaves the rest to herdr, which falls back to its own tab number:
+
+```
+HIDE_SHELL=0, AUTO_INDEX=0  │ lazygit     │ nvim     │ fish │ pi     │
+HIDE_SHELL=1, AUTO_INDEX=0  │ lazygit     │ nvim     │ 3    │ pi     │
+HIDE_SHELL=1, AUTO_INDEX=1  │ [1] lazygit │ [2] nvim │ [3]  │ [4] pi │
+```
+
+That covers a bare prompt, an explicit shell, and anything in `IGNORED_PROGRAMS`. With numbering on, the label keeps the jump number and nothing else, so you can still jump to the tab.
+
 ## Requirements
 
 herdr `>= 0.7.1`, `jq`, and bash. Linux or macOS.
@@ -118,6 +128,7 @@ Override the path with `HERDR_AUTOMATIC_RENAME_CONFIG`.
 | `SHOW_PROGRAM_ARGS` | `0` | `0` shows just the program name (`git`), `1` shows its full command line (`git log --oneline`). |
 | `MAX_NAME_LEN` | `20` | Cut the finished label off after this many characters. |
 | `SHELL_NAME` | `$SHELL` basename | Label shown at an idle prompt when no program is running (e.g. `zsh`). |
+| `HIDE_SHELL` | `0` | `1` gives a shell tab no name at all, so herdr's own tab number shows there instead of `zsh`. |
 | `SHELLS` | `zsh bash sh fish dash ksh` | Programs counted as "a shell prompt" and shown by their own name. |
 | `NAME_ONLY_PROGRAMS` | editors, git tools, agents | Programs always shown by bare name, never with args (`nvim`, `claude`). |
 | `IGNORED_PROGRAMS` | `ls`, `cd`, `cat`, ... | Quick commands that should not rename the tab. It keeps showing the shell instead. |

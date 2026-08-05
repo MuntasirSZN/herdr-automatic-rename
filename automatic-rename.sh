@@ -64,14 +64,26 @@ CONFIG_FILE="${HERDR_AUTOMATIC_RENAME_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/
 # left untouched), and removes the EXACT reconstructed "[num] " literal so this
 # is the precise inverse of ar_index_prefix (a malformed label such as "[1]x] foo"
 # is left alone by both, never diverging).
+#
+# The "[N]" prefix may also stand alone, with an empty base: that is the label a
+# numbered HIDE_SHELL tab carries, and without accepting it here a hidden tab would
+# read its own "[3]" back as a hand-typed base and opt out.
+#
+# Workspaces and agents share these helpers, so a row labeled exactly "[N]" strips
+# to "" for them too. Both numbering paths guard on a non-empty base and leave such
+# a row alone; the agent revert path does not, and would rename it to "". Only a
+# tab is ever numbered with an empty base, so reaching that needs a hand-typed "[3]".
 ar_strip_prefix() {
   local s=$1 num
   case "$s" in
-    \[[0-9]*\]\ *)
+    \[[0-9]*\]\ *|\[[0-9]*\])
       num=${s#\[}; num=${num%%\]*}
       case "$num" in
-        ''|*[!0-9]*) printf '%s' "$s" ;;
-        *)           printf '%s' "${s#"[$num] "}" ;;
+        ''|*[!0-9]*)   printf '%s' "$s" ;;
+        *)
+          if [ "$s" = "[$num]" ]; then printf ''
+          else printf '%s' "${s#"[$num] "}"
+          fi ;;
       esac
       ;;
     *) printf '%s' "$s" ;;
@@ -83,7 +95,7 @@ ar_strip_prefix() {
 ar_index_prefix() {
   local s=$1 num
   case "$s" in
-    \[[0-9]*\]\ *)
+    \[[0-9]*\]\ *|\[[0-9]*\])
       num=${s#\[}; num=${num%%\]*}
       case "$num" in
         ''|*[!0-9]*) printf '' ;;
@@ -105,15 +117,21 @@ ar_desired() {
   local n=$1 base=$2
   if [ "$CLEAR" = "1" ] || [ "$AUTO_INDEX" != "1" ]; then printf '%s' "$base"; return; fi
   if [ "$n" -ge 1 ] && [ "$n" -le 9 ]; then
-    printf '[%d] %s' "$n" "$base"
+    # An empty base (a HIDE_SHELL tab) is numbered "[3]", not "[3] " -- herdr
+    # would drop the trailing space anyway, and ar_strip_prefix reads the bare
+    # form back as the empty base it came from.
+    printf '[%d]%s' "$n" "${base:+ $base}"
   else
     printf '%s' "$base"
   fi
 }
 
-# A label counts as "unnamed" (fair game for FIRST-TIME auto-naming, and a
-# throwaway to defer in the placeholder skip) when it is empty or a plain integer
-# -- herdr's generated tab labels are small integers ("1", "2"...).
+# A label counts as "unnamed" -- fair game for FIRST-TIME auto-naming, and the
+# form herdr hands back to a tab we deliberately left label-less -- when it is
+# empty or a plain integer, because herdr's generated tab labels are small
+# integers ("1", "2"...). Callers for which an empty label is instead a finished
+# answer gate on a non-empty argument first; ar_reconcile_tabs' placeholder skip
+# does exactly that.
 ar_is_placeholder() {
   [ -z "$1" ] && return 0
   case "$1" in
@@ -229,6 +247,11 @@ ar_name_eligible() {
     # We own it; keep updating while the base still matches what we last set.
     if [ "$slabel" = "$auto" ]; then return 0
     elif [ -z "$slabel" ]; then return 0        # user cleared it -> re-adopt
+    # A HIDE_SHELL tab is owned with an EMPTY auto name, and herdr may hand a
+    # label-less tab its generated number back (a restored session, its own
+    # relabeling). Reading that as a hand rename would freeze the tab on the
+    # number and stop naming it once a real program starts, so keep ownership.
+    elif [ -z "$auto" ] && ar_is_placeholder "$slabel"; then return 0
     else ar_state_set "$tab" "" false; return 1 # user renamed -> opt out
     fi
   fi
@@ -285,19 +308,21 @@ ar_pane_program() {
   ' 2>/dev/null
 }
 
-# ar_tab_name <tab_id> <pane_count> <focused> -> computed base name, or "" when
-# the active pane can't be resolved / process-info fails.
+# ar_tab_name <tab_id> <pane_count> <focused> -> computed base name on stdout.
+# Returns 1 when the name can't be computed (no resolvable pane, process-info
+# failure); a successful HIDE_SHELL computation returns 0 with EMPTY output, so
+# the caller must read the status, not the string, to tell the two apart.
 ar_tab_name() {
   local pane info prog="" cmd=""
   pane=$(ar_resolve_pane "$1" "$2" "$3")
-  [ -n "$pane" ] || { printf ''; return 0; }
+  [ -n "$pane" ] || return 1
   # process-info can fail transiently (pane closing, socket hiccup) or resolve no
-  # foreground process; both leave prog empty. Return "" so the caller keeps the
-  # tab's current name, rather than falling through to ar_format "" "" ->
-  # $SHELL_NAME and clobbering (e.g.) an "nvim" tab with "zsh" on a blip.
-  info=$(ar_pane_program "$pane") || { printf ''; return 0; }
+  # foreground process; both leave prog empty. Fail so the caller keeps the tab's
+  # current name, rather than falling through to ar_format "" "" -> $SHELL_NAME
+  # and clobbering (e.g.) an "nvim" tab with "zsh" on a blip.
+  info=$(ar_pane_program "$pane") || return 1
   IFS=$'\t' read -r prog cmd <<< "$info"
-  [ -n "$prog" ] || { printf ''; return 0; }
+  [ -n "$prog" ] || return 1
   ar_format "$prog" "$cmd"
 }
 
@@ -435,29 +460,38 @@ ar_reconcile_tabs() {
       base=$base0
       named=0
       if [ "$CLEAR" != "1" ] && [ "$NAME_TABS" = "1" ]; then
-        if ar_name_eligible "$tid" "$base0"; then
-          name=$(ar_tab_name "$tid" "$pcount" "$foc")
-          if [ -n "$name" ]; then
-            base=$name
-            named=1
-            ar_state_set "$tid" "$name" true   # record ownership even if no rename
-          fi
+        # Status, not emptiness: under HIDE_SHELL an empty name IS the name. With
+        # the knob off it is not, because a config can erase a name it did compute
+        # (MAX_NAME_LEN=0, a SUBSTITUTE_SETS rule that matches everything) and
+        # blanking a tab over that was never the deal. The fast path declines it too.
+        if ar_name_eligible "$tid" "$base0" && name=$(ar_tab_name "$tid" "$pcount" "$foc") \
+           && { [ -n "$name" ] || [ "${HIDE_SHELL:-0}" = "1" ]; }; then
+          base=$name
+          named=1
+          ar_state_set "$tid" "$name" true     # record ownership even if no rename
         fi
       fi
-      # Can't form a sensible "[i] " for an empty base -- leave it until herdr
-      # gives the tab a label.
-      [ -n "$base" ] || continue
+      # herdr has not labeled this tab yet and we computed no name, so there is no
+      # sensible "[i] " to form -- leave it until one of those changes. An empty
+      # base is still written whenever the emptiness is deliberate: HIDE_SHELL just
+      # named this tab nothing (named=1), or the label is already a bare "[i]" from
+      # an earlier hidden pass, which still has to follow a renumber and to be
+      # stripped by --clear. Both of those have a label, so testing it is enough.
+      if [ -z "$label" ] && [ "$named" = "0" ]; then
+        continue
+      fi
       # Placeholder skip: with naming ON but no name computed yet, a bare-integer
       # base is herdr's transient placeholder ("3"). Numbering it now would flash
       # a throwaway "[3] 3" that the next event/zsh hook clobbers to "[3] zsh".
       # Defer this pass; the position (i) is still counted so later tabs are
       # correct. With naming OFF we DO number it (nothing else ever will), and
-      # --clear must strip, so both skip this guard.
-      if [ "$CLEAR" != "1" ] && [ "$NAME_TABS" = "1" ] && [ "$named" = "0" ]; then
-        case "$base" in
-          *[!0-9]*) : ;;      # has a non-digit -> real base, number it
-          *)        continue ;;  # all digits -> placeholder, defer
-        esac
+      # --clear must strip, so both skip this guard. An EMPTY base is not a
+      # placeholder here (hence the -n, which ar_is_placeholder alone would not
+      # give us): it got past the check above as a hidden tab, whose whole point is
+      # to carry no name, so there is nothing to wait for.
+      if [ "$CLEAR" != "1" ] && [ "$NAME_TABS" = "1" ] && [ "$named" = "0" ] \
+         && [ -n "$base" ] && ar_is_placeholder "$base"; then
+        continue
       fi
       want=$(ar_desired "$i" "$base")
       [ "$want" = "$label" ] && continue
@@ -779,7 +813,12 @@ ar_fast_once() {
   if [ "$AUTO_INDEX" = "1" ]; then prefix=$(ar_index_prefix "$label"); else prefix=""; fi
   slabel=$(ar_strip_prefix "$label")
   ar_name_eligible "$tab" "$slabel" || return 0
-  [ -n "$name" ] || return 0
+  # Empty is a real answer under HIDE_SHELL (name the tab nothing, keeping the
+  # number alone when there is one); anywhere else it means we have no name.
+  if [ -z "$name" ]; then
+    [ "${HIDE_SHELL:-0}" = "1" ] || return 0
+    prefix="${prefix% }"                        # "[3] " -> "[3]", "" stays ""
+  fi
   want="${prefix}${name}"
   if [ "$want" != "$label" ]; then
     "$HERDR" tab rename "$tab" "$want" >/dev/null 2>&1 || return 0

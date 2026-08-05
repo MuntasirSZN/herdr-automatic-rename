@@ -6,6 +6,21 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- `HIDE_SHELL=1` leaves a shell tab unnamed instead of labeling it `zsh`, so
+  herdr renders its own tab number there and only the tabs running something
+  carry a name (issue #5). It covers all three ways a tab gets the shell label: a
+  bare prompt, an explicit `SHELLS` entry, and an `IGNORED_PROGRAMS` command. A
+  `PROGRAM_ALIASES` entry for a shell still wins, being a name asked for by hand.
+  `IGNORED_PROGRAMS` could never do this, despite reading like it should: its job
+  is to hold a tab at the shell name, and a bare prompt short-circuits before any
+  program list is consulted.
+- With `AUTO_INDEX=1` a hidden tab keeps the jump number alone (`[3]`), and the
+  `[N] ` prefix helpers now read that bare form back as the empty base it came
+  from. Without that a hidden tab would see its own `[3]` as a hand-typed name
+  and opt itself out of naming for good.
+
 ## [0.3.0] - 2026-08-04
 
 Catches up with herdr 0.7.5 and 0.8.0. `min_herdr_version` stays at `0.7.1`: a

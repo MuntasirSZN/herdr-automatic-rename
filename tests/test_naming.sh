@@ -124,6 +124,24 @@ check "icons on, unknown program -> plain name" "htop" \
 check "icon+name truncates on codepoint boundary" "$g_node node" \
   "$(ICONS_ENABLED=1 MAX_NAME_LEN=6 SHOW_PROGRAM_ARGS=1 ar_format 'node' 'nodeandmore')"
 
+# ---- HIDE_SHELL: every shell-ish case names the tab nothing (issue #5) ----
+# The empty label is what makes herdr fall back to rendering its own tab number,
+# so these must be EMPTY strings, not $SHELL_NAME and not a space.
+check "hide_shell bare prompt"    "" "$(HIDE_SHELL=1 ar_format '' '')"
+check "hide_shell explicit fish"  "" "$(HIDE_SHELL=1 ar_format 'fish' '-fish')"
+check "hide_shell explicit bash"  "" "$(HIDE_SHELL=1 ar_format 'bash' 'bash')"
+check "hide_shell ignored ls"     "" "$(HIDE_SHELL=1 ar_format 'ls' 'ls -la')"
+# Only shells are hidden: a real program is named exactly as before.
+check "hide_shell keeps nvim"     "nvim" "$(HIDE_SHELL=1 ar_format 'nvim' 'nvim README.md')"
+check "hide_shell keeps program"  "htop" "$(HIDE_SHELL=1 SHOW_PROGRAM_ARGS=0 ar_format 'htop' 'htop -d 5')"
+# An alias is a label the user asked for by hand, so it outlives the knob.
+check "hide_shell keeps alias on a shell" "sh" \
+  "$(PROGRAM_ALIASES=("fish=sh"); HIDE_SHELL=1 ar_format 'fish' '-fish')"
+# Off (the default) is the old behavior, unchanged.
+check "hide_shell off -> shell name" "zsh" "$(HIDE_SHELL=0 ar_format '' '')"
+got=$(bash -c 'SHELL_NAME=zsh; . "$1"; ar_format "" ""' _ "$here/../naming.sh")
+check "HIDE_SHELL defaults to off" "zsh" "$got"
+
 # ---- default: SHOW_PROGRAM_ARGS defaults to 0 (regular program -> name only) ----
 got=$(bash -c 'SHELL_NAME=zsh; . "$1"; ar_format htop "htop -d 5"' _ "$here/../naming.sh")
 check "SHOW_PROGRAM_ARGS defaults to name-only" "htop" "$got"
