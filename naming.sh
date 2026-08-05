@@ -113,9 +113,14 @@ ar_format() {
   # Icons annotate the program the tab is named after. A program on
   # IGNORED_PROGRAMS deliberately keeps showing SHELL_NAME (so the tab does not
   # flicker), so it gets no icon either -- otherwise the fallback would make
-  # every `ls` flash "? zsh". ar_icon itself supplies the fallback glyph.
+  # every `ls` flash "? zsh". Shells get the same treatment for the same
+  # reason: precmd names an idle prompt via ar_format "" "", which `[ -n
+  # "$prog" ]` denies an icon, so a shell glyph here would make the label flip
+  # between "zsh" and "<glyph> zsh" on every reconcile. ar_icon itself supplies
+  # the fallback glyph.
   if [ "${ICONS_ENABLED:-0}" = "1" ] && [ -n "$prog" ] &&
-    ! ar_in_list "$prog" "${IGNORED_PROGRAMS[@]}"; then
+    ! ar_in_list "$prog" "${IGNORED_PROGRAMS[@]}" &&
+    ! ar_in_list "$prog" "${SHELLS[@]}"; then
     ic=$(ar_icon "$prog")
     if [ -n "$ic" ]; then
       case "${ICON_STYLE:-name_and_icon}" in

@@ -7,12 +7,23 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 ## [Unreleased]
 
 ### Added
+
 - The icon map moved out of `naming.sh` into `icons.sh` and grew from 9
+  entries to the full `tmux-nerd-font-window-name` map (its
+  [`defaults.yml`](https://raw.githubusercontent.com/joshmedeski/tmux-nerd-font-window-name/main/bin/defaults.yml),
+  ~170 programs), keeping the aliases this plugin always shipped (gvim/view,
+  bun/npx/pnpm, ipython/ipython3, claude/codex/aider).
 - `ICON_FALLBACK` (default `?`): glyph shown when a program is missing from
+  the map, like upstream's `fallback-icon`. Set it to `''` to turn the
+  fallback off and keep unknown programs text-only. Quick tools on
+  `IGNORED_PROGRAMS` never get an icon either way -- the tab is showing the
+  shell, not the program, so a running `ls` no longer needs to flicker.
 - `ICON_MAP`: per-program icon overrides as `("prog=glyph")` pairs, checked
-- - The icon map moved out of `naming.sh` into `icons.sh` and grew from 9 entries to the full `tmux-nerd-font-window-name` map (its [`defaults.yml`](https://raw.githubusercontent.com/joshmedeski/tmux-nerd-font-window-name/main/bin/defaults.yml), ~170 programs), keeping the aliases this plugin always shipped (gvim/view, bun/npx/pnpm, ipython/ipython3, claude/codex/aider)
-- - `ICON_FALLBACK` (default `?`): glyph shown when a program is missing from the map, like upstream's `fallback-icon`. Set it to `''` to turn the fallback off and keep unknown programs text-only. Quick tools on `IGNORED_PROGRAMS` never get an icon either way -- the tab is showing the shell, not the program, so a running `ls` no longer needs to flicker
-- - `ICON_MAP`: per-program icon overrides as `(\"prog=glyph\")` pairs, checked before the builtin map (e.g. `ICON_MAP=(\"claude=󰚩\")`)
+  before the builtin map (e.g. `ICON_MAP=("claude=󰚩")`).
+- Shells get no icon even when they match the map: `precmd` names an idle
+  prompt without a program, so giving `zsh` a glyph would make the label flip
+  between `zsh` and `<glyph> zsh` on every reconcile.
+
 ## [0.2.3] - 2026-08-02
 
 ### Fixed

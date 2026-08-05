@@ -122,6 +122,18 @@ check "icons on, unknown -> fallback glyph + name" "? nosuchprog" \
 # even though sudo has a real glyph in the map and ls would hit the fallback.
 check "icons on, ignored program -> shell name, no icon" "zsh" \
   "$(ICONS_ENABLED=1 ar_format 'sudo' 'sudo apt update')"
+# Shells get no icon even when the map knows them (zsh is in icons.sh, dash is
+# not): precmd names an idle prompt via ar_format "" "", which `[ -n "$prog" ]`
+# denies an icon, so a shell glyph here would flip the label between "zsh" and
+# "<glyph> zsh" on every reconcile. The last check pins both paths to the same
+# string.
+check "icons on, shell program -> shell name, no icon" "zsh" \
+  "$(ICONS_ENABLED=1 ar_format 'zsh' '-zsh')"
+check "icons on, shell missing from map -> no fallback glyph" "dash" \
+  "$(ICONS_ENABLED=1 ar_format 'dash' '')"
+check "idle prompt and shell reconcile agree with icons on" \
+  "$(ICONS_ENABLED=1 ar_format '' '')" \
+  "$(ICONS_ENABLED=1 ar_format "$SHELL_NAME" '')"
 # ICON_MAP works end to end through ar_format.
 check "ICON_MAP override end to end" "$g_agent nosuchprog" \
   "$(

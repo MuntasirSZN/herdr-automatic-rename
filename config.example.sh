@@ -60,8 +60,8 @@
 # Glyph shown when a program is missing from the builtin map (which comes from
 # tmux-nerd-font-window-name's defaults.yml, ~170 programs). An empty string
 # turns the fallback off, so unknown programs get no icon. Quick tools on
-# IGNORED_PROGRAMS never get an icon either way: the tab is showing the shell,
-# not the program.
+# IGNORED_PROGRAMS and shells never get an icon either way: the tab is showing
+# the shell, not the program.
 # ICON_FALLBACK='?'
 
 # Per-program icon overrides, "<program>=<glyph>" pairs; wins over the builtin
