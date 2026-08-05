@@ -36,9 +36,17 @@ unset _ar_icons_dir
 # Foreground processes that mean "a shell prompt" -> shown by their own name.
 declare -p SHELLS >/dev/null 2>&1 || SHELLS=(zsh bash sh fish dash ksh)
 
-# Programs shown by bare name, without command-line args. Coding agents are
+# Programs shown by bare name, without command-line args (i.e. with
+# SHOW_PROGRAM_ARGS=1, which is what makes this list visible). Coding agents are
 # included so an agent tab reads as "claude" rather than its full invocation.
-declare -p NAME_ONLY_PROGRAMS >/dev/null 2>&1 || NAME_ONLY_PROGRAMS=(nvim vim vi view gvim git lazygit gitui lazydocker claude codex aider)
+#
+# The agent entries are the executable names herdr itself detects as interactive
+# agents (src/detect/mod.rs, herdr 0.8.0). Two differ from herdr's --kind id and
+# both spellings are listed: cursor-agent (kind "cursor") and kiro-cli (kind
+# "kiro"). aider is not a herdr agent kind but is a real agent, so it stays.
+declare -p NAME_ONLY_PROGRAMS >/dev/null 2>&1 || NAME_ONLY_PROGRAMS=(nvim vim vi view gvim git lazygit gitui lazydocker
+  claude codex aider pi gemini cursor cursor-agent devin agy antigravity cline omp mastracode opencode
+  copilot kimi kiro kiro-cli droid amp grok hermes kilo qodercli)
 
 # Quick tools that should not take over the tab name: while one runs the tab
 # keeps showing the shell (SHELL_NAME) so it does not flicker.
@@ -90,6 +98,8 @@ ar_subst() {
 }
 
 # ---- helpers ----
+
+# ar_format <program|""> <cmdline> -> final tab label
 #   program == "" means a bare prompt (name by the shell).
 ar_format() {
   local prog=$1 cmdline=$2 name="" ic aliased

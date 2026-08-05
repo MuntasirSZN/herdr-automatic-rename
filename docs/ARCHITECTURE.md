@@ -93,11 +93,32 @@ sampling fails the engine renames nothing rather than guess.
   owns the rules (which workspaces nest, which member heads a space, what a
   collapsed one still renders); its header comment is the copy to keep in sync with
   upstream. Hidden rows come back as position 0 and drop their prefix like 10+.
-- **Agents** are numbered only when `agent_panel_sort` is grouped (`spaces`). In
-  `priority` sort the panel reorders behind an order the CLI never exposes, so
-  the plugin strips agent numbers there rather than guess wrong, and renumbers
-  when you switch back. Agent renames use a two-phase park to dodge herdr's
-  duplicate-name rejection when several agents share a base like `claude`.
+- **Agents** are numbered only on herdr `< 0.7.5`, and there only when
+  `agent_panel_sort` is grouped (`spaces`).
+  - herdr `0.7.5` added `valid_agent_name` (`^[a-z][a-z0-9_-]{0,31}$`,
+    `src/app/agents.rs`) and now answers `invalid_agent_name` to anything else, so
+    `[N] claude` is not a name that release can hold. `ar_agent_prefix_ok` gates on
+    the version and an unreadable version counts as restricted, because declining
+    to number is recoverable and firing renames herdr rejects is not. The same
+    release also stopped resolving `terminal_id` as an agent target
+    (`resolve_agent_target`, `src/app/terminal_targets.rs`), so renames target
+    `.pane_id`, the one form every supported version accepts.
+  - Where it does apply, `priority` sort still opts out: the panel reorders behind
+    an order the CLI never exposes, so the plugin strips agent numbers rather than
+    guess wrong, and renumbers when you switch back.
+  - Stripping runs on the restricted versions too, which is what unsticks an
+    `[N] claude` written by an older herdr and older plugin. Nothing else can: that
+    name fails every rename a newer herdr accepts, including `--clear` aimed at a
+    `terminal_id`.
+  - Numbering keeps its two-phase park (park at a unique temp, then finalize) to
+    dodge herdr's duplicate-name rejection when several agents share a base like
+    `claude`. It is reachable only on herdr `< 0.7.5`.
+  - `agent.view.set` (herdr `0.7.5`) is a further reason the feature stops there.
+    An active view redefines the order `focus_agent` follows, by sort or by
+    filtering rows out, and `apply_agent_view` bypasses `agent_panel_sort`
+    entirely. No event announces a view and no request reads one back, so a plugin
+    cannot even detect the drift. Both of those releases are ones where agent
+    numbering is off anyway.
 - Nothing numbers past 9, since no keybind reaches a 10th item.
 
 ## Collapse is readable, but only from session.json

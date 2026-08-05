@@ -6,13 +6,16 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+## [Unreleased]
+
 ### Added
 
 - The icon map moved out of `naming.sh` into `icons.sh` and grew from 9
   entries to the full `tmux-nerd-font-window-name` map (its
   [`defaults.yml`](https://raw.githubusercontent.com/joshmedeski/tmux-nerd-font-window-name/main/bin/defaults.yml),
   ~170 programs), keeping the aliases this plugin always shipped (gvim/view,
-  bun/npx/pnpm, ipython/ipython3, claude/codex/aider).
+  bun/npx/pnpm, ipython/ipython3) and a robot glyph for every agent herdr
+  detects.
 - `ICON_FALLBACK` (default `?`): glyph shown when a program is missing from
   the map, like upstream's `fallback-icon`. Set it to `''` to turn the
   fallback off and keep unknown programs text-only. Quick tools on
@@ -23,6 +26,57 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 - Shells get no icon even when they match the map: `precmd` names an idle
   prompt without a program, so giving `zsh` a glyph would make the label flip
   between `zsh` and `<glyph> zsh` on every reconcile.
+
+## [0.3.0] - 2026-08-04
+
+Catches up with herdr 0.7.5 and 0.8.0. `min_herdr_version` stays at `0.7.1`: a
+requirement above the running herdr is a hard load failure, so every new
+capability is gated at runtime instead.
+
+### Fixed
+
+- Agent numbering has been silently failing since herdr `0.7.5`, in two ways at
+  once, both swallowed by the `|| true` on every rename. That release stopped
+  resolving `terminal_id` as an agent target (`resolve_agent_target` takes a
+  current pane id or a unique agent name), and the plugin passed exactly that,
+  since `terminal_id` is always present in `agent list`. It also added
+  `valid_agent_name` (`^[a-z][a-z0-9_-]{0,31}$`), which rejects `[1] claude`
+  outright. Renames now target `.pane_id`, the one form every supported herdr
+  accepts, and agents are numbered only below `0.7.5`. At or above it the
+  prefixes are stripped instead, which is also the only way to unstick an
+  `[N] claude` an older herdr and older plugin left behind: that name fails
+  every rename a newer herdr accepts, the documented uninstall `--clear`
+  included. An unreadable herdr version counts as restricted.
+- Reordering a worktree group no longer leaves stale `[N]` numbers. herdr
+  `0.8.0` added `workspace.move_block` and routes any drag of a worktree-space
+  member through it, which emits the new `workspace.reordered` event instead of
+  `workspace.moved`. The plugin now subscribes to both, so a group drag
+  renumbers immediately rather than waiting for an unrelated event.
+
+### Added
+
+- A `[[startup]]` hook (herdr `>= 0.7.5`) reconciles once as soon as herdr
+  restores a session and after a live handoff. Restored sessions previously kept
+  herdr's own labels and stale numbers until the first event happened to arrive.
+- The agents herdr `0.8.0` detects are all recognized by name now, in
+  `NAME_ONLY_PROGRAMS` and in the Nerd Font robot glyph: `pi`, `gemini`,
+  `cursor`/`cursor-agent`, `devin`, `agy`/`antigravity`, `cline`, `omp`,
+  `mastracode`, `opencode`, `copilot`, `kimi`, `kiro`/`kiro-cli`, `droid`,
+  `amp`, `grok`, `hermes`, `kilo`, and `qodercli`. Two spellings differ from
+  herdr's `--kind` id (`cursor-agent`, `kiro-cli`) and both forms are listed.
+  Previously only `claude`, `codex`, and `aider` were, so every other agent went
+  without an icon, and showed its whole command line under
+  `SHOW_PROGRAM_ARGS=1`.
+
+### Documentation
+
+- The README records that tab naming does nothing on a Linux runtime where herdr
+  cannot see a foreground process group, and points at herdr `0.8.0`'s opt-in
+  `HERDR_PROCESS_DETECTION=child-groups`.
+- `docs/ARCHITECTURE.md` covers the agent-name restriction and why herdr
+  `0.7.5`'s `agent.view.set` would have made static agent numbers unreliable
+  regardless: an active view redefines the order `focus_agent` follows, and no
+  event or request exposes one.
 
 ## [0.2.3] - 2026-08-02
 
@@ -103,7 +157,8 @@ First public release.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers,
   the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.0...v0.2.1

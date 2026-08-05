@@ -19,6 +19,16 @@ check "nvim is name-only" "nvim" "$(ar_format 'nvim' 'nvim README.md')"
 check "claude is name-only" "claude" "$(ar_format 'claude' 'claude --dangerously-skip-permissions')"
 check "git is name-only" "git" "$(ar_format 'git' 'git status')"
 
+# NAME_ONLY_PROGRAMS only bites with SHOW_PROGRAM_ARGS=1 (0 is the default and
+# already renders bare names), so assert these there. Covers the agents herdr
+# 0.8.0 detects, including the two whose executable differs from its --kind id.
+check "grok is name-only" "grok" "$(SHOW_PROGRAM_ARGS=1 ar_format 'grok' 'grok --model x')"
+check "agy is name-only" "agy" "$(SHOW_PROGRAM_ARGS=1 ar_format 'agy' 'agy --conversation 12')"
+check "opencode is name-only" "opencode" "$(SHOW_PROGRAM_ARGS=1 ar_format 'opencode' 'opencode run x')"
+check "cursor-agent name-only" "cursor-agent" "$(SHOW_PROGRAM_ARGS=1 ar_format 'cursor-agent' 'cursor-agent -p x')"
+check "kiro-cli is name-only" "kiro-cli" "$(SHOW_PROGRAM_ARGS=1 ar_format 'kiro-cli' 'kiro-cli chat')"
+check "gemini is name-only" "gemini" "$(SHOW_PROGRAM_ARGS=1 ar_format 'gemini' 'gemini -p hi')"
+
 # ---- ignored programs keep showing the shell ----
 check "ls is ignored -> shell" "zsh" "$(ar_format 'ls' 'ls -la')"
 check "cd is ignored -> shell" "zsh" "$(ar_format 'cd' 'cd ..')"
@@ -80,12 +90,22 @@ check "ar_icon codex" "$g_agent" "$(ar_icon codex)"
 # htop used to be the "unknown program" sentinel; the upstream map knows it.
 check "ar_icon htop" "$g_htop" "$(ar_icon htop)"
 
+# Every agent herdr detects gets the robot glyph, not just the original three.
+# The arms are split across several case patterns, so walk the whole set: a
+# dropped or mistyped entry then fails here instead of silently losing its icon.
+for _agent in aider pi gemini cursor cursor-agent devin cline agy antigravity \
+  omp mastracode opencode copilot kimi droid amp kiro kiro-cli \
+  grok hermes kilo qodercli; do
+  check "ar_icon $_agent" "$g_agent" "$(ar_icon "$_agent")"
+done
+
 # A program missing from the map gets the fallback glyph by default; an empty
 # ICON_FALLBACK turns that off and restores the old empty-returning contract.
 check "ar_icon unknown -> fallback" "?" "$(ar_icon nosuchprog)"
 check "ar_icon unknown, fallback off -> empty" "" "$(ICON_FALLBACK='' ar_icon nosuchprog)"
 # The fallback must never apply to the empty argument (ar_format only asks for
 # a real program; ar_icon '' is a guard, not a lookup).
+check "ar_icon empty arg -> empty" "" "$(ar_icon '')"
 check "ar_icon empty arg -> empty" "" "$(ar_icon '')"
 
 # ICON_MAP overrides win over both the builtin map and the fallback. (Arrays

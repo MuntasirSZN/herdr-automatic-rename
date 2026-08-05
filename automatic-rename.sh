@@ -8,9 +8,11 @@
 #   AUTO_INDEX=1  prefix each workspace, tab, and agent with the 1-9 number of
 #                 its jump keybind (switch_workspace/switch_tab/focus_agent) as
 #                 "[N] <base>". Applies to workspaces, tabs, and agents -- except
-#                 agents are numbered ONLY when the panel is grouped-sorted;
-#                 "priority" sort reorders the panel behind an API we can't read,
-#                 so agent numbers are stripped there (see ar_agent_sort).
+#                 agents, which are numbered only on herdr < 0.7.5 (newer herdr
+#                 rejects a bracketed agent name outright, see ar_agent_prefix_ok)
+#                 and only when the panel is grouped-sorted ("priority" sort
+#                 reorders the panel behind an API we can't read, see
+#                 ar_agent_sort). Agent prefixes are stripped in both cases.
 #
 # Both default on and are configured in config.sh ($HERDR_AUTOMATIC_RENAME_CONFIG). A
 # single unified reconcile drives both: one pass computes a tab's base name and
@@ -464,7 +466,7 @@ ar_reconcile_tabs() {
   done <<< "$(printf '%s' "$wsjson" | jq -r '(.result.workspaces // .workspaces // [])[].workspace_id' 2>/dev/null)"
 }
 
-# ar_agent_revert <terminal_id> <base> <detected>
+# ar_agent_revert <pane_id> <base> <detected>
 # Remove our numbering from an agent (used by --clear and positions 10+). Reverts
 # an auto-named agent to detection (which also sidesteps herdr's duplicate
 # manual-name rejection when several agents share a base like "claude"); a
@@ -504,6 +506,58 @@ ar_unpark_base() {
   fi
 }
 
+# ar_version_lt <a> <b> -> 0 when dotted version a orders before b. Compares the
+# first three numeric fields, treating a missing field as 0 ("0.8" = "0.8.0"), and
+# reports "not less than" for anything non-numeric so an unparseable version never
+# unlocks a version-gated path. Pure, so tests/test_prefix.sh exercises it directly.
+ar_version_lt() {
+  [ -n "$1" ] && [ -n "$2" ] || return 1
+  local a="$1." b="$2." i=0 af bf
+  while [ "$i" -lt 3 ]; do
+    af=${a%%.*}; a=${a#*.}
+    bf=${b%%.*}; b=${b#*.}
+    [ -n "$af" ] || af=0
+    [ -n "$bf" ] || bf=0
+    case "$af$bf" in *[!0-9]*) return 1 ;; esac
+    [ "$af" -lt "$bf" ] && return 0
+    [ "$af" -gt "$bf" ] && return 1
+    i=$(( i + 1 ))
+  done
+  return 1
+}
+
+# ar_herdr_version -> the running herdr's dotted version ("0.8.0"), or rc 1 when
+# it cannot be read. `herdr --version` prints "herdr <version>"; take the first
+# field shaped like a number and drop any trailing build metadata.
+ar_herdr_version() {
+  local out f
+  out=$("$HERDR" --version 2>/dev/null) || return 1
+  for f in $out; do
+    case "$f" in
+      [0-9]*.[0-9]*) printf '%s' "${f%%[!0-9.]*}"; return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# ar_agent_prefix_ok -> 0 when this herdr accepts "[N] <base>" as an agent name.
+#
+# herdr 0.7.5 added valid_agent_name (^[a-z][a-z0-9_-]{0,31}$, src/app/agents.rs)
+# and now rejects anything else with `invalid_agent_name`, so a bracketed number
+# is structurally impossible there -- every rename fails and the agent keeps
+# whatever name it had. Agents are therefore numbered only below 0.7.5, and the
+# prefixes are stripped at or above it, which also cleans up "[N] " names left
+# stuck by an older herdr + older plugin (see ar_renumber_agents). An unreadable
+# version is treated as restricted: refusing to number is recoverable, issuing
+# renames herdr rejects is not.
+#
+# Workspace and tab renames are unaffected -- those labels are free-form.
+ar_agent_prefix_ok() {
+  local v
+  v=$(ar_herdr_version) || return 1
+  ar_version_lt "$v" "0.7.5"
+}
+
 # ar_agent_sort -> "priority" or "spaces" (grouped). herdr renders the agent panel
 # in its agent_panel_sort order: "spaces"/"workspaces" (grouped by space) or
 # "priority" (attention queue). cmd+alt+N follows that VISIBLE order, but the CLI
@@ -532,8 +586,17 @@ ar_agent_sort() {
 # herdr's sidebar. agent rename REJECTS a manual name already held by another
 # terminal, so positions 1-9 (unique "[N]" targets) use a two-phase park (unique
 # temps first, then finals) and positions 10+ (bare, non-unique) revert individually.
-# In "priority" sort the panel order is dynamic and API-invisible (see
-# ar_agent_sort), so there we strip our numbering exactly like --clear does.
+#
+# The rename target is .pane_id, the only form every supported herdr resolves:
+# 0.7.5's resolve_agent_target (src/app/terminal_targets.rs) accepts a current
+# pane id or a unique agent name and no longer matches .terminal_id, which the
+# older resolve_terminal_target tried first. .terminal_id stays as a fallback for
+# a row that somehow carries no pane id.
+#
+# Numbering is skipped (and existing prefixes stripped) in two cases: a herdr that
+# rejects bracketed agent names (ar_agent_prefix_ok) and a "priority"-sorted panel,
+# whose order is dynamic and API-invisible (ar_agent_sort). Both strip exactly the
+# way --clear does.
 ar_renumber_agents() {
   local json rows tid label detected base want i=0 n j strip=0
   if [ "${AR_HAVE_SNAPSHOT:-0}" = "1" ]; then
@@ -544,13 +607,16 @@ ar_renumber_agents() {
   [ -n "$json" ] || return 0
   rows=$(printf '%s' "$json" | jq -r '
     (.result.agents // .agents // [])[]
-    | [ (.terminal_id // .pane_id // ""), (.name // .agent // ""), (.agent_session.agent // .agent // "") ] | @tsv' 2>/dev/null)
+    | [ (.pane_id // .terminal_id // ""), (.name // .agent // ""), (.agent_session.agent // .agent // "") ] | @tsv' 2>/dev/null)
   [ -n "$rows" ] || return 0
 
-  # Revert to detection (strip our "[N]") on uninstall OR whenever the agent panel
-  # is priority-sorted: a fixed-order number can only be wrong against a queue we
-  # cannot observe. Grouped mode falls through to numbering below.
+  # Revert to detection (strip our "[N]") on uninstall, on a herdr that rejects
+  # bracketed agent names, OR whenever the agent panel is priority-sorted: a
+  # fixed-order number can only be wrong against a queue we cannot observe.
+  # Grouped mode on an older herdr falls through to numbering below.
   if [ "$CLEAR" = "1" ]; then
+    strip=1
+  elif ! ar_agent_prefix_ok; then
     strip=1
   elif [ "$(ar_agent_sort)" = "priority" ]; then
     strip=1
