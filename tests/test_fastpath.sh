@@ -31,6 +31,7 @@ setup() {
   export HERDR_SOCKET_PATH="$SB/herdr.sock"   # keeps herdr state reads (session.json) in the sandbox
   export SHELL_NAME=zsh
   export NAME_TABS=1 AUTO_INDEX=1
+  unset HIDE_SHELL                            # per-scenario opt-in; default is off
   export HERDR_TAB_ID=t1 HERDR_PANE_ID=p1
   mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
   printf '{"t1":{"auto":"zsh","enabled":true}}\n' \
@@ -101,6 +102,60 @@ printf '{"t1":{"auto":"nvim","enabled":true}}\n' \
   >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
 /usr/bin/env bash "$ENGINE" precmd zsh
 check "precmd: back to shell name" "tab rename t1 [1] zsh" "$(log)"
+teardown
+
+# ======================================================================
+# Scenario 6: HIDE_SHELL=1 (issue #5). Back at the prompt the tab name goes away
+# instead of reverting to the shell: "[1]" with numbering on, nothing at all with
+# it off. Starting a real program still names the tab, prefix intact.
+# ======================================================================
+setup
+export HIDE_SHELL=1
+fixture tab_t1.json <<'JSON'
+{"result":{"tab":{"tab_id":"t1","label":"[1] nvim"}}}
+JSON
+printf '{"t1":{"auto":"nvim","enabled":true}}\n' \
+  >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+/usr/bin/env bash "$ENGINE" precmd zsh
+check "precmd hidden: number only" "tab rename t1 [1]" "$(log)"
+check "hidden name recorded as ours" "true" \
+  "$(jq -r '.t1 | (.auto == "") and .enabled' "$XDG_STATE_HOME/herdr-automatic-rename/state.json")"
+teardown
+
+setup
+export HIDE_SHELL=1 AUTO_INDEX=0
+fixture tab_t1.json <<'JSON'
+{"result":{"tab":{"tab_id":"t1","label":"nvim"}}}
+JSON
+printf '{"t1":{"auto":"nvim","enabled":true}}\n' \
+  >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+/usr/bin/env bash "$ENGINE" precmd fish
+check "precmd hidden, index off: empty label" "tab rename t1 " "$(log)"
+teardown
+
+# A hidden tab (label "[1]", base empty) must still be recognized as ours when a
+# program starts, and keep its number.
+setup
+export HIDE_SHELL=1
+fixture tab_t1.json <<'JSON'
+{"result":{"tab":{"tab_id":"t1","label":"[1]"}}}
+JSON
+printf '{"t1":{"auto":"","enabled":true}}\n' \
+  >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+/usr/bin/env bash "$ENGINE" preexec "nvim README.md"
+check "hidden tab named on preexec" "tab rename t1 [1] nvim" "$(log)"
+teardown
+
+# An already-hidden tab must not be renamed to the same thing on every prompt.
+setup
+export HIDE_SHELL=1
+fixture tab_t1.json <<'JSON'
+{"result":{"tab":{"tab_id":"t1","label":"[1]"}}}
+JSON
+printf '{"t1":{"auto":"","enabled":true}}\n' \
+  >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+/usr/bin/env bash "$ENGINE" precmd zsh
+check "hidden tab: no repeat rename" "" "$(log)"
 teardown
 
 t_summary

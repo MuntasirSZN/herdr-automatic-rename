@@ -152,6 +152,38 @@ active pane), the pass counts the tab's position but defers its rename, so no
 throwaway `[3] 3` flashes before the real name arrives. When naming is off, the
 integer is numbered as-is, since nothing else will ever name it.
 
+## An empty name is a name (HIDE_SHELL)
+
+`HIDE_SHELL=1` labels a shell tab with the empty string, because that is the only
+way to get herdr's own tab number back on screen: herdr renders the number
+whenever a tab has no label, and there is no API to ask for it directly.
+
+The empty string is now a name the engine has to carry around, so the invariant
+is: **a name is returned on stdout, and "cannot compute one" is reported only
+through exit status, never as empty output.** Every site that could confuse the
+two follows from it:
+
+- `ar_tab_name` reports failure through its exit status instead of an empty
+  string, and `ar_reconcile_tabs` branches on that status rather than on the
+  string it got back.
+- The `[N] ` prefix helpers accept a bare `[3]`, the numbered form of an empty
+  base. Without that, a hidden tab would read its own label back as a hand-typed
+  name and opt itself out of naming permanently.
+- `ar_desired` numbers an empty base as `[3]` rather than `[3] `, since herdr
+  drops the trailing space anyway and the bare form round-trips back through
+  `ar_strip_prefix`.
+- The opt-out state machine keeps a tab whose recorded name is empty even when
+  the label reads as herdr's integer again, which is what a restored session and
+  herdr's own relabeling look like from here.
+- `ar_reconcile_tabs` writes an empty base when the emptiness is deliberate, and
+  skips the tab only when herdr has not labeled it at all.
+- The fast path is the one exception: it calls `ar_format` directly rather than
+  through `ar_tab_name`, so it has no status to read and tests `HIDE_SHELL`
+  itself to decide whether an empty `ar_format` result is an answer.
+
+The placeholder rule above is unaffected: it defers a tab whose name is not
+computable *yet*, while an empty name is computed and final.
+
 ## Testing
 
 `tests/` runs on bash and jq alone (no bats). It covers the pure naming rules,

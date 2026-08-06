@@ -26,6 +26,7 @@ setup() {
   export HERDR_SOCKET_PATH="$SB/herdr.sock"   # keeps herdr state reads (session.json) in the sandbox
   export SHELL_NAME=zsh
   unset HERDR_MOCK_VERSION HERDR_MOCK_NO_VERSION   # per-scenario opt-in; mock default is current herdr
+  unset HIDE_SHELL                                 # per-scenario opt-in; default is off
 }
 fixture() { cat >"$HERDR_MOCK_DIR/$1"; }   # fixture <name>  (JSON on stdin)
 run_event() { /usr/bin/env bash "$ENGINE" "$1"; }
@@ -326,6 +327,178 @@ run_event tab.focused
 out=$(log)
 check_absent   "unknown version does not number agents" "$out" "agent rename w1:pA [1]"
 check_contains "workspaces unaffected"                  "$out" "workspace rename w1 [1] api"
+teardown
+
+# ======================================================================
+# Scenario 9: HIDE_SHELL=1 with AUTO_INDEX=0 (issue #5).
+#   A shell tab is renamed to the EMPTY label so herdr renders its own number;
+#   an nvim tab is named as usual. The state file must record the empty name as
+#   ours, or the next pass would read herdr's number back as a hand rename.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0 HIDE_SHELL=1
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[
+  {"tab_id":"w1:t1","label":"fish","pane_count":1,"focused":true},
+  {"tab_id":"w1:t2","label":"2","pane_count":1,"focused":false}
+]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t1","focused":true},
+  {"pane_id":"p2","tab_id":"w1:t2","focused":false}
+]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"-fish","cmdline":"-fish"}]}}}
+JSON
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+# t1 is ours, named "fish" by an earlier pass, so the knob has a label to undo.
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"w1:t1":{"auto":"fish","enabled":true}}\n' >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+run_event tab.focused
+out=$(log)
+check "shell tab renamed to nothing" "tab rename w1:t1 " "$(printf '%s\n' "$out" | grep 'w1:t1')"
+check_contains "nvim tab still named"  "$out" "tab rename w1:t2 nvim"
+check "empty name recorded as ours" "true" \
+  "$(jq -r '."w1:t1" | (.auto == "") and .enabled' "$XDG_STATE_HOME/herdr-automatic-rename/state.json")"
+teardown
+
+# ======================================================================
+# Scenario 10: HIDE_SHELL=1 with AUTO_INDEX=1.
+#   The jump number is the one thing numbering exists for, so a hidden shell tab
+#   keeps "[N]" alone. The next pass must read that back as OUR label (empty base,
+#   still owned) and leave it alone rather than opting the tab out.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=1 HIDE_SHELL=1
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[1] zsh","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"-zsh","cmdline":"-zsh"}]}}}
+JSON
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"w1:t1":{"auto":"zsh","enabled":true}}\n' >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+run_event tab.focused
+check_contains "numbered shell tab keeps the number only" "$(log)" "tab rename w1:t1 [1]"
+# Second pass over the settled "[1]" label: no further rename, still ours.
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[1]","pane_count":1,"focused":true}]}}
+JSON
+: >"$HERDR_MOCK_LOG"
+run_event tab.focused
+check "settled [N] label is stable" "" "$(printf '%s\n' "$(log)" | grep 'tab rename')"
+check "still owned after settling" "true" \
+  "$(jq -r '."w1:t1".enabled' "$XDG_STATE_HOME/herdr-automatic-rename/state.json")"
+teardown
+
+# ======================================================================
+# Scenario 11: HIDE_SHELL and the two ways an empty label must NOT be touched.
+#   a) --clear strips a leftover "[1]" off a hidden tab (the uninstall path).
+#   b) A process-info blip on a hidden tab leaves the label alone: the old
+#      "empty base -> skip" guard now runs on HIDE_SHELL, so nothing may make it
+#      guess "[1]" for a tab whose program it could not read.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=1 HIDE_SHELL=1
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[1]","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+run_event --clear
+check "clear strips a number-only label" "tab rename w1:t1 " "$(printf '%s\n' "$(log)" | grep 'w1:t1')"
+teardown
+
+setup
+export NAME_TABS=1 AUTO_INDEX=1 HIDE_SHELL=1
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"w1:t1":{"auto":"nvim","enabled":true}}\n' >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"code"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[1] nvim","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+# NOTE: no procinfo_p1.json -> process-info resolves nothing.
+run_event tab.focused
+check_absent "blip does not hide a named tab" "$(log)" "tab rename w1:t1"
+teardown
+
+# ======================================================================
+# Scenario 12: a hidden tab whose program can't be sampled must still be
+#   renumbered. A background multi-pane tab exposes no active pane at all, so its
+#   name is never computable -- but its jump number still has to follow the tab
+#   order, which is exactly what the "[i]"-only label has to keep working for.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=1 HIDE_SHELL=1
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t9","label":"[2]","pane_count":2,"focused":false}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t9","focused":false},
+  {"pane_id":"p2","tab_id":"w1:t9","focused":false}
+]}}
+JSON
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"w1:t9":{"auto":"","enabled":true}}\n' >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+run_event tab.moved
+check_contains "hidden tab follows its number" "$(log)" "tab rename w1:t9 [1]"
+teardown
+
+# ======================================================================
+# Scenario 13: with HIDE_SHELL off, a name the config erased is not a name.
+#   MAX_NAME_LEN=0 stands in for any rule that computes a name and then leaves
+#   nothing of it (a catch-all SUBSTITUTE_SETS does the same). Only HIDE_SHELL
+#   licenses blanking a tab, so this must leave the label alone.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=1 MAX_NAME_LEN=0
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[1] nvim","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"-zsh","cmdline":"-zsh"}]}}}
+JSON
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"w1:t1":{"auto":"nvim","enabled":true}}\n' >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+run_event tab.focused
+check_absent "erased name does not blank a tab" "$(log)" "tab rename w1:t1"
+unset MAX_NAME_LEN
 teardown
 
 t_summary

@@ -154,6 +154,23 @@ check "icons on, shell missing from map -> no fallback glyph" "dash" \
 check "idle prompt and shell reconcile agree with icons on" \
   "$(ICONS_ENABLED=1 ar_format '' '')" \
   "$(ICONS_ENABLED=1 ar_format "$SHELL_NAME" '')"
+# SHELL_NAME follows the user's real login shell, which can sit outside the
+# fixed SHELLS six (nu, tcsh, elvish, ...). Reconcile reads the pane leader
+# and would hand such a shell a map glyph, or the fallback, while the idle
+# prompt shows the bare name -- the name comparison suppresses the icon there
+# too, so the two paths still agree.
+check "odd login shell (elvish) gets no icon" "elvish" \
+  "$(SHELL_NAME=elvish ICONS_ENABLED=1 ar_format 'elvish' '')"
+check "odd login shell outside map (nu) -> no fallback glyph" "nu" \
+  "$(SHELL_NAME=nu ICONS_ENABLED=1 ar_format 'nu' '')"
+check "idle and odd-shell reconcile agree" \
+  "$(SHELL_NAME=elvish ICONS_ENABLED=1 ar_format '' '')" \
+  "$(SHELL_NAME=elvish ICONS_ENABLED=1 ar_format 'elvish' '')"
+# Under ICON_STYLE=icon a lone fallback glyph would be the whole label, so it
+# is suppressed and the plain name kept; name_and_icon still shows "? name"
+# (pinned above).
+check "icon style 'icon' with unknown program -> plain name" "nosuchprog" \
+  "$(ICONS_ENABLED=1 ICON_STYLE=icon SHOW_PROGRAM_ARGS=0 ar_format 'nosuchprog' 'nosuchprog -d 5')"
 # ICON_MAP works end to end through ar_format.
 check "ICON_MAP override end to end" "$g_agent nosuchprog" \
   "$(
@@ -166,6 +183,27 @@ check "ICON_MAP override end to end" "$g_agent nosuchprog" \
 # MAX_NAME_LEN=6 keeps the glyph, the space, and 4 chars of the name.
 check "icon+name truncates on codepoint boundary" "$g_node node" \
   "$(ICONS_ENABLED=1 MAX_NAME_LEN=6 SHOW_PROGRAM_ARGS=1 ar_format 'node' 'nodeandmore')"
+
+# ---- HIDE_SHELL: every shell-ish case names the tab nothing (issue #5) ----
+# The empty label is what makes herdr fall back to rendering its own tab number,
+# so these must be EMPTY strings, not $SHELL_NAME and not a space.
+check "hide_shell bare prompt" "" "$(HIDE_SHELL=1 ar_format '' '')"
+check "hide_shell explicit fish" "" "$(HIDE_SHELL=1 ar_format 'fish' '-fish')"
+check "hide_shell explicit bash" "" "$(HIDE_SHELL=1 ar_format 'bash' 'bash')"
+check "hide_shell ignored ls" "" "$(HIDE_SHELL=1 ar_format 'ls' 'ls -la')"
+# Only shells are hidden: a real program is named exactly as before.
+check "hide_shell keeps nvim" "nvim" "$(HIDE_SHELL=1 ar_format 'nvim' 'nvim README.md')"
+check "hide_shell keeps program" "htop" "$(HIDE_SHELL=1 SHOW_PROGRAM_ARGS=0 ar_format 'htop' 'htop -d 5')"
+# An alias is a label the user asked for by hand, so it outlives the knob.
+check "hide_shell keeps alias on a shell" "sh" \
+  "$(
+    PROGRAM_ALIASES=("fish=sh")
+    HIDE_SHELL=1 ar_format 'fish' '-fish'
+  )"
+# Off (the default) is the old behavior, unchanged.
+check "hide_shell off -> shell name" "zsh" "$(HIDE_SHELL=0 ar_format '' '')"
+got=$(bash -c 'SHELL_NAME=zsh; . "$1"; ar_format "" ""' _ "$here/../naming.sh")
+check "HIDE_SHELL defaults to off" "zsh" "$got"
 
 # ---- default: SHOW_PROGRAM_ARGS defaults to 0 (regular program -> name only) ----
 got=$(bash -c 'SHELL_NAME=zsh; . "$1"; ar_format htop "htop -d 5"' _ "$here/../naming.sh")

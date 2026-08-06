@@ -14,11 +14,15 @@ check "non-numeric bracket kept"    "[wip] foo"  "$(ar_strip_prefix '[wip] foo')
 check "no prefix untouched"         "plain"      "$(ar_strip_prefix 'plain')"
 check "malformed bracket left"      "[1]x] foo"  "$(ar_strip_prefix '[1]x] foo')"
 check "keeps inner brackets"        "api [2]"    "$(ar_strip_prefix '[1] api [2]')"
+# "[3]" alone is the HIDE_SHELL label: a number with an empty base behind it.
+check "strip number-only prefix"    ""           "$(ar_strip_prefix '[3]')"
+check "empty bracket kept"          "[]"         "$(ar_strip_prefix '[]')"
 
 # ---- ar_index_prefix: the carried-forward "[N] " or "" ----
 check "index prefix present"        "[3] "       "$(ar_index_prefix '[3] nvim')"
 check "index prefix absent"         ""           "$(ar_index_prefix 'nvim')"
 check "index prefix non-numeric"    ""           "$(ar_index_prefix '[wip] x')"
+check "index prefix number-only"    "[3] "       "$(ar_index_prefix '[3]')"
 
 # ---- ar_is_placeholder: empty or all-digits ----
 ar_is_placeholder "";     check_rc "empty is placeholder"    0 $?
@@ -33,8 +37,10 @@ check "desired pos 1"        "[1] api" "$(ar_desired 1 api)"
 check "desired pos 9"        "[9] api" "$(ar_desired 9 api)"
 check "desired pos 10 bare"  "api"     "$(ar_desired 10 api)"
 check "desired pos 0 bare"   "api"     "$(ar_desired 0 api)"   # hidden row, no keybind
+check "desired empty base"   "[1]"     "$(ar_desired 1 '')"   # HIDE_SHELL: number alone
 AUTO_INDEX=0
 check "desired index-off"    "api"     "$(ar_desired 1 api)"
+check "desired empty, index-off" ""    "$(ar_desired 1 '')"
 AUTO_INDEX=1; CLEAR=1
 check "desired clear strips"  "api"    "$(ar_desired 1 api)"
 CLEAR=0

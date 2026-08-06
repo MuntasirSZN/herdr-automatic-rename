@@ -6,8 +6,6 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
-## [Unreleased]
-
 ### Added
 
 - The icon map moved out of `naming.sh` into `icons.sh` and grew from 9
@@ -17,15 +15,38 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   bun/npx/pnpm, ipython/ipython3) and a robot glyph for every agent herdr
   detects.
 - `ICON_FALLBACK` (default `?`): glyph shown when a program is missing from
-  the map, like upstream's `fallback-icon`. Set it to `''` to turn the
-  fallback off and keep unknown programs text-only. Quick tools on
-  `IGNORED_PROGRAMS` never get an icon either way -- the tab is showing the
-  shell, not the program, so a running `ls` no longer needs to flicker.
+  the map, like upstream's `fallback-icon`. `''` turns the fallback off and
+  keeps unknown programs text-only. Under `ICON_STYLE=icon` the fallback is
+  treated as "no glyph", so an unknown program keeps its plain name (`rg`, not
+  `?`).
 - `ICON_MAP`: per-program icon overrides as `("prog=glyph")` pairs, checked
   before the builtin map (e.g. `ICON_MAP=("claude=󰚩")`).
-- Shells get no icon even when they match the map: `precmd` names an idle
-  prompt without a program, so giving `zsh` a glyph would make the label flip
-  between `zsh` and `<glyph> zsh` on every reconcile.
+- Shell labels get no icon even when the map has them: `precmd` names an idle
+  prompt without a program, so a glyph would flip the label between `zsh` and
+  `<glyph> zsh` on every reconcile. This covers the fixed `SHELLS` six and the
+  user's real login shell (`SHELL_NAME`), which can sit outside `SHELLS` (nu,
+  tcsh, elvish, ...), as well as `IGNORED_PROGRAMS` commands showing the shell
+  label.
+
+## [0.4.0] - 2026-08-05
+
+Adds `HIDE_SHELL`, for leaving shell tabs to herdr's own tab number instead of a
+row of `zsh`.
+
+### Added
+
+- `HIDE_SHELL=1` leaves a shell tab unnamed instead of labeling it `zsh`, so
+  herdr renders its own tab number there and only the tabs running something
+  carry a name (issue #5). It covers all three ways a tab gets the shell label: a
+  bare prompt, an explicit `SHELLS` entry, and an `IGNORED_PROGRAMS` command. A
+  `PROGRAM_ALIASES` entry for a shell still wins, being a name asked for by hand.
+  `IGNORED_PROGRAMS` could never do this, despite reading like it should: its job
+  is to hold a tab at the shell name, and a bare prompt short-circuits before any
+  program list is consulted.
+- With `AUTO_INDEX=1` a hidden tab keeps the jump number alone (`[3]`), and the
+  `[N] ` prefix helpers now read that bare form back as the empty base it came
+  from. Without that a hidden tab would see its own `[3]` as a hand-typed name
+  and opt itself out of naming for good.
 
 ## [0.3.0] - 2026-08-04
 
@@ -157,7 +178,8 @@ First public release.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers,
   the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.1...v0.2.2

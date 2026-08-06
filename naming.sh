@@ -8,8 +8,8 @@
 #
 # Naming rule: a tab is named after its foreground program (nvim, claude, git,
 # ...). At a bare prompt, or while a quick throwaway command runs, it shows the
-# shell name (e.g. zsh) instead. Loosely modeled on tmux-window-name, minus the
-# directory-based naming.
+# shell name (e.g. zsh) instead -- or nothing at all with HIDE_SHELL=1. Loosely
+# modeled on tmux-window-name, minus the directory-based naming.
 #
 # Every list below is guarded with `declare -p` rather than `${VAR+x}`, so
 # clearing one in config.sh (e.g. IGNORED_PROGRAMS=()) actually takes effect:
@@ -32,6 +32,14 @@ unset _ar_icons_dir
 # IGNORED_PROGRAMS command runs, so the tab holds steady instead of flickering.
 : "${SHELL_NAME:=${SHELL##*/}}"
 : "${SHELL_NAME:=zsh}"
+
+# 1 = give the tab no name at all in every case that would otherwise show the
+# shell: a bare prompt, an explicit SHELLS entry, an IGNORED_PROGRAMS command.
+# The empty label hands the tab back to herdr, which then renders its own tab
+# number, so a shell tab reads "3" instead of "zsh" (issue #5). With AUTO_INDEX=1
+# the label keeps the jump number and nothing else ("[3]"), so the tab can still
+# be jumped to.
+: "${HIDE_SHELL:=0}"
 
 # Foreground processes that mean "a shell prompt" -> shown by their own name.
 declare -p SHELLS >/dev/null 2>&1 || SHELLS=(zsh bash sh fish dash ksh)
@@ -102,16 +110,16 @@ ar_subst() {
 # ar_format <program|""> <cmdline> -> final tab label
 #   program == "" means a bare prompt (name by the shell).
 ar_format() {
-  local prog=$1 cmdline=$2 name="" ic aliased
+  local prog=$1 cmdline=$2 name="" ic aliased is_shell=0
   aliased=$(ar_alias "$prog")
   if [ -z "$prog" ]; then
-    name=$SHELL_NAME
+    name=$SHELL_NAME; is_shell=1
   elif [ -n "$aliased" ]; then
     name=$aliased # user rename (PROGRAM_ALIASES) wins
   elif ar_in_list "$prog" "${SHELLS[@]}"; then
-    name=$prog # a shell shows its own name (zsh)
+    name=$prog; is_shell=1                    # a shell shows its own name (zsh)
   elif ar_in_list "$prog" "${IGNORED_PROGRAMS[@]}"; then
-    name=$SHELL_NAME # quick tools: keep showing the shell
+    name=$SHELL_NAME; is_shell=1              # quick tools: keep showing the shell
   elif ar_in_list "$prog" "${NAME_ONLY_PROGRAMS[@]}"; then
     name="$(ar_subst "$prog")" # nvim, claude, ...: just the name
   elif [ "${SHOW_PROGRAM_ARGS:-1}" = "1" ] && [ -n "$cmdline" ]; then
@@ -120,18 +128,31 @@ ar_format() {
     name="$(ar_subst "$prog")"
   fi
 
-  # Icons annotate the program the tab is named after. A program on
-  # IGNORED_PROGRAMS deliberately keeps showing SHELL_NAME (so the tab does not
-  # flicker), so it gets no icon either -- otherwise the fallback would make
-  # every `ls` flash "? zsh". Shells get the same treatment for the same
-  # reason: precmd names an idle prompt via ar_format "" "", which `[ -n
-  # "$prog" ]` denies an icon, so a shell glyph here would make the label flip
-  # between "zsh" and "<glyph> zsh" on every reconcile. ar_icon itself supplies
-  # the fallback glyph.
-  if [ "${ICONS_ENABLED:-0}" = "1" ] && [ -n "$prog" ] &&
-    ! ar_in_list "$prog" "${IGNORED_PROGRAMS[@]}" &&
-    ! ar_in_list "$prog" "${SHELLS[@]}"; then
+  # HIDE_SHELL: drop the shell label entirely and let herdr number the tab. An
+  # explicit PROGRAM_ALIASES entry for a shell (e.g. "fish=sh") is a name the
+  # user asked for by hand, so it survives; nothing else about a shell tab does.
+  if [ "${HIDE_SHELL:-0}" = "1" ] && [ "$is_shell" = "1" ]; then
+    printf ''
+    return 0
+  fi
+
+  # Icons annotate the program the tab is named after. Skip them whenever the
+  # label is a shell name: precmd names an idle prompt via ar_format "" "",
+  # which `[ -n "$prog" ]` denies an icon, so a glyph here would flip the label
+  # between "zsh" and "<glyph> zsh" on every reconcile. is_shell covers the
+  # IGNORED_PROGRAMS carve-out and the fixed SHELLS six; comparing against
+  # SHELL_NAME follows the user's real login shell, which is the one the bare
+  # prompt shows -- nu, tcsh, elvish, ... sit outside SHELLS yet still hit the
+  # map, or the fallback, at reconcile.
+  if [ "${ICONS_ENABLED:-0}" = "1" ] && [ -n "$prog" ] && [ "$is_shell" = "0" ] &&
+    [ "$name" != "$SHELL_NAME" ]; then
     ic=$(ar_icon "$prog")
+    # A lone fallback glyph says nothing about the program, so under
+    # ICON_STYLE=icon it is skipped and the plain name is kept: rg -> "rg",
+    # not "?". (name_and_icon still shows "? rg".)
+    if [ "${ICON_STYLE:-name_and_icon}" = "icon" ] && [ -n "$ic" ] && [ "$ic" = "$ICON_FALLBACK" ]; then
+      ic=""
+    fi
     if [ -n "$ic" ]; then
       case "${ICON_STYLE:-name_and_icon}" in
       icon) name=$ic ;;                      # icon only
@@ -140,8 +161,7 @@ ar_format() {
       esac
     fi
   fi
-
-  # Truncate by Unicode codepoint, not byte. bash's ${#name} / ${name:0:$max}
+    # Truncate by Unicode codepoint, not byte. bash's ${#name} / ${name:0:$max}
   # count bytes under a C/POSIX locale (herdr may launch plugins with no LC_*),
   # which would slice a multibyte char in half and emit mojibake. jq (already a
   # hard dependency of this plugin) always reads input as UTF-8, so it slices on

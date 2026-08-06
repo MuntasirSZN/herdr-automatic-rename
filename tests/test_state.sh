@@ -61,6 +61,15 @@ reset_state
 ar_state_set tX nvim true
 ar_name_eligible tX ""; check_rc "owned + cleared re-adopts" 0 $?
 
+# A HIDE_SHELL tab is owned with an EMPTY auto name. herdr handing its generated
+# number back to such a label-less tab is not a hand rename -> stay eligible, so
+# the tab is still named the moment a real program starts.
+reset_state
+ar_state_set tX "" true
+ar_name_eligible tX "3"; check_rc "owned + empty auto keeps a number" 0 $?
+ar_name_eligible tX "";  check_rc "owned + empty auto keeps empty"    0 $?
+ar_name_eligible tX "notes"; check_rc "owned + empty auto still opts out on a name" 1 $?
+
 # Opted out, still non-empty -> leave it.
 reset_state
 ar_state_set tX "" false
