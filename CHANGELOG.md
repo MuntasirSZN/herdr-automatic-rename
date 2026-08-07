@@ -6,6 +6,16 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-07
+
+Grows the icon map from 9 entries to ~170 and makes it configurable, with
+`ICON_FALLBACK` for programs it does not know and `ICON_MAP` for per-program
+overrides.
+
+Upgrade note for anyone already running `ICONS_ENABLED=1`: programs outside the
+map now show a `?` where they previously showed no glyph at all. Set
+`ICON_FALLBACK=''` to keep them text-only.
+
 ### Added
 
 - The icon map moved out of `naming.sh` into `icons.sh` and grew from 9
@@ -27,12 +37,16 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   `IGNORED_PROGRAMS` commands showing the shell label, and the user's real
   login shell (`SHELL_NAME`), which can sit outside `SHELLS` (nu, tcsh,
   elvish, ...).
-- The login shell is recognized by program, not by computed label: `prog ==
-  SHELL_NAME` is its own shell arm, so a reconcile agrees with the bare prompt
-  even with `SHOW_PROGRAM_ARGS=1` (no `? -elvish` when `SHELL_NAME=elvish`).
-- `HIDE_SHELL` also blanks the login shell itself: with 0.4.0's fixed `SHELLS`
+
+### Fixed
+
+- `HIDE_SHELL` now blanks the login shell itself. With 0.4.0's fixed `SHELLS`
   six, a login shell outside the list (nu, tcsh, elvish, ...) kept naming
   itself on reconcile while the idle label stayed blank.
+- The login shell is recognized by program rather than by computed label:
+  `prog == SHELL_NAME` is its own shell arm, so a reconcile agrees with the
+  bare prompt even with `SHOW_PROGRAM_ARGS=1`, where the command-line path used
+  to hijack it.
 
 ## [0.4.0] - 2026-08-05
 
@@ -184,7 +198,8 @@ First public release.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers,
   the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.2...v0.2.3
