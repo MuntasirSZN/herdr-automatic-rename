@@ -155,17 +155,19 @@ check "idle prompt and shell reconcile agree with icons on" \
   "$(ICONS_ENABLED=1 ar_format '' '')" \
   "$(ICONS_ENABLED=1 ar_format "$SHELL_NAME" '')"
 # SHELL_NAME follows the user's real login shell, which can sit outside the
-# fixed SHELLS six (nu, tcsh, elvish, ...). Reconcile reads the pane leader
-# and would hand such a shell a map glyph, or the fallback, while the idle
-# prompt shows the bare name -- the name comparison suppresses the icon there
-# too, so the two paths still agree.
+# fixed SHELLS six (nu, tcsh, elvish, ...). prog == SHELL_NAME is its own
+# shell arm, so a reconcile reads the bare name (never the cmdline, even with
+# SHOW_PROGRAM_ARGS=1 -- "-elvish" would dodge a name-based comparison) and
+# gets no glyph or fallback, keeping it equal to the idle prompt.
 check "odd login shell (elvish) gets no icon" "elvish" \
   "$(SHELL_NAME=elvish ICONS_ENABLED=1 ar_format 'elvish' '')"
 check "odd login shell outside map (nu) -> no fallback glyph" "nu" \
   "$(SHELL_NAME=nu ICONS_ENABLED=1 ar_format 'nu' '')"
-check "idle and odd-shell reconcile agree" \
-  "$(SHELL_NAME=elvish ICONS_ENABLED=1 ar_format '' '')" \
-  "$(SHELL_NAME=elvish ICONS_ENABLED=1 ar_format 'elvish' '')"
+check "odd login shell with args on -> shell name, no icon" "elvish" \
+  "$(SHELL_NAME=elvish ICONS_ENABLED=1 SHOW_PROGRAM_ARGS=1 ar_format 'elvish' '-elvish')"
+check "idle and odd-shell reconcile agree with args on" \
+  "$(SHELL_NAME=elvish ICONS_ENABLED=1 SHOW_PROGRAM_ARGS=1 ar_format '' '')" \
+  "$(SHELL_NAME=elvish ICONS_ENABLED=1 SHOW_PROGRAM_ARGS=1 ar_format 'elvish' '-elvish')"
 # Under ICON_STYLE=icon a lone fallback glyph would be the whole label, so it
 # is suppressed and the plain name kept; name_and_icon still shows "? name"
 # (pinned above).
@@ -191,6 +193,11 @@ check "hide_shell bare prompt" "" "$(HIDE_SHELL=1 ar_format '' '')"
 check "hide_shell explicit fish" "" "$(HIDE_SHELL=1 ar_format 'fish' '-fish')"
 check "hide_shell explicit bash" "" "$(HIDE_SHELL=1 ar_format 'bash' 'bash')"
 check "hide_shell ignored ls" "" "$(HIDE_SHELL=1 ar_format 'ls' 'ls -la')"
+# The login shell is hidden too, even outside SHELLS and with args on: without
+# the prog == SHELL_NAME arm, "nu" would name itself on reconcile while the
+# idle prompt stays blank (the HIDE_SHELL gap from the 0.4.0 release).
+check "hide_shell login shell outside SHELLS (nu)" "" \
+  "$(SHELL_NAME=nu HIDE_SHELL=1 SHOW_PROGRAM_ARGS=1 ar_format 'nu' '-nu')"
 # Only shells are hidden: a real program is named exactly as before.
 check "hide_shell keeps nvim" "nvim" "$(HIDE_SHELL=1 ar_format 'nvim' 'nvim README.md')"
 check "hide_shell keeps program" "htop" "$(HIDE_SHELL=1 SHOW_PROGRAM_ARGS=0 ar_format 'htop' 'htop -d 5')"

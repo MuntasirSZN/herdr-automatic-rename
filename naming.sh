@@ -113,13 +113,19 @@ ar_format() {
   local prog=$1 cmdline=$2 name="" ic aliased is_shell=0
   aliased=$(ar_alias "$prog")
   if [ -z "$prog" ]; then
-    name=$SHELL_NAME; is_shell=1
+    name=$SHELL_NAME
+    is_shell=1
   elif [ -n "$aliased" ]; then
     name=$aliased # user rename (PROGRAM_ALIASES) wins
   elif ar_in_list "$prog" "${SHELLS[@]}"; then
-    name=$prog; is_shell=1                    # a shell shows its own name (zsh)
+    name=$prog
+    is_shell=1 # a shell shows its own name (zsh)
+  elif [ "$prog" = "$SHELL_NAME" ]; then
+    name=$prog
+    is_shell=1 # the login shell, even outside SHELLS (nu, tcsh, ...)
   elif ar_in_list "$prog" "${IGNORED_PROGRAMS[@]}"; then
-    name=$SHELL_NAME; is_shell=1              # quick tools: keep showing the shell
+    name=$SHELL_NAME
+    is_shell=1 # quick tools: keep showing the shell
   elif ar_in_list "$prog" "${NAME_ONLY_PROGRAMS[@]}"; then
     name="$(ar_subst "$prog")" # nvim, claude, ...: just the name
   elif [ "${SHOW_PROGRAM_ARGS:-1}" = "1" ] && [ -n "$cmdline" ]; then
@@ -130,7 +136,9 @@ ar_format() {
 
   # HIDE_SHELL: drop the shell label entirely and let herdr number the tab. An
   # explicit PROGRAM_ALIASES entry for a shell (e.g. "fish=sh") is a name the
-  # user asked for by hand, so it survives; nothing else about a shell tab does.
+  # user asked for by hand, so it survives; nothing else about a shell tab does
+  # -- bare prompt, an explicit SHELLS entry, an IGNORED_PROGRAMS command, or
+  # the login shell itself.
   if [ "${HIDE_SHELL:-0}" = "1" ] && [ "$is_shell" = "1" ]; then
     printf ''
     return 0
@@ -140,10 +148,10 @@ ar_format() {
   # label is a shell name: precmd names an idle prompt via ar_format "" "",
   # which `[ -n "$prog" ]` denies an icon, so a glyph here would flip the label
   # between "zsh" and "<glyph> zsh" on every reconcile. is_shell covers the
-  # IGNORED_PROGRAMS carve-out and the fixed SHELLS six; comparing against
-  # SHELL_NAME follows the user's real login shell, which is the one the bare
-  # prompt shows -- nu, tcsh, elvish, ... sit outside SHELLS yet still hit the
-  # map, or the fallback, at reconcile.
+  # bare prompt, the fixed SHELLS six, IGNORED_PROGRAMS, and the login shell
+  # itself (SHELL_NAME may sit outside SHELLS -- nu, tcsh, elvish -- yet still
+  # hit the map, or the fallback, at reconcile); comparing against SHELL_NAME
+  # additionally keeps a cmdline- or alias-derived label of the same text plain.
   if [ "${ICONS_ENABLED:-0}" = "1" ] && [ -n "$prog" ] && [ "$is_shell" = "0" ] &&
     [ "$name" != "$SHELL_NAME" ]; then
     ic=$(ar_icon "$prog")
@@ -161,7 +169,7 @@ ar_format() {
       esac
     fi
   fi
-    # Truncate by Unicode codepoint, not byte. bash's ${#name} / ${name:0:$max}
+  # Truncate by Unicode codepoint, not byte. bash's ${#name} / ${name:0:$max}
   # count bytes under a C/POSIX locale (herdr may launch plugins with no LC_*),
   # which would slice a multibyte char in half and emit mojibake. jq (already a
   # hard dependency of this plugin) always reads input as UTF-8, so it slices on

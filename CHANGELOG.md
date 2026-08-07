@@ -23,10 +23,16 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   before the builtin map (e.g. `ICON_MAP=("claude=󰚩")`).
 - Shell labels get no icon even when the map has them: `precmd` names an idle
   prompt without a program, so a glyph would flip the label between `zsh` and
-  `<glyph> zsh` on every reconcile. This covers the fixed `SHELLS` six and the
-  user's real login shell (`SHELL_NAME`), which can sit outside `SHELLS` (nu,
-  tcsh, elvish, ...), as well as `IGNORED_PROGRAMS` commands showing the shell
-  label.
+  `<glyph> zsh` on every reconcile. This covers the fixed `SHELLS` six,
+  `IGNORED_PROGRAMS` commands showing the shell label, and the user's real
+  login shell (`SHELL_NAME`), which can sit outside `SHELLS` (nu, tcsh,
+  elvish, ...).
+- The login shell is recognized by program, not by computed label: `prog ==
+  SHELL_NAME` is its own shell arm, so a reconcile agrees with the bare prompt
+  even with `SHOW_PROGRAM_ARGS=1` (no `? -elvish` when `SHELL_NAME=elvish`).
+- `HIDE_SHELL` also blanks the login shell itself: with 0.4.0's fixed `SHELLS`
+  six, a login shell outside the list (nu, tcsh, elvish, ...) kept naming
+  itself on reconcile while the idle label stayed blank.
 
 ## [0.4.0] - 2026-08-05
 
