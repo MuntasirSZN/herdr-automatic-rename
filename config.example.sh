@@ -29,10 +29,11 @@
 # Name shown at a bare prompt. Defaults to your $SHELL's basename.
 # SHELL_NAME=zsh
 
-# 1 = don't name a shell tab at all: a bare prompt, an explicit shell, and an
-# IGNORED_PROGRAMS command all leave the label empty, and herdr shows its own tab
-# number there instead of "zsh". With AUTO_INDEX=1 the label keeps the jump number
-# alone ("[3]"). Programs are named as usual either way.
+# 1 = don't name a shell tab at all: a bare prompt, an explicit shell, an
+# IGNORED_PROGRAMS command, and the login shell itself (SHELL_NAME, which may be
+# outside the SHELLS list) all leave the label empty, and herdr shows its own
+# tab number there instead of "zsh". With AUTO_INDEX=1 the label keeps the jump
+# number alone ("[3]"). Programs are named as usual either way.
 # HIDE_SHELL=0
 
 # Programs that count as "a shell prompt" and are shown by their own name.
@@ -64,3 +65,19 @@
 # name_and_icon (default), name, or icon.
 # ICONS_ENABLED=0
 # ICON_STYLE=name_and_icon
+
+# Glyph shown when a program is missing from the builtin map (which comes from
+# tmux-nerd-font-window-name's defaults.yml, ~170 programs). An empty string
+# turns the fallback off, so unknown programs get no icon. Under ICON_STYLE=icon
+# the fallback is treated as "no glyph": a bare "?" says nothing about the
+# program, so the plain name is kept instead. Shell labels never get an icon
+# either way (SHELLS, the login shell, and IGNORED_PROGRAMS commands): the tab
+# is showing the shell, not the program.
+# ICON_FALLBACK='?'
+
+# Per-program icon overrides, "<program>=<glyph>" pairs; wins over the builtin
+# map and the fallback. Glyphs are literal Nerd Font characters.
+# ICON_MAP=(
+#   "claude=󰚩"
+#   "lazygit=󰊢"
+# )

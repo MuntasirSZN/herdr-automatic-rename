@@ -15,11 +15,18 @@
 # clearing one in config.sh (e.g. IGNORED_PROGRAMS=()) actually takes effect:
 # `${VAR+x}` reports a zero-element array as unset and would overwrite it.
 
+# Icon knobs, the glyph map, and ar_icon live in icons.sh (same directory) so
+# this file stays free of the 100+ entry glyph table. Sourcing it here keeps
+# every caller of naming.sh (automatic-rename.sh and the test suite) working
+# unchanged. icons.sh loads after config.sh has run, so its defaults only fill
+# unset vars.
+_ar_icons_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$_ar_icons_dir/icons.sh"
+unset _ar_icons_dir
+
 # ---- configurable knobs (override in config.sh / $HERDR_AUTOMATIC_RENAME_CONFIG) ----
-: "${MAX_NAME_LEN:=20}"        # truncate the final label to this many chars
-: "${SHOW_PROGRAM_ARGS:=0}"   # 1 = regular programs show their full command line; 0 = name only
-: "${ICONS_ENABLED:=0}"       # prepend a Nerd Font glyph (needs a Nerd Font)
-: "${ICON_STYLE:=name_and_icon}"  # name_and_icon (icon+name) | name (name only) | icon (icon only)
+: "${MAX_NAME_LEN:=20}"     # truncate the final label to this many chars
+: "${SHOW_PROGRAM_ARGS:=0}" # 1 = regular programs show their full command line; 0 = name only
 
 # Name shown at a bare prompt (no foreground program), and while an
 # IGNORED_PROGRAMS command runs, so the tab holds steady instead of flickering.
@@ -45,8 +52,8 @@ declare -p SHELLS >/dev/null 2>&1 || SHELLS=(zsh bash sh fish dash ksh)
 # agents (src/detect/mod.rs, herdr 0.8.0). Two differ from herdr's --kind id and
 # both spellings are listed: cursor-agent (kind "cursor") and kiro-cli (kind
 # "kiro"). aider is not a herdr agent kind but is a real agent, so it stays.
-declare -p NAME_ONLY_PROGRAMS >/dev/null 2>&1 || NAME_ONLY_PROGRAMS=(nvim vim vi view gvim git lazygit gitui lazydocker \
-  claude codex aider pi gemini cursor cursor-agent devin agy antigravity cline omp mastracode opencode \
+declare -p NAME_ONLY_PROGRAMS >/dev/null 2>&1 || NAME_ONLY_PROGRAMS=(nvim vim vi view gvim git lazygit gitui lazydocker
+  claude codex aider pi gemini cursor cursor-agent devin agy antigravity cline omp mastracode opencode
   copilot kimi kiro kiro-cli droid amp grok hermes kilo qodercli)
 
 # Quick tools that should not take over the tab name: while one runs the tab
@@ -81,7 +88,10 @@ ar_alias() {
   [ -n "$n" ] || return 0
   for pair in "${PROGRAM_ALIASES[@]}"; do
     case "$pair" in
-      "$n="*) printf '%s' "${pair#*=}"; return 0 ;;
+    "$n="*)
+      printf '%s' "${pair#*=}"
+      return 0
+      ;;
     esac
   done
 }
@@ -95,36 +105,7 @@ ar_subst() {
   printf '%s' "$s"
 }
 
-# ar_icon <program> -> a Nerd Font glyph, or empty. Edit freely.
-#
-# The glyphs below are literal Private Use Area characters and render as blank
-# boxes without a Nerd Font installed. They also went missing once: every arm
-# shipped as `printf ''` from this file's first commit through v0.2.1, which made
-# ICONS_ENABLED=1 a silent no-op (issue #3). Each arm carries its codepoint in a
-# comment so a stripped glyph can be restored, and tests/test_naming.sh asserts
-# the exact bytes, so the same loss fails the suite instead of passing quietly.
-#
-# An unmatched program returns empty on purpose: ar_format only prepends when the
-# glyph is non-empty, so an unknown program keeps a clean, text-only label.
-ar_icon() {
-  case "$1" in
-    nvim)                             printf '' ;;  # U+E6AE nf-custom-neovim
-    vim|vi|view|gvim)                 printf '' ;;  # U+E62B nf-custom-vim
-    git|lazygit|gitui)                printf '' ;;  # U+E702 nf-dev-git
-    node|npm|npx|yarn|pnpm|deno|bun)  printf '' ;;  # U+E718 nf-dev-nodejs_small
-    python|python3|ipython|ipython3)  printf '' ;;  # U+E73C nf-dev-python
-    docker|lazydocker)                printf '' ;;  # U+F308 nf-linux-docker
-    cargo|rustc|rustup)               printf '' ;;  # U+E7A8 nf-dev-rust
-    go)                               printf '' ;;  # U+E627 nf-seti-go
-    claude|codex|aider|pi|gemini)     printf '󰚩' ;;  # U+F06A9 nf-md-robot
-    cursor|cursor-agent|devin|cline)  printf '󰚩' ;;  # U+F06A9 nf-md-robot
-    agy|antigravity|omp|mastracode)   printf '󰚩' ;;  # U+F06A9 nf-md-robot
-    opencode|copilot|kimi|droid|amp)  printf '󰚩' ;;  # U+F06A9 nf-md-robot
-    kiro|kiro-cli|grok|hermes|kilo)   printf '󰚩' ;;  # U+F06A9 nf-md-robot
-    qodercli)                         printf '󰚩' ;;  # U+F06A9 nf-md-robot
-    *) ;;
-  esac
-}
+# ---- helpers ----
 
 # ar_format <program|""> <cmdline> -> final tab label
 #   program == "" means a bare prompt (name by the shell).
@@ -132,15 +113,21 @@ ar_format() {
   local prog=$1 cmdline=$2 name="" ic aliased is_shell=0
   aliased=$(ar_alias "$prog")
   if [ -z "$prog" ]; then
-    name=$SHELL_NAME; is_shell=1
+    name=$SHELL_NAME
+    is_shell=1
   elif [ -n "$aliased" ]; then
-    name=$aliased                             # user rename (PROGRAM_ALIASES) wins
+    name=$aliased # user rename (PROGRAM_ALIASES) wins
   elif ar_in_list "$prog" "${SHELLS[@]}"; then
-    name=$prog; is_shell=1                    # a shell shows its own name (zsh)
+    name=$prog
+    is_shell=1 # a shell shows its own name (zsh)
+  elif [ "$prog" = "$SHELL_NAME" ]; then
+    name=$prog
+    is_shell=1 # the login shell, even outside SHELLS (nu, tcsh, ...)
   elif ar_in_list "$prog" "${IGNORED_PROGRAMS[@]}"; then
-    name=$SHELL_NAME; is_shell=1              # quick tools: keep showing the shell
+    name=$SHELL_NAME
+    is_shell=1 # quick tools: keep showing the shell
   elif ar_in_list "$prog" "${NAME_ONLY_PROGRAMS[@]}"; then
-    name="$(ar_subst "$prog")"               # nvim, claude, ...: just the name
+    name="$(ar_subst "$prog")" # nvim, claude, ...: just the name
   elif [ "${SHOW_PROGRAM_ARGS:-1}" = "1" ] && [ -n "$cmdline" ]; then
     name="$(ar_subst "$cmdline")"
   else
@@ -149,23 +136,39 @@ ar_format() {
 
   # HIDE_SHELL: drop the shell label entirely and let herdr number the tab. An
   # explicit PROGRAM_ALIASES entry for a shell (e.g. "fish=sh") is a name the
-  # user asked for by hand, so it survives; nothing else about a shell tab does.
+  # user asked for by hand, so it survives; nothing else about a shell tab does
+  # -- bare prompt, an explicit SHELLS entry, an IGNORED_PROGRAMS command, or
+  # the login shell itself.
   if [ "${HIDE_SHELL:-0}" = "1" ] && [ "$is_shell" = "1" ]; then
     printf ''
     return 0
   fi
 
-  if [ "${ICONS_ENABLED:-0}" = "1" ] && [ -n "$prog" ]; then
+  # Icons annotate the program the tab is named after. Skip them whenever the
+  # label is a shell name: precmd names an idle prompt via ar_format "" "",
+  # which `[ -n "$prog" ]` denies an icon, so a glyph here would flip the label
+  # between "zsh" and "<glyph> zsh" on every reconcile. is_shell covers the
+  # bare prompt, the fixed SHELLS six, IGNORED_PROGRAMS, and the login shell
+  # itself (SHELL_NAME may sit outside SHELLS -- nu, tcsh, elvish -- yet still
+  # hit the map, or the fallback, at reconcile); comparing against SHELL_NAME
+  # additionally keeps a cmdline- or alias-derived label of the same text plain.
+  if [ "${ICONS_ENABLED:-0}" = "1" ] && [ -n "$prog" ] && [ "$is_shell" = "0" ] &&
+    [ "$name" != "$SHELL_NAME" ]; then
     ic=$(ar_icon "$prog")
+    # A lone fallback glyph says nothing about the program, so under
+    # ICON_STYLE=icon it is skipped and the plain name is kept: rg -> "rg",
+    # not "?". (name_and_icon still shows "? rg".)
+    if [ "${ICON_STYLE:-name_and_icon}" = "icon" ] && [ -n "$ic" ] && [ "$ic" = "$ICON_FALLBACK" ]; then
+      ic=""
+    fi
     if [ -n "$ic" ]; then
       case "${ICON_STYLE:-name_and_icon}" in
-        icon)            name=$ic ;;          # icon only
-        name)            : ;;                 # name only (icon suppressed)
-        name_and_icon|*) name="$ic $name" ;;  # icon + name (default)
+      icon) name=$ic ;;                      # icon only
+      name) : ;;                             # name only (icon suppressed)
+      name_and_icon | *) name="$ic $name" ;; # icon + name (default)
       esac
     fi
   fi
-
   # Truncate by Unicode codepoint, not byte. bash's ${#name} / ${name:0:$max}
   # count bytes under a C/POSIX locale (herdr may launch plugins with no LC_*),
   # which would slice a multibyte char in half and emit mojibake. jq (already a

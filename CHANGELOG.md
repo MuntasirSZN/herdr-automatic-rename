@@ -6,6 +6,34 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- The icon map moved out of `naming.sh` into `icons.sh` and grew from 9
+  entries to the full `tmux-nerd-font-window-name` map (its
+  [`defaults.yml`](https://raw.githubusercontent.com/joshmedeski/tmux-nerd-font-window-name/main/bin/defaults.yml),
+  ~170 programs), keeping the aliases this plugin always shipped (gvim/view,
+  bun/npx/pnpm, ipython/ipython3) and a robot glyph for every agent herdr
+  detects.
+- `ICON_FALLBACK` (default `?`): glyph shown when a program is missing from
+  the map, like upstream's `fallback-icon`. `''` turns the fallback off and
+  keeps unknown programs text-only. Under `ICON_STYLE=icon` the fallback is
+  treated as "no glyph", so an unknown program keeps its plain name (`rg`, not
+  `?`).
+- `ICON_MAP`: per-program icon overrides as `("prog=glyph")` pairs, checked
+  before the builtin map (e.g. `ICON_MAP=("claude=󰚩")`).
+- Shell labels get no icon even when the map has them: `precmd` names an idle
+  prompt without a program, so a glyph would flip the label between `zsh` and
+  `<glyph> zsh` on every reconcile. This covers the fixed `SHELLS` six,
+  `IGNORED_PROGRAMS` commands showing the shell label, and the user's real
+  login shell (`SHELL_NAME`), which can sit outside `SHELLS` (nu, tcsh,
+  elvish, ...).
+- The login shell is recognized by program, not by computed label: `prog ==
+  SHELL_NAME` is its own shell arm, so a reconcile agrees with the bare prompt
+  even with `SHOW_PROGRAM_ARGS=1` (no `? -elvish` when `SHELL_NAME=elvish`).
+- `HIDE_SHELL` also blanks the login shell itself: with 0.4.0's fixed `SHELLS`
+  six, a login shell outside the list (nu, tcsh, elvish, ...) kept naming
+  itself on reconcile while the idle label stayed blank.
+
 ## [0.4.0] - 2026-08-05
 
 Adds `HIDE_SHELL`, for leaving shell tabs to herdr's own tab number instead of a

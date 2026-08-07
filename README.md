@@ -128,14 +128,16 @@ Override the path with `HERDR_AUTOMATIC_RENAME_CONFIG`.
 | `SHOW_PROGRAM_ARGS` | `0` | `0` shows just the program name (`git`), `1` shows its full command line (`git log --oneline`). |
 | `MAX_NAME_LEN` | `20` | Cut the finished label off after this many characters. |
 | `SHELL_NAME` | `$SHELL` basename | Label shown at an idle prompt when no program is running (e.g. `zsh`). |
-| `HIDE_SHELL` | `0` | `1` gives a shell tab no name at all, so herdr's own tab number shows there instead of `zsh`. |
+| `HIDE_SHELL` | `0` | `1` gives a shell tab no name at all, so herdr's own tab number shows there instead of `zsh`. Covers the login shell (`SHELL_NAME`), not just the fixed `SHELLS` list. |
 | `SHELLS` | `zsh bash sh fish dash ksh` | Programs counted as "a shell prompt" and shown by their own name. |
 | `NAME_ONLY_PROGRAMS` | editors, git tools, agents | Programs always shown by bare name, never with args (`nvim`, `claude`). |
 | `IGNORED_PROGRAMS` | `ls`, `cd`, `cat`, ... | Quick commands that should not rename the tab. It keeps showing the shell instead. |
 | `PROGRAM_ALIASES` | none | Force a specific program to a custom label, e.g. `("lazygit=lg")`. |
 | `SUBSTITUTE_SETS` | two rules | `sed -E` rewrites that tidy up the label, e.g. to shorten a path-heavy command line. |
-| `ICONS_ENABLED` | `0` | `1` prepends a Nerd Font glyph for the program (needs a Nerd Font installed). |
+| `ICONS_ENABLED` | `0` | `1` prepends a Nerd Font glyph for the program (needs a Nerd Font installed). Shell labels never get one, so the tab doesn't flicker between `zsh` and `<glyph> zsh`. |
 | `ICON_STYLE` | `name_and_icon` | When icons are on, show `name_and_icon`, `icon` only, or `name` only. |
+| `ICON_FALLBACK` | `?` | Glyph for programs missing from the builtin map (~170 programs, from tmux-nerd-font-window-name's `defaults.yml`). `''` turns the fallback off; under `ICON_STYLE=icon` it is treated as no glyph (a bare `?` label says nothing). |
+| `ICON_MAP` | none | Per-program icon overrides, `("prog=glyph")` pairs; wins over the builtin map. |
 
 `config.example.sh` documents each with examples.
 
@@ -178,7 +180,7 @@ herdr plugin uninstall herdr-automatic-rename
 
 ## Development
 
-Engine: `automatic-rename.sh` (bash 3.2, needs only `jq` and the herdr CLI). Pure naming: `naming.sh`. Tests need only bash and jq:
+Engine: `automatic-rename.sh` (bash 3.2, needs only `jq` and the herdr CLI). Pure naming: `naming.sh` (icons: `icons.sh`). Tests need only bash and jq:
 
 ```sh
 ./tests/run.sh            # all
