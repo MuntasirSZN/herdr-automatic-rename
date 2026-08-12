@@ -75,23 +75,60 @@ CONFIG_FILE="${HERDR_AUTOMATIC_RENAME_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/
 # prefix helpers (the "[N] " contract, shared by both features)
 # ======================================================================
 
-# ar_index_on <workspaces|tabs|agents> -> 0 when that scope is numbered.
+# The three toggle predicates. Between them they are the only readers of
+# AUTO_INDEX and the per-kind overrides, so the "an override beats AUTO_INDEX"
+# rule has one implementation and cannot drift between the formatter
+# (ar_desired) and the passes that decide whether to run at all.
 #
-# The ONLY place the per-scope toggles are read, so the "a scope override wins
-# over AUTO_INDEX" rule has one implementation and cannot drift between the
-# formatter (ar_desired) and the passes that decide whether to run at all. The
-# inheritance itself is resolved once, in ar_index_defaults.
+# Each reads the config variables as they were written, resolving the fallback
+# where it is used rather than rewriting the variables up front. That keeps them
+# pure functions of the config: order-independent, idempotent, and unable to
+# lose the difference between a kind the config NAMED and one that inherited its
+# value -- a difference ar_index_pass depends on, and one that a resolve step
+# would have to snapshot before destroying.
 #
-# An unknown scope is off rather than on: every caller passes a literal, so
-# reaching the default means a typo, and refusing to number is the recoverable
-# half of that (a wrong rename is not).
+# An unknown kind is off rather than on in all three: every caller passes a
+# literal, so reaching the default means a typo, and refusing to number is the
+# recoverable half of that (a wrong rename is not).
+
+# ar_index_on <workspaces|tabs|agents> -> 0 when that kind is numbered.
+# The ":-1" is where "both features default on" lives for numbering.
 ar_index_on() {
   case "$1" in
-    workspaces) [ "${AUTO_INDEX_WORKSPACES:-}" = "1" ] ;;
-    tabs)       [ "${AUTO_INDEX_TABS:-}" = "1" ] ;;
-    agents)     [ "${AUTO_INDEX_AGENTS:-}" = "1" ] ;;
+    workspaces) [ "${AUTO_INDEX_WORKSPACES:-${AUTO_INDEX:-1}}" = "1" ] ;;
+    tabs)       [ "${AUTO_INDEX_TABS:-${AUTO_INDEX:-1}}" = "1" ] ;;
+    agents)     [ "${AUTO_INDEX_AGENTS:-${AUTO_INDEX:-1}}" = "1" ] ;;
     *)          false ;;
   esac
+}
+
+# ar_index_explicit <kind> -> 0 when the config named that kind itself rather
+# than inheriting AUTO_INDEX. Set-but-empty does not count, matching the ":-"
+# above, so the two stay in step by construction.
+#
+# This is what separates "I turned workspace numbering off" from "I have had
+# AUTO_INDEX=0 set for a year". Only the first asks for the prefixes already on
+# those rows to be cleaned up; the second is a config that predates the setting
+# and must keep behaving as it did, because the cleanup cannot tell a prefix we
+# wrote from one the user typed (see the strip note at the top of this file).
+ar_index_explicit() {
+  case "$1" in
+    workspaces) [ -n "${AUTO_INDEX_WORKSPACES:-}" ] ;;
+    tabs)       [ -n "${AUTO_INDEX_TABS:-}" ] ;;
+    agents)     [ -n "${AUTO_INDEX_AGENTS:-}" ] ;;
+    *)          false ;;
+  esac
+}
+
+# ar_index_pass <kind> -> 0 when that kind's reconcile pass has work to do.
+#
+# Two ways it can: the kind is numbered, or the config named it and switched it
+# off, which asks for the prefixes already there to be stripped. A kind that
+# merely inherited "off" asks for neither, and gets skipped exactly as it was
+# before per-kind settings existed. --clear overrides all of it, being the
+# uninstall path that strips everything.
+ar_index_pass() {
+  [ "$CLEAR" = "1" ] || ar_index_on "$1" || ar_index_explicit "$1"
 }
 
 # ar_strip_prefix <label> -> label with a leading "[<digits>] " removed. Only
@@ -148,9 +185,6 @@ ar_index_prefix() {
 # Any other position -> bare base, because no keybind reaches the item: it sits
 # past the 9th slot, or (position 0) the sidebar does not render it at all, which
 # is how ar_workspace_positions reports a row hidden inside a collapsed space.
-#
-# The scope argument is what lets one formatter serve three independently
-# toggleable item kinds; every caller passes its own literal.
 ar_desired() {
   local scope=$1 n=$2 base=$3
   if [ "$CLEAR" = "1" ] || ! ar_index_on "$scope"; then printf '%s' "$base"; return; fi
@@ -809,28 +843,18 @@ ar_reconcile() {
       AR_PANES_JSON=$("$HERDR" pane list 2>/dev/null) || AR_PANES_JSON='{"result":{"panes":[]}}'
     fi
   fi
-  # A pass runs when its kind is numbered, and ALSO when the config named that
-  # kind while switching it off: ar_desired then hands back the bare base, which
-  # is what strips a prefix an earlier config left behind. Without that second
-  # arm, setting AUTO_INDEX_WORKSPACES=0 would do nothing visible until the next
-  # "clear", which is the complaint issue #8 came from.
-  #
-  # A kind that merely INHERITED "off" from AUTO_INDEX gets neither arm, so a
-  # config that predates these settings stays the no-op it has always been. That
-  # asymmetry is the point rather than an oversight: the strip cannot tell our
-  # prefix from a hand-typed one, so it only ever runs where the config asked for
-  # it by name. Tabs keep their extra NAME_TABS arm, since naming needs the pass
-  # whatever the numbering says.
-  if [ "$CLEAR" = "1" ] || ar_index_on workspaces || ar_index_explicit workspaces; then
+  # ar_index_pass decides which of these have work to do (numbering, or the
+  # strip a named-and-off kind asks for). Tabs carry an extra arm because they
+  # are the only kind we NAME, so that pass runs whatever the numbering says.
+  if ar_index_pass workspaces; then
     ar_renumber_workspaces "$wsjson"
   fi
-  if [ "$CLEAR" = "1" ] || [ "$NAME_TABS" = "1" ] \
-     || ar_index_on tabs || ar_index_explicit tabs; then
+  if ar_index_pass tabs || [ "$NAME_TABS" = "1" ]; then
     AR_SEEN_TABS=""
     ar_reconcile_tabs "$wsjson"
     [ "$NAME_TABS" = "1" ] && [ -n "$AR_SEEN_TABS" ] && ar_state_prune $AR_SEEN_TABS
   fi
-  if [ "$CLEAR" = "1" ] || ar_index_on agents || ar_index_explicit agents; then
+  if ar_index_pass agents; then
     ar_renumber_agents
   fi
 }
@@ -908,45 +932,6 @@ ar_run() {
   done
 }
 
-# ar_index_defaults - resolve the numbering toggles after the config is sourced.
-#
-# AUTO_INDEX is read here and nowhere else: it supplies the default for each
-# scope, and a scope set in config.sh wins because := only fills an unset or
-# empty var. That is what keeps an existing AUTO_INDEX=0 meaning "no numbering
-# anywhere" while AUTO_INDEX_WORKSPACES=0 alone leaves tabs and agents numbered.
-#
-# Lives outside ar_main so the tests can exercise the inheritance directly --
-# sourcing this file for unit tests loads functions only and never runs ar_main.
-ar_index_defaults() {
-  # Which kinds the config NAMED, recorded before the fallback fills the rest in
-  # and indistinguishably. ":+" rather than "+" so "set but empty" counts the
-  # same way here as it does for ":=" below, which would overwrite it.
-  AR_INDEX_SET_WORKSPACES=${AUTO_INDEX_WORKSPACES:+1}
-  AR_INDEX_SET_TABS=${AUTO_INDEX_TABS:+1}
-  AR_INDEX_SET_AGENTS=${AUTO_INDEX_AGENTS:+1}
-  : "${AUTO_INDEX:=1}"
-  : "${AUTO_INDEX_WORKSPACES:=$AUTO_INDEX}"
-  : "${AUTO_INDEX_TABS:=$AUTO_INDEX}"
-  : "${AUTO_INDEX_AGENTS:=$AUTO_INDEX}"
-}
-
-# ar_index_explicit <workspaces|tabs|agents> -> 0 when the config named that kind
-# itself rather than inheriting AUTO_INDEX.
-#
-# This is what separates "I turned workspace numbering off" from "I have had
-# AUTO_INDEX=0 set for a year". Only the first asks for the prefixes already on
-# those rows to be cleaned up; the second is a config that predates the setting
-# and must keep behaving as it did, because the cleanup cannot tell a prefix we
-# wrote from one the user typed (see the strip note at the top of this file).
-ar_index_explicit() {
-  case "$1" in
-    workspaces) [ -n "${AR_INDEX_SET_WORKSPACES:-}" ] ;;
-    tabs)       [ -n "${AR_INDEX_SET_TABS:-}" ] ;;
-    agents)     [ -n "${AR_INDEX_SET_AGENTS:-}" ] ;;
-    *)          false ;;
-  esac
-}
-
 # ======================================================================
 # entry point
 # ======================================================================
@@ -964,11 +949,11 @@ ar_main() {
   [ -f "$CONFIG_FILE" ] && . "$CONFIG_FILE"
   . "$AR_ROOT/naming.sh"
 
-  # Feature toggles (default on). A config value of 0 wins because := only fills
-  # an unset/empty var. The numbering scopes resolve in their own function so the
-  # tests can reach the AUTO_INDEX inheritance without running ar_main.
+  # Naming toggle (default on). A config value of 0 wins because := only fills
+  # an unset/empty var. Numbering needs nothing here: AUTO_INDEX, the per-kind
+  # overrides and their shared default are read straight from the config by
+  # ar_index_on and ar_index_explicit.
   : "${NAME_TABS:=1}"
-  ar_index_defaults
 
   MODE="${1:-event}"
   CLEAR=0

@@ -31,56 +31,58 @@ ar_is_placeholder "42";   check_rc "42 is placeholder"       0 $?
 ar_is_placeholder "nvim"; check_rc "name is not placeholder" 1 $?
 ar_is_placeholder "3a";   check_rc "3a is not placeholder"   1 $?
 
-# ---- ar_index_defaults: AUTO_INDEX supplies each scope's default ----
-# Unset every knob per case: := only fills an unset/empty var, which is the whole
-# mechanism under test. A subshell keeps each case from leaking into the next.
-_idx() (
+# ---- the three toggle predicates ----
+# Each case runs in a subshell with every knob unset, so one case cannot leak
+# into the next and each states its whole config in one line. _kinds runs a
+# predicate over all three kinds and names the ones it is true for, which reads
+# better against the inheritance rules than three separate rc checks.
+_kinds() (
   unset AUTO_INDEX AUTO_INDEX_WORKSPACES AUTO_INDEX_TABS AUTO_INDEX_AGENTS
-  eval "$1"
-  ar_index_defaults
-  printf '%s/%s/%s' "$AUTO_INDEX_WORKSPACES" "$AUTO_INDEX_TABS" "$AUTO_INDEX_AGENTS"
-)
-check "defaults: all unset -> on"   "1/1/1" "$(_idx ':')"
-check "defaults: AUTO_INDEX=0"      "0/0/0" "$(_idx 'AUTO_INDEX=0')"
-check "defaults: AUTO_INDEX=1"      "1/1/1" "$(_idx 'AUTO_INDEX=1')"
-# Issue #8: numbered tabs, plain workspaces, from one line of config.
-check "defaults: ws off alone"      "0/1/1" "$(_idx 'AUTO_INDEX_WORKSPACES=0')"
-check "defaults: scope beats master" "1/0/0" "$(_idx 'AUTO_INDEX=0; AUTO_INDEX_WORKSPACES=1')"
-check "defaults: agents off alone"  "1/1/0" "$(_idx 'AUTO_INDEX_AGENTS=0')"
-
-# ---- ar_index_explicit: did the config NAME this kind, or inherit it? ----
-# Only a named kind arms the strip, so a config carrying nothing but AUTO_INDEX
-# keeps the no-op behavior it had before these settings existed.
-_exp() (
-  unset AUTO_INDEX AUTO_INDEX_WORKSPACES AUTO_INDEX_TABS AUTO_INDEX_AGENTS
-  unset AR_INDEX_SET_WORKSPACES AR_INDEX_SET_TABS AR_INDEX_SET_AGENTS
-  eval "$1"
-  ar_index_defaults
+  CLEAR=0
+  eval "$2"
   out=""
-  for s in workspaces tabs agents; do
-    if ar_index_explicit "$s"; then out="$out$s "; fi
+  for k in workspaces tabs agents; do
+    if "$1" "$k"; then out="$out$k "; fi
   done
   printf '%s' "${out% }"
 )
-check "explicit: nothing named"      ""            "$(_exp ':')"
-check "explicit: AUTO_INDEX only"    ""            "$(_exp 'AUTO_INDEX=0')"
-check "explicit: workspaces named"   "workspaces"  "$(_exp 'AUTO_INDEX_WORKSPACES=0')"
-check "explicit: named on counts"    "tabs"        "$(_exp 'AUTO_INDEX_TABS=1')"
-check "explicit: all three named"    "workspaces tabs agents" \
-  "$(_exp 'AUTO_INDEX_WORKSPACES=0; AUTO_INDEX_TABS=0; AUTO_INDEX_AGENTS=0')"
-# Set-but-empty is filled by := and so is NOT named, keeping the two in step.
-check "explicit: empty is not named" ""            "$(_exp 'AUTO_INDEX_WORKSPACES=')"
-( unset AR_INDEX_SET_WORKSPACES; ar_index_explicit nonsense )
-check_rc "explicit: unknown kind" 1 $?
 
-# ---- ar_index_on: the single reader of the per-scope toggles ----
-AUTO_INDEX_WORKSPACES=1 AUTO_INDEX_TABS=0 AUTO_INDEX_AGENTS=1
-ar_index_on workspaces; check_rc "index_on workspaces"     0 $?
-ar_index_on tabs;       check_rc "index_on tabs off"       1 $?
-ar_index_on agents;     check_rc "index_on agents"         0 $?
-ar_index_on nonsense;   check_rc "index_on unknown is off" 1 $?
+# ar_index_on: an override beats AUTO_INDEX, and both default on.
+_ALL="workspaces tabs agents"
+check "on: all unset -> all on"    "$_ALL"     "$(_kinds ar_index_on ':')"
+check "on: AUTO_INDEX=1"           "$_ALL"     "$(_kinds ar_index_on 'AUTO_INDEX=1')"
+check "on: AUTO_INDEX=0"           ""          "$(_kinds ar_index_on 'AUTO_INDEX=0')"
+# Issue #8: numbered tabs, plain workspaces, from one line of config.
+check "on: ws off alone"           "tabs agents" "$(_kinds ar_index_on 'AUTO_INDEX_WORKSPACES=0')"
+check "on: override beats master"  "workspaces"  "$(_kinds ar_index_on 'AUTO_INDEX=0; AUTO_INDEX_WORKSPACES=1')"
+check "on: agents off alone"       "workspaces tabs" "$(_kinds ar_index_on 'AUTO_INDEX_AGENTS=0')"
 # Anything but "1" reads as off, matching every other toggle in the plugin.
-( AUTO_INDEX_TABS=yes; ar_index_on tabs ); check_rc "index_on non-1 is off" 1 $?
+check "on: non-1 is off"           "workspaces agents" "$(_kinds ar_index_on 'AUTO_INDEX_TABS=yes')"
+ar_index_on nonsense; check_rc "on: unknown kind is off" 1 $?
+
+# ar_index_explicit: did the config NAME this kind, or inherit it? Only a named
+# kind arms the strip, so a config carrying nothing but AUTO_INDEX keeps the
+# no-op behavior it had before these settings existed.
+check "explicit: nothing named"    ""            "$(_kinds ar_index_explicit ':')"
+check "explicit: AUTO_INDEX only"  ""            "$(_kinds ar_index_explicit 'AUTO_INDEX=0')"
+check "explicit: workspaces named" "workspaces"  "$(_kinds ar_index_explicit 'AUTO_INDEX_WORKSPACES=0')"
+check "explicit: named on counts"  "tabs"        "$(_kinds ar_index_explicit 'AUTO_INDEX_TABS=1')"
+check "explicit: all three named"  "$_ALL" \
+  "$(_kinds ar_index_explicit 'AUTO_INDEX_WORKSPACES=0; AUTO_INDEX_TABS=0; AUTO_INDEX_AGENTS=0')"
+# Set-but-empty falls back like an unset var, so it is not named either -- that
+# is what keeps ar_index_on's ":-" and this ":-" in step.
+check "explicit: empty is not named" ""          "$(_kinds ar_index_explicit 'AUTO_INDEX_WORKSPACES=')"
+ar_index_explicit nonsense; check_rc "explicit: unknown kind" 1 $?
+
+# ar_index_pass: which kinds' passes have work to do -- numbering, or the strip
+# a named-and-off kind asks for. An inherited "off" asks for neither.
+check "pass: all default on"       "$_ALL"     "$(_kinds ar_index_pass ':')"
+check "pass: legacy AUTO_INDEX=0"  ""          "$(_kinds ar_index_pass 'AUTO_INDEX=0')"
+check "pass: named off still runs" "$_ALL"     "$(_kinds ar_index_pass 'AUTO_INDEX_WORKSPACES=0')"
+check "pass: named off on a legacy config" "workspaces" \
+  "$(_kinds ar_index_pass 'AUTO_INDEX=0; AUTO_INDEX_WORKSPACES=0')"
+check "pass: --clear runs all"     "$_ALL"     "$(_kinds ar_index_pass 'AUTO_INDEX=0; CLEAR=1')"
+ar_index_pass nonsense; check_rc "pass: unknown kind is off" 1 $?
 
 # ---- ar_desired: scope + position -> label under the toggles ----
 CLEAR=0; AUTO_INDEX_WORKSPACES=1 AUTO_INDEX_TABS=1 AUTO_INDEX_AGENTS=1

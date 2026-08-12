@@ -27,6 +27,7 @@ setup() {
   export SHELL_NAME=zsh
   unset HERDR_MOCK_VERSION HERDR_MOCK_NO_VERSION   # per-scenario opt-in; mock default is current herdr
   unset HIDE_SHELL                                 # per-scenario opt-in; default is off
+  unset AUTO_INDEX_WORKSPACES AUTO_INDEX_TABS AUTO_INDEX_AGENTS   # per-kind opt-in; inherit AUTO_INDEX
 }
 fixture() { cat >"$HERDR_MOCK_DIR/$1"; }   # fixture <name>  (JSON on stdin)
 run_event() { /usr/bin/env bash "$ENGINE" "$1"; }
@@ -539,7 +540,6 @@ check_absent   "ws never renumbered"       "$out" "workspace rename w1 [1]"
 check_absent   "unprefixed ws left alone"  "$out" "workspace rename w2"
 check_contains "tabs still numbered"       "$out" "tab rename w1:t1 [1] nvim"
 check_contains "agents still numbered"     "$out" "agent rename w1:pA [1] claude"
-unset AUTO_INDEX_WORKSPACES
 teardown
 
 # ======================================================================
@@ -566,7 +566,6 @@ run_event tab.focused
 out=$(log)
 check_contains "tab keeps name, loses number" "$out" "tab rename w1:t1 nvim"
 check_contains "workspace still numbered"     "$out" "workspace rename w1 [1] api"
-unset AUTO_INDEX_TABS
 teardown
 
 # ======================================================================
@@ -594,7 +593,6 @@ run_event tab.focused
 out=$(log)
 check_contains "agent prefix stripped"    "$out" "agent rename w1:pA --clear"
 check_contains "workspace still numbered" "$out" "workspace rename w1 [1] api"
-unset AUTO_INDEX_AGENTS
 teardown
 
 # ======================================================================
@@ -625,9 +623,11 @@ teardown
 
 # ======================================================================
 # Scenario 18: name the kind and the strip arms, including the cost of it.
-#   AUTO_INDEX_WORKSPACES=0 explicitly, same fixtures as 17. The stale prefix
-#   goes, and so does a hand-typed one -- nothing tells them apart, which is
-#   what the docs warn about. "[wip] ..." is spared by the all-digits rule.
+#   Scenario 17's config plus an explicit AUTO_INDEX_WORKSPACES=0, so the pair
+#   isolates naming as the thing that arms it. The stale prefix goes, and so
+#   does a hand-typed one -- nothing tells them apart, which is what the docs
+#   warn about. "[wip] ..." is spared by the all-digits rule, and agents, still
+#   only inheriting, stay untouched.
 # ======================================================================
 setup
 export NAME_TABS=0 AUTO_INDEX=0 AUTO_INDEX_WORKSPACES=0
@@ -655,7 +655,6 @@ out=$(log)
 check_contains "named kind strips its prefix"  "$out" "workspace rename w1 incident"
 check_absent   "non-digit bracket survives"    "$out" "workspace rename w2"
 check_absent   "unnamed kind still untouched"  "$out" "agent rename"
-unset AUTO_INDEX_WORKSPACES
 teardown
 
 t_summary

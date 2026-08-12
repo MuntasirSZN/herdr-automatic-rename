@@ -32,6 +32,7 @@ setup() {
   export SHELL_NAME=zsh
   export NAME_TABS=1 AUTO_INDEX=1
   unset HIDE_SHELL                            # per-scenario opt-in; default is off
+  unset AUTO_INDEX_WORKSPACES AUTO_INDEX_TABS AUTO_INDEX_AGENTS   # per-kind opt-in
   export HERDR_TAB_ID=t1 HERDR_PANE_ID=p1
   mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
   printf '{"t1":{"auto":"zsh","enabled":true}}\n' \
@@ -165,7 +166,6 @@ setup
 export AUTO_INDEX_TABS=0
 /usr/bin/env bash "$ENGINE" preexec "nvim README.md"
 check "tabs opted out: prefix dropped" "tab rename t1 nvim" "$(log)"
-unset AUTO_INDEX_TABS
 teardown
 
 # And the mirror: workspaces opted out leaves the tab fast path numbering as
@@ -174,7 +174,6 @@ setup
 export AUTO_INDEX_WORKSPACES=0
 /usr/bin/env bash "$ENGINE" preexec "nvim README.md"
 check "workspaces opted out: tab keeps number" "tab rename t1 [1] nvim" "$(log)"
-unset AUTO_INDEX_WORKSPACES
 teardown
 
 t_summary
