@@ -48,6 +48,31 @@ check "defaults: ws off alone"      "0/1/1" "$(_idx 'AUTO_INDEX_WORKSPACES=0')"
 check "defaults: scope beats master" "1/0/0" "$(_idx 'AUTO_INDEX=0; AUTO_INDEX_WORKSPACES=1')"
 check "defaults: agents off alone"  "1/1/0" "$(_idx 'AUTO_INDEX_AGENTS=0')"
 
+# ---- ar_index_explicit: did the config NAME this kind, or inherit it? ----
+# Only a named kind arms the strip, so a config carrying nothing but AUTO_INDEX
+# keeps the no-op behavior it had before these settings existed.
+_exp() (
+  unset AUTO_INDEX AUTO_INDEX_WORKSPACES AUTO_INDEX_TABS AUTO_INDEX_AGENTS
+  unset AR_INDEX_SET_WORKSPACES AR_INDEX_SET_TABS AR_INDEX_SET_AGENTS
+  eval "$1"
+  ar_index_defaults
+  out=""
+  for s in workspaces tabs agents; do
+    if ar_index_explicit "$s"; then out="$out$s "; fi
+  done
+  printf '%s' "${out% }"
+)
+check "explicit: nothing named"      ""            "$(_exp ':')"
+check "explicit: AUTO_INDEX only"    ""            "$(_exp 'AUTO_INDEX=0')"
+check "explicit: workspaces named"   "workspaces"  "$(_exp 'AUTO_INDEX_WORKSPACES=0')"
+check "explicit: named on counts"    "tabs"        "$(_exp 'AUTO_INDEX_TABS=1')"
+check "explicit: all three named"    "workspaces tabs agents" \
+  "$(_exp 'AUTO_INDEX_WORKSPACES=0; AUTO_INDEX_TABS=0; AUTO_INDEX_AGENTS=0')"
+# Set-but-empty is filled by := and so is NOT named, keeping the two in step.
+check "explicit: empty is not named" ""            "$(_exp 'AUTO_INDEX_WORKSPACES=')"
+( unset AR_INDEX_SET_WORKSPACES; ar_index_explicit nonsense )
+check_rc "explicit: unknown kind" 1 $?
+
 # ---- ar_index_on: the single reader of the per-scope toggles ----
 AUTO_INDEX_WORKSPACES=1 AUTO_INDEX_TABS=0 AUTO_INDEX_AGENTS=1
 ar_index_on workspaces; check_rc "index_on workspaces"     0 $?

@@ -598,15 +598,40 @@ unset AUTO_INDEX_AGENTS
 teardown
 
 # ======================================================================
-# Scenario 17: the documented cost of that strip. Nothing records which "[N] "
-#   prefixes we wrote, so with a kind switched off the cleanup takes a
-#   hand-typed bracketed number down with it. Pinned rather than fixed: the same
-#   label is rewritten to the row's own number when numbering is ON, so
-#   numbering-off is not what put it at risk. ar_strip_prefix's all-digits rule
-#   is the whole protection, and "[wip] ..." is what it protects.
+# Scenario 17: a config that predates these settings must not be touched.
+#   Only AUTO_INDEX=0 is set, so every kind INHERITS off and nothing was named.
+#   The passes are skipped exactly as they were before per-kind settings existed,
+#   which is what keeps a hand-typed "[1] incident" that has sat there for
+#   months from being stripped by an upgrade the user did not ask for.
 # ======================================================================
 setup
 export NAME_TABS=0 AUTO_INDEX=0
+export HERDR_MOCK_VERSION=0.7.4   # < 0.7.5: agents would be eligible
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] incident"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[2] notes","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[]}}
+JSON
+fixture agents.json <<'JSON'
+{"result":{"agents":[{"terminal_id":"term_a","pane_id":"w1:pA","name":"[3] triage","agent_session":{"agent":"claude"}}]}}
+JSON
+run_event tab.focused
+check "legacy AUTO_INDEX=0 renames nothing" "" "$(log)"
+teardown
+
+# ======================================================================
+# Scenario 18: name the kind and the strip arms, including the cost of it.
+#   AUTO_INDEX_WORKSPACES=0 explicitly, same fixtures as 17. The stale prefix
+#   goes, and so does a hand-typed one -- nothing tells them apart, which is
+#   what the docs warn about. "[wip] ..." is spared by the all-digits rule.
+# ======================================================================
+setup
+export NAME_TABS=0 AUTO_INDEX=0 AUTO_INDEX_WORKSPACES=0
+export HERDR_MOCK_VERSION=0.7.4
 fixture workspaces.json <<'JSON'
 {"result":{"workspaces":[
   {"workspace_id":"w1","label":"[1] incident"},
@@ -623,12 +648,14 @@ fixture panes.json <<'JSON'
 {"result":{"panes":[]}}
 JSON
 fixture agents.json <<'JSON'
-{"result":{"agents":[]}}
+{"result":{"agents":[{"terminal_id":"term_a","pane_id":"w1:pA","name":"[3] triage","agent_session":{"agent":"claude"}}]}}
 JSON
 run_event tab.focused
 out=$(log)
-check_contains "hand-typed digits are stripped too" "$out" "workspace rename w1 incident"
-check_absent   "non-digit bracket survives"         "$out" "workspace rename w2"
+check_contains "named kind strips its prefix"  "$out" "workspace rename w1 incident"
+check_absent   "non-digit bracket survives"    "$out" "workspace rename w2"
+check_absent   "unnamed kind still untouched"  "$out" "agent rename"
+unset AUTO_INDEX_WORKSPACES
 teardown
 
 t_summary

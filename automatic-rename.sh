@@ -17,13 +17,18 @@
 #                 the panel behind an API we can't read, see ar_agent_sort).
 #                 Agent prefixes are stripped in both cases.
 #
-# A scope switched off does not merely stop numbering: its pass still runs and
-# strips the prefixes already there, so turning one off is visible on the next
-# event rather than waiting for the "clear" action (see ar_reconcile). Nothing
-# records which prefixes we wrote, so that strip also takes a hand-typed
-# "[1] incident" down to "incident" -- the same label numbering-on would have
-# rewritten to the row's own number anyway. ar_strip_prefix's all-digits rule is
-# the whole of the protection here, and it is what keeps "[wip] foo" intact.
+# Naming a kind and switching it off does not merely stop numbering: its pass
+# still runs and strips the prefixes already there, so the change is visible on
+# the next event rather than waiting for the "clear" action (see ar_reconcile).
+# Nothing records which prefixes we wrote, so that strip also takes a hand-typed
+# "[1] incident" down to "incident"; ar_strip_prefix's all-digits rule is the
+# whole of the protection, and it is what keeps "[wip] foo" intact.
+#
+# Which is why it is the NAMING that arms it, not the value. A config carrying
+# only AUTO_INDEX=0 predates these settings, has never had us touch its
+# workspace or agent labels, and keeps that no-op behavior on upgrade. Tabs are
+# the exception, and only because they were already stripped this way whenever
+# NAME_TABS was on.
 #
 # Both default on and are configured in config.sh ($HERDR_AUTOMATIC_RENAME_CONFIG). A
 # single unified reconcile drives both: one pass computes a tab's base name and
@@ -804,18 +809,30 @@ ar_reconcile() {
       AR_PANES_JSON=$("$HERDR" pane list 2>/dev/null) || AR_PANES_JSON='{"result":{"panes":[]}}'
     fi
   fi
-  # All three passes run unconditionally. A scope that is OFF still has work to
-  # do -- ar_desired hands back the bare base, which is how a prefix left behind
-  # by an earlier config gets stripped -- so gating a pass on its own toggle
-  # would make switching that scope off do nothing visible until the next
-  # "clear". Each pass is idempotent and compares want to the current label
-  # before renaming, so a settled session issues zero calls either way, and the
-  # snapshot every pass reads from was already fetched above.
-  ar_renumber_workspaces "$wsjson"
-  AR_SEEN_TABS=""
-  ar_reconcile_tabs "$wsjson"
-  [ "$NAME_TABS" = "1" ] && [ -n "$AR_SEEN_TABS" ] && ar_state_prune $AR_SEEN_TABS
-  ar_renumber_agents
+  # A pass runs when its kind is numbered, and ALSO when the config named that
+  # kind while switching it off: ar_desired then hands back the bare base, which
+  # is what strips a prefix an earlier config left behind. Without that second
+  # arm, setting AUTO_INDEX_WORKSPACES=0 would do nothing visible until the next
+  # "clear", which is the complaint issue #8 came from.
+  #
+  # A kind that merely INHERITED "off" from AUTO_INDEX gets neither arm, so a
+  # config that predates these settings stays the no-op it has always been. That
+  # asymmetry is the point rather than an oversight: the strip cannot tell our
+  # prefix from a hand-typed one, so it only ever runs where the config asked for
+  # it by name. Tabs keep their extra NAME_TABS arm, since naming needs the pass
+  # whatever the numbering says.
+  if [ "$CLEAR" = "1" ] || ar_index_on workspaces || ar_index_explicit workspaces; then
+    ar_renumber_workspaces "$wsjson"
+  fi
+  if [ "$CLEAR" = "1" ] || [ "$NAME_TABS" = "1" ] \
+     || ar_index_on tabs || ar_index_explicit tabs; then
+    AR_SEEN_TABS=""
+    ar_reconcile_tabs "$wsjson"
+    [ "$NAME_TABS" = "1" ] && [ -n "$AR_SEEN_TABS" ] && ar_state_prune $AR_SEEN_TABS
+  fi
+  if [ "$CLEAR" = "1" ] || ar_index_on agents || ar_index_explicit agents; then
+    ar_renumber_agents
+  fi
 }
 
 # Fast path for the shell hooks: rename only the current tab (no cross-tab work).
@@ -901,10 +918,33 @@ ar_run() {
 # Lives outside ar_main so the tests can exercise the inheritance directly --
 # sourcing this file for unit tests loads functions only and never runs ar_main.
 ar_index_defaults() {
+  # Which kinds the config NAMED, recorded before the fallback fills the rest in
+  # and indistinguishably. ":+" rather than "+" so "set but empty" counts the
+  # same way here as it does for ":=" below, which would overwrite it.
+  AR_INDEX_SET_WORKSPACES=${AUTO_INDEX_WORKSPACES:+1}
+  AR_INDEX_SET_TABS=${AUTO_INDEX_TABS:+1}
+  AR_INDEX_SET_AGENTS=${AUTO_INDEX_AGENTS:+1}
   : "${AUTO_INDEX:=1}"
   : "${AUTO_INDEX_WORKSPACES:=$AUTO_INDEX}"
   : "${AUTO_INDEX_TABS:=$AUTO_INDEX}"
   : "${AUTO_INDEX_AGENTS:=$AUTO_INDEX}"
+}
+
+# ar_index_explicit <workspaces|tabs|agents> -> 0 when the config named that kind
+# itself rather than inheriting AUTO_INDEX.
+#
+# This is what separates "I turned workspace numbering off" from "I have had
+# AUTO_INDEX=0 set for a year". Only the first asks for the prefixes already on
+# those rows to be cleaned up; the second is a config that predates the setting
+# and must keep behaving as it did, because the cleanup cannot tell a prefix we
+# wrote from one the user typed (see the strip note at the top of this file).
+ar_index_explicit() {
+  case "$1" in
+    workspaces) [ -n "${AR_INDEX_SET_WORKSPACES:-}" ] ;;
+    tabs)       [ -n "${AR_INDEX_SET_TABS:-}" ] ;;
+    agents)     [ -n "${AR_INDEX_SET_AGENTS:-}" ] ;;
+    *)          false ;;
+  esac
 }
 
 # ======================================================================

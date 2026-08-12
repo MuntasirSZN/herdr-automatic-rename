@@ -25,15 +25,16 @@
 # AUTO_INDEX_TABS=1
 # AUTO_INDEX_AGENTS=1
 #
-# Switching one off also removes the prefixes already on those rows, on the next
-# herdr event -- no need to run the "clear" action.
+# Setting one of these to 0 also removes the prefixes already on those rows, on
+# the next herdr event -- no need to run the "clear" action.
 #
 # That cleanup cannot tell one "[N] " apart from another. Nothing records which
 # prefixes this plugin wrote, so a name you typed yourself that starts with a
-# bracketed number, say "[1] incident", loses the bracket too. Numbering is not
-# what puts it at risk: with numbering ON the same name is rewritten to whatever
-# the row's jump number is. Anything else in brackets ("[wip] foo") is left
-# alone, digits are the only trigger.
+# bracketed number, say "[1] incident", loses the bracket too. Naming the kind
+# here is how you ask for the cleanup and accept that. A config with only
+# AUTO_INDEX=0 in it never triggers it and keeps every label untouched.
+# Anything else in brackets ("[wip] foo") is left alone, digits are the only
+# trigger.
 
 # ---- naming knobs (only used when NAME_TABS=1) ----
 

@@ -16,16 +16,16 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ### Changed
 
-- Switching numbering off for a kind now strips the `[N]` already on those rows
-  at the next event, instead of leaving them until the `clear` action. This was
-  already how tabs behaved with `AUTO_INDEX=0` and `NAME_TABS=1`; workspaces and
-  agents were skipped entirely and kept stale prefixes indefinitely.
+- Setting one of the new per-kind knobs to `0` strips the `[N]` already on those
+  rows at the next event, instead of leaving them until the `clear` action.
 
-  The strip cannot tell a prefix this plugin wrote from one you typed, so a
-  hand-picked `[1] incident` on a workspace or agent now loses its bracket where
-  it previously survived. Numbering was never the safe state for such a name
-  either: with it on, the same label is rewritten to that row's jump number.
-  Only all-digit brackets are touched; `[wip] deploy` is unaffected.
+  Only a knob you set does this. The strip cannot tell a prefix this plugin
+  wrote from one you typed, so a hand-picked `[1] incident` would lose its
+  bracket, and naming the kind is how you ask for that. A config carrying only
+  `AUTO_INDEX=0` never triggers it: workspace and agent labels there are left
+  alone, exactly as before. Tabs are the one kind already stripped this way
+  whenever `NAME_TABS=1`, and that is unchanged. Only all-digit brackets are
+  ever touched; `[wip] deploy` is safe throughout.
 
 ## [0.5.0] - 2026-08-07
 
