@@ -501,4 +501,100 @@ check_absent "erased name does not blank a tab" "$(log)" "tab rename w1:t1"
 unset MAX_NAME_LEN
 teardown
 
+# ======================================================================
+# Scenario 14: issue #8 -- numbered tabs, plain workspaces, from one knob.
+#   AUTO_INDEX_WORKSPACES=0 alone. Tabs and agents keep numbering (they inherit
+#   AUTO_INDEX), and the workspace prefix already on the row is STRIPPED rather
+#   than left for the next `clear`: the pass runs whether the scope is on or off.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=1 AUTO_INDEX_WORKSPACES=0
+export HERDR_MOCK_VERSION=0.7.4   # < 0.7.5: agent numbering is still possible
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[
+  {"workspace_id":"w1","label":"[1] api"},
+  {"workspace_id":"w2","label":"web"}
+]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true}]}}
+JSON
+fixture tabs_w2.json <<'JSON'
+{"result":{"tabs":[]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+fixture agents.json <<'JSON'
+{"result":{"agents":[{"terminal_id":"term_a","pane_id":"w1:pA","name":"claude","agent_session":{"agent":"claude"}}]}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "stale ws prefix stripped"  "$out" "workspace rename w1 api"
+check_absent   "ws never renumbered"       "$out" "workspace rename w1 [1]"
+check_absent   "unprefixed ws left alone"  "$out" "workspace rename w2"
+check_contains "tabs still numbered"       "$out" "tab rename w1:t1 [1] nvim"
+check_contains "agents still numbered"     "$out" "agent rename w1:pA [1] claude"
+unset AUTO_INDEX_WORKSPACES
+teardown
+
+# ======================================================================
+# Scenario 15: the mirror image -- AUTO_INDEX_TABS=0 with the rest on. The tab
+#   keeps its NAME but loses its number, while the workspace keeps both.
+#   Guards against a scope leaking into its neighbours through ar_index_on.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=1 AUTO_INDEX_TABS=0
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[1] nvim","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "tab keeps name, loses number" "$out" "tab rename w1:t1 nvim"
+check_contains "workspace still numbered"     "$out" "workspace rename w1 [1] api"
+unset AUTO_INDEX_TABS
+teardown
+
+# ======================================================================
+# Scenario 16: AUTO_INDEX_AGENTS=0 strips an agent prefix on a herdr that would
+#   otherwise accept one, and does it without consulting the version or the
+#   panel sort -- the toggle is tested before both probes. Workspaces and tabs,
+#   inheriting AUTO_INDEX=1, are unaffected.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=1 AUTO_INDEX_AGENTS=0
+export HERDR_MOCK_VERSION=0.7.4   # < 0.7.5: numbering would be allowed
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[]}}
+JSON
+fixture agents.json <<'JSON'
+{"result":{"agents":[{"terminal_id":"term_a","pane_id":"w1:pA","name":"[1] claude","agent_session":{"agent":"claude"}}]}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "agent prefix stripped"    "$out" "agent rename w1:pA --clear"
+check_contains "workspace still numbered" "$out" "workspace rename w1 [1] api"
+unset AUTO_INDEX_AGENTS
+teardown
+
 t_summary

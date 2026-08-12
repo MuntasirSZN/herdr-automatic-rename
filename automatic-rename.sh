@@ -7,12 +7,19 @@
 #                 to tabs only.
 #   AUTO_INDEX=1  prefix each workspace, tab, and agent with the 1-9 number of
 #                 its jump keybind (switch_workspace/switch_tab/focus_agent) as
-#                 "[N] <base>". Applies to workspaces, tabs, and agents -- except
-#                 agents, which are numbered only on herdr < 0.7.5 (newer herdr
-#                 rejects a bracketed agent name outright, see ar_agent_prefix_ok)
-#                 and only when the panel is grouped-sorted ("priority" sort
-#                 reorders the panel behind an API we can't read, see
-#                 ar_agent_sort). Agent prefixes are stripped in both cases.
+#                 "[N] <base>". Per-scope overrides AUTO_INDEX_WORKSPACES,
+#                 AUTO_INDEX_TABS and AUTO_INDEX_AGENTS each default to
+#                 AUTO_INDEX and win over it when set, so "numbered tabs, plain
+#                 workspaces" is AUTO_INDEX_WORKSPACES=0 on its own (issue #8).
+#                 Agents are numbered only on herdr < 0.7.5 (newer herdr rejects
+#                 a bracketed agent name outright, see ar_agent_prefix_ok) and
+#                 only when the panel is grouped-sorted ("priority" sort reorders
+#                 the panel behind an API we can't read, see ar_agent_sort).
+#                 Agent prefixes are stripped in both cases.
+#
+# A scope switched off does not merely stop numbering: its pass still runs and
+# strips the prefixes already there, so turning one off is visible on the next
+# event rather than waiting for the "clear" action (see ar_reconcile).
 #
 # Both default on and are configured in config.sh ($HERDR_AUTOMATIC_RENAME_CONFIG). A
 # single unified reconcile drives both: one pass computes a tab's base name and
@@ -58,6 +65,25 @@ CONFIG_FILE="${HERDR_AUTOMATIC_RENAME_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/
 # ======================================================================
 # prefix helpers (the "[N] " contract, shared by both features)
 # ======================================================================
+
+# ar_index_on <workspaces|tabs|agents> -> 0 when that scope is numbered.
+#
+# The ONLY place the per-scope toggles are read, so the "a scope override wins
+# over AUTO_INDEX" rule has one implementation and cannot drift between the
+# formatter (ar_desired) and the passes that decide whether to run at all. The
+# inheritance itself is resolved once, in ar_index_defaults.
+#
+# An unknown scope is off rather than on: every caller passes a literal, so
+# reaching the default means a typo, and refusing to number is the recoverable
+# half of that (a wrong rename is not).
+ar_index_on() {
+  case "$1" in
+    workspaces) [ "${AUTO_INDEX_WORKSPACES:-}" = "1" ] ;;
+    tabs)       [ "${AUTO_INDEX_TABS:-}" = "1" ] ;;
+    agents)     [ "${AUTO_INDEX_AGENTS:-}" = "1" ] ;;
+    *)          false ;;
+  esac
+}
 
 # ar_strip_prefix <label> -> label with a leading "[<digits>] " removed. Only
 # strips when the bracketed part is all digits (so user text like "[wip] foo" is
@@ -106,16 +132,19 @@ ar_index_prefix() {
   esac
 }
 
-# ar_desired <position> <base> -> the label this item should have.
-#   --clear             -> always the bare base (strip numbering)
-#   AUTO_INDEX off       -> bare base (self-heals a stale prefix as items reconcile)
-#   AUTO_INDEX on, 1..9  -> "[N] base"
+# ar_desired <scope> <position> <base> -> the label this item should have.
+#   --clear              -> always the bare base (strip numbering)
+#   scope off            -> bare base (self-heals a stale prefix as items reconcile)
+#   scope on, 1..9       -> "[N] base"
 # Any other position -> bare base, because no keybind reaches the item: it sits
 # past the 9th slot, or (position 0) the sidebar does not render it at all, which
 # is how ar_workspace_positions reports a row hidden inside a collapsed space.
+#
+# The scope argument is what lets one formatter serve three independently
+# toggleable item kinds; every caller passes its own literal.
 ar_desired() {
-  local n=$1 base=$2
-  if [ "$CLEAR" = "1" ] || [ "$AUTO_INDEX" != "1" ]; then printf '%s' "$base"; return; fi
+  local scope=$1 n=$2 base=$3
+  if [ "$CLEAR" = "1" ] || ! ar_index_on "$scope"; then printf '%s' "$base"; return; fi
   if [ "$n" -ge 1 ] && [ "$n" -le 9 ]; then
     # An empty base (a HIDE_SHELL tab) is numbered "[3]", not "[3] " -- herdr
     # would drop the trailing space anyway, and ar_strip_prefix reads the bare
@@ -421,7 +450,7 @@ ar_renumber_workspaces() {
     [ -n "$wid" ] || continue
     base=$(ar_strip_prefix "$label")
     [ -n "$base" ] || continue          # empty label: nothing to number, leave it
-    want=$(ar_desired "$pos" "$base")   # position 0 (hidden) -> bare, like 10+
+    want=$(ar_desired workspaces "$pos" "$base")  # position 0 (hidden) -> bare, like 10+
     [ "$want" = "$label" ] && continue
     "$HERDR" workspace rename "$wid" "$want" >/dev/null 2>&1 || true
   done <<< "$rows"
@@ -493,7 +522,7 @@ ar_reconcile_tabs() {
          && [ -n "$base" ] && ar_is_placeholder "$base"; then
         continue
       fi
-      want=$(ar_desired "$i" "$base")
+      want=$(ar_desired tabs "$i" "$base")
       [ "$want" = "$label" ] && continue
       "$HERDR" tab rename "$tid" "$want" >/dev/null 2>&1 || true
     done <<< "$rows"
@@ -644,11 +673,18 @@ ar_renumber_agents() {
     | [ (.pane_id // .terminal_id // ""), (.name // .agent // ""), (.agent_session.agent // .agent // "") ] | @tsv' 2>/dev/null)
   [ -n "$rows" ] || return 0
 
-  # Revert to detection (strip our "[N]") on uninstall, on a herdr that rejects
-  # bracketed agent names, OR whenever the agent panel is priority-sorted: a
-  # fixed-order number can only be wrong against a queue we cannot observe.
-  # Grouped mode on an older herdr falls through to numbering below.
+  # Revert to detection (strip our "[N]") on uninstall, with agent numbering
+  # switched off, on a herdr that rejects bracketed agent names, OR whenever the
+  # agent panel is priority-sorted: a fixed-order number can only be wrong
+  # against a queue we cannot observe. Grouped mode on an older herdr with the
+  # scope on falls through to numbering below.
+  #
+  # The toggle is tested BEFORE the two probes below on purpose: ar_agent_prefix_ok
+  # shells out for the herdr version and ar_agent_sort reads config.toml, and a
+  # config with agents switched off should not pay for either on every event.
   if [ "$CLEAR" = "1" ]; then
+    strip=1
+  elif ! ar_index_on agents; then
     strip=1
   elif ! ar_agent_prefix_ok; then
     strip=1
@@ -675,7 +711,7 @@ ar_renumber_agents() {
     # A slot with no name AND no detected kind still counts toward the position
     # but we can't form "[N] base" for it -- leave it until herdr names it.
     [ -n "$base" ] || continue
-    want=$(ar_desired "$i" "$base")
+    want=$(ar_desired agents "$i" "$base")
     [ "$want" = "$label" ] && continue
     if [ "$i" -ge 1 ] && [ "$i" -le 9 ]; then
       P_TID+=("$tid"); P_WANT+=("$want")
@@ -718,8 +754,9 @@ ar_wait_tab_gone() {
 # passes
 # ======================================================================
 
-# Full reconcile of every list, gated by the toggles. --clear ignores the toggles
-# and strips everything (the uninstall path).
+# Full reconcile of every list. Each pass consults its own toggle to decide
+# whether to number or to strip; --clear ignores the toggles and strips
+# everything (the uninstall path).
 ar_reconcile() {
   local wsjson snap
   # A reset deletes the target tab's state once (under the lock) so it re-adopts.
@@ -763,22 +800,23 @@ ar_reconcile() {
       AR_PANES_JSON=$("$HERDR" pane list 2>/dev/null) || AR_PANES_JSON='{"result":{"panes":[]}}'
     fi
   fi
-  if [ "$CLEAR" = "1" ] || [ "$AUTO_INDEX" = "1" ]; then
-    ar_renumber_workspaces "$wsjson"
-  fi
-  if [ "$CLEAR" = "1" ] || [ "$AUTO_INDEX" = "1" ] || [ "$NAME_TABS" = "1" ]; then
-    AR_SEEN_TABS=""
-    ar_reconcile_tabs "$wsjson"
-    [ "$NAME_TABS" = "1" ] && [ -n "$AR_SEEN_TABS" ] && ar_state_prune $AR_SEEN_TABS
-  fi
-  if [ "$CLEAR" = "1" ] || [ "$AUTO_INDEX" = "1" ]; then
-    ar_renumber_agents
-  fi
+  # All three passes run unconditionally. A scope that is OFF still has work to
+  # do -- ar_desired hands back the bare base, which is how a prefix left behind
+  # by an earlier config gets stripped -- so gating a pass on its own toggle
+  # would make switching that scope off do nothing visible until the next
+  # "clear". Each pass is idempotent and compares want to the current label
+  # before renaming, so a settled session issues zero calls either way, and the
+  # snapshot every pass reads from was already fetched above.
+  ar_renumber_workspaces "$wsjson"
+  AR_SEEN_TABS=""
+  ar_reconcile_tabs "$wsjson"
+  [ "$NAME_TABS" = "1" ] && [ -n "$AR_SEEN_TABS" ] && ar_state_prune $AR_SEEN_TABS
+  ar_renumber_agents
 }
 
 # Fast path for the shell hooks: rename only the current tab (no cross-tab work).
 # preexec passes the command line; precmd (back at the prompt) names by the shell.
-# Preserves the existing "[N]" prefix when AUTO_INDEX is on, drops it when off.
+# Preserves the existing "[N]" prefix when tab numbering is on, drops it when off.
 #
 # preexec has two modes. Default: trust the command line's first word as the
 # program (accurate for external commands and expanded aliases). Sampled
@@ -810,7 +848,7 @@ ar_fast_once() {
   printf '%s' "$raw" | jq -e '(.result.tab // .tab) | has("label")' >/dev/null 2>&1 || return 0
   label=$(printf '%s' "$raw" | jq -r '(.result.tab // .tab).label // ""' 2>/dev/null)
 
-  if [ "$AUTO_INDEX" = "1" ]; then prefix=$(ar_index_prefix "$label"); else prefix=""; fi
+  if ar_index_on tabs; then prefix=$(ar_index_prefix "$label"); else prefix=""; fi
   slabel=$(ar_strip_prefix "$label")
   ar_name_eligible "$tab" "$slabel" || return 0
   # Empty is a real answer under HIDE_SHELL (name the tab nothing, keeping the
@@ -849,6 +887,22 @@ ar_run() {
   done
 }
 
+# ar_index_defaults - resolve the numbering toggles after the config is sourced.
+#
+# AUTO_INDEX is read here and nowhere else: it supplies the default for each
+# scope, and a scope set in config.sh wins because := only fills an unset or
+# empty var. That is what keeps an existing AUTO_INDEX=0 meaning "no numbering
+# anywhere" while AUTO_INDEX_WORKSPACES=0 alone leaves tabs and agents numbered.
+#
+# Lives outside ar_main so the tests can exercise the inheritance directly --
+# sourcing this file for unit tests loads functions only and never runs ar_main.
+ar_index_defaults() {
+  : "${AUTO_INDEX:=1}"
+  : "${AUTO_INDEX_WORKSPACES:=$AUTO_INDEX}"
+  : "${AUTO_INDEX_TABS:=$AUTO_INDEX}"
+  : "${AUTO_INDEX_AGENTS:=$AUTO_INDEX}"
+}
+
 # ======================================================================
 # entry point
 # ======================================================================
@@ -867,9 +921,10 @@ ar_main() {
   . "$AR_ROOT/naming.sh"
 
   # Feature toggles (default on). A config value of 0 wins because := only fills
-  # an unset/empty var.
+  # an unset/empty var. The numbering scopes resolve in their own function so the
+  # tests can reach the AUTO_INDEX inheritance without running ar_main.
   : "${NAME_TABS:=1}"
-  : "${AUTO_INDEX:=1}"
+  ar_index_defaults
 
   MODE="${1:-event}"
   CLEAR=0

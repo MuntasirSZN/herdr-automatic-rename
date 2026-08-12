@@ -6,6 +6,21 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- `AUTO_INDEX_WORKSPACES`, `AUTO_INDEX_TABS` and `AUTO_INDEX_AGENTS` split the
+  `[N]` numbering by item kind ([#8](https://github.com/qu8n/herdr-automatic-rename/issues/8)).
+  Each defaults to `AUTO_INDEX` and overrides it when set, so numbered tabs above
+  plain workspace names is `AUTO_INDEX_WORKSPACES=0` on its own. Existing
+  configs are unaffected: `AUTO_INDEX` still switches all three together.
+
+### Changed
+
+- Switching numbering off for a kind now strips the `[N]` already on those rows
+  at the next event, instead of leaving them until the `clear` action. This was
+  already how tabs behaved with `AUTO_INDEX=0` and `NAME_TABS=1`; workspaces and
+  agents were skipped entirely and kept stale prefixes indefinitely.
+
 ## [0.5.0] - 2026-08-07
 
 Grows the icon map from 9 entries to ~170 and makes it configurable, with

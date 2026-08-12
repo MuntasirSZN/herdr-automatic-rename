@@ -39,6 +39,14 @@ Agents are the exception. herdr `0.7.5` restricted agent names to `^[a-z][a-z0-9
 
 Turn one feature off and you keep the other half: `AUTO_INDEX=0` names without the prefix (`zsh`, `nvim`), and `NAME_TABS=0` leaves every base name as herdr or you left it and adds only the `[N]`. `SHOW_PROGRAM_ARGS=1` swaps a program's name for its whole command line, so a `npm run dev` tab reads `[2] npm run dev` rather than `[2] npm`.
 
+Numbering also splits by item kind. `AUTO_INDEX_WORKSPACES`, `AUTO_INDEX_TABS` and `AUTO_INDEX_AGENTS` each default to whatever `AUTO_INDEX` is and override it when you set them, so `AUTO_INDEX` remains the single switch for all of it and these are the exceptions. Numbered tabs above plain workspace names is one line:
+
+```sh
+AUTO_INDEX_WORKSPACES=0
+```
+
+Switching a kind off strips the `[N]` already on those rows at the next herdr event, so you do not have to run the `clear` action to tidy up after a config change.
+
 If a row of `zsh` tabs tells you nothing, `HIDE_SHELL=1` names only the tabs actually running something and leaves the rest to herdr, which falls back to its own tab number:
 
 ```
@@ -125,6 +133,9 @@ Override the path with `HERDR_AUTOMATIC_RENAME_CONFIG`.
 | --- | --- | --- |
 | `NAME_TABS` | `1` | Rename each tab to its foreground program. `0` leaves tab names alone. |
 | `AUTO_INDEX` | `1` | Add the `[N]` jump-key number (1-9) in front of each workspace and tab (and agent on herdr `< 0.7.5`). |
+| `AUTO_INDEX_WORKSPACES` | `AUTO_INDEX` | Number workspaces. Set it alone to keep numbered tabs while workspace names stay plain. |
+| `AUTO_INDEX_TABS` | `AUTO_INDEX` | Number tabs. |
+| `AUTO_INDEX_AGENTS` | `AUTO_INDEX` | Number agents (herdr `< 0.7.5` only, and only under the grouped panel sort). |
 | `SHOW_PROGRAM_ARGS` | `0` | `0` shows just the program name (`git`), `1` shows its full command line (`git log --oneline`). |
 | `MAX_NAME_LEN` | `20` | Cut the finished label off after this many characters. |
 | `SHELL_NAME` | `$SHELL` basename | Label shown at an idle prompt when no program is running (e.g. `zsh`). |

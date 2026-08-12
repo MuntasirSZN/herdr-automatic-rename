@@ -17,6 +17,17 @@
 # names (and lose any prefix an older setup left on them).
 # AUTO_INDEX=1
 
+# Numbering, per item kind. Each defaults to AUTO_INDEX and overrides it when
+# set, so AUTO_INDEX stays the one knob for "number everything" or "number
+# nothing" and these carve out the exceptions. Numbered tabs with plain
+# workspace names, for instance, is the first line on its own:
+# AUTO_INDEX_WORKSPACES=0
+# AUTO_INDEX_TABS=1
+# AUTO_INDEX_AGENTS=1
+#
+# Switching one off also removes the prefixes already on those rows, on the next
+# herdr event -- no need to run the "clear" action.
+
 # ---- naming knobs (only used when NAME_TABS=1) ----
 
 # 1 = a regular program shows its full command line ("psql -h db"); 0 = just its

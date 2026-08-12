@@ -31,18 +31,50 @@ ar_is_placeholder "42";   check_rc "42 is placeholder"       0 $?
 ar_is_placeholder "nvim"; check_rc "name is not placeholder" 1 $?
 ar_is_placeholder "3a";   check_rc "3a is not placeholder"   1 $?
 
-# ---- ar_desired: position -> label under the toggles ----
-CLEAR=0; AUTO_INDEX=1
-check "desired pos 1"        "[1] api" "$(ar_desired 1 api)"
-check "desired pos 9"        "[9] api" "$(ar_desired 9 api)"
-check "desired pos 10 bare"  "api"     "$(ar_desired 10 api)"
-check "desired pos 0 bare"   "api"     "$(ar_desired 0 api)"   # hidden row, no keybind
-check "desired empty base"   "[1]"     "$(ar_desired 1 '')"   # HIDE_SHELL: number alone
-AUTO_INDEX=0
-check "desired index-off"    "api"     "$(ar_desired 1 api)"
-check "desired empty, index-off" ""    "$(ar_desired 1 '')"
-AUTO_INDEX=1; CLEAR=1
-check "desired clear strips"  "api"    "$(ar_desired 1 api)"
+# ---- ar_index_defaults: AUTO_INDEX supplies each scope's default ----
+# Unset every knob per case: := only fills an unset/empty var, which is the whole
+# mechanism under test. A subshell keeps each case from leaking into the next.
+_idx() (
+  unset AUTO_INDEX AUTO_INDEX_WORKSPACES AUTO_INDEX_TABS AUTO_INDEX_AGENTS
+  eval "$1"
+  ar_index_defaults
+  printf '%s/%s/%s' "$AUTO_INDEX_WORKSPACES" "$AUTO_INDEX_TABS" "$AUTO_INDEX_AGENTS"
+)
+check "defaults: all unset -> on"   "1/1/1" "$(_idx ':')"
+check "defaults: AUTO_INDEX=0"      "0/0/0" "$(_idx 'AUTO_INDEX=0')"
+check "defaults: AUTO_INDEX=1"      "1/1/1" "$(_idx 'AUTO_INDEX=1')"
+# Issue #8: numbered tabs, plain workspaces, from one line of config.
+check "defaults: ws off alone"      "0/1/1" "$(_idx 'AUTO_INDEX_WORKSPACES=0')"
+check "defaults: scope beats master" "1/0/0" "$(_idx 'AUTO_INDEX=0; AUTO_INDEX_WORKSPACES=1')"
+check "defaults: agents off alone"  "1/1/0" "$(_idx 'AUTO_INDEX_AGENTS=0')"
+
+# ---- ar_index_on: the single reader of the per-scope toggles ----
+AUTO_INDEX_WORKSPACES=1 AUTO_INDEX_TABS=0 AUTO_INDEX_AGENTS=1
+ar_index_on workspaces; check_rc "index_on workspaces"     0 $?
+ar_index_on tabs;       check_rc "index_on tabs off"       1 $?
+ar_index_on agents;     check_rc "index_on agents"         0 $?
+ar_index_on nonsense;   check_rc "index_on unknown is off" 1 $?
+# Anything but "1" reads as off, matching every other toggle in the plugin.
+( AUTO_INDEX_TABS=yes; ar_index_on tabs ); check_rc "index_on non-1 is off" 1 $?
+
+# ---- ar_desired: scope + position -> label under the toggles ----
+CLEAR=0; AUTO_INDEX_WORKSPACES=1 AUTO_INDEX_TABS=1 AUTO_INDEX_AGENTS=1
+check "desired pos 1"        "[1] api" "$(ar_desired tabs 1 api)"
+check "desired pos 9"        "[9] api" "$(ar_desired tabs 9 api)"
+check "desired pos 10 bare"  "api"     "$(ar_desired tabs 10 api)"
+check "desired pos 0 bare"   "api"     "$(ar_desired workspaces 0 api)"  # hidden row, no keybind
+check "desired empty base"   "[1]"     "$(ar_desired tabs 1 '')"   # HIDE_SHELL: number alone
+AUTO_INDEX_TABS=0
+check "desired index-off"    "api"     "$(ar_desired tabs 1 api)"
+check "desired empty, index-off" ""    "$(ar_desired tabs 1 '')"
+# The scopes are independent: tabs off does not disarm workspaces or agents.
+check "desired ws on while tabs off" "[2] api" "$(ar_desired workspaces 2 api)"
+check "desired agents on while tabs off" "[3] claude" "$(ar_desired agents 3 claude)"
+# An unknown scope numbers nothing, however the toggles are set.
+check "desired unknown scope bare" "api" "$(ar_desired nonsense 1 api)"
+AUTO_INDEX_TABS=1; CLEAR=1
+check "desired clear strips"  "api"    "$(ar_desired tabs 1 api)"
+check "desired clear strips ws" "api"  "$(ar_desired workspaces 1 api)"
 CLEAR=0
 
 # ---- ar_unpark_base: recover a base frozen at a park-temp "[N] base <tid>" ----

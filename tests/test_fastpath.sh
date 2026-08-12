@@ -158,4 +158,23 @@ printf '{"t1":{"auto":"","enabled":true}}\n' \
 check "hidden tab: no repeat rename" "" "$(log)"
 teardown
 
+# The fast path reads the TAB scope, not AUTO_INDEX: with tabs opted out of
+# numbering while the master stays on, a per-command rename drops the prefix the
+# label was carrying instead of preserving it.
+setup
+export AUTO_INDEX_TABS=0
+/usr/bin/env bash "$ENGINE" preexec "nvim README.md"
+check "tabs opted out: prefix dropped" "tab rename t1 nvim" "$(log)"
+unset AUTO_INDEX_TABS
+teardown
+
+# And the mirror: workspaces opted out leaves the tab fast path numbering as
+# before, so the scopes cannot bleed into one another here either.
+setup
+export AUTO_INDEX_WORKSPACES=0
+/usr/bin/env bash "$ENGINE" preexec "nvim README.md"
+check "workspaces opted out: tab keeps number" "tab rename t1 [1] nvim" "$(log)"
+unset AUTO_INDEX_WORKSPACES
+teardown
+
 t_summary
