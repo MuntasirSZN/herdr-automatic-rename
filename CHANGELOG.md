@@ -21,6 +21,12 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   already how tabs behaved with `AUTO_INDEX=0` and `NAME_TABS=1`; workspaces and
   agents were skipped entirely and kept stale prefixes indefinitely.
 
+  The strip cannot tell a prefix this plugin wrote from one you typed, so a
+  hand-picked `[1] incident` on a workspace or agent now loses its bracket where
+  it previously survived. Numbering was never the safe state for such a name
+  either: with it on, the same label is rewritten to that row's jump number.
+  Only all-digit brackets are touched; `[wip] deploy` is unaffected.
+
 ## [0.5.0] - 2026-08-07
 
 Grows the icon map from 9 entries to ~170 and makes it configurable, with

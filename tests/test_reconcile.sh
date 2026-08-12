@@ -597,4 +597,38 @@ check_contains "workspace still numbered" "$out" "workspace rename w1 [1] api"
 unset AUTO_INDEX_AGENTS
 teardown
 
+# ======================================================================
+# Scenario 17: the documented cost of that strip. Nothing records which "[N] "
+#   prefixes we wrote, so with a kind switched off the cleanup takes a
+#   hand-typed bracketed number down with it. Pinned rather than fixed: the same
+#   label is rewritten to the row's own number when numbering is ON, so
+#   numbering-off is not what put it at risk. ar_strip_prefix's all-digits rule
+#   is the whole protection, and "[wip] ..." is what it protects.
+# ======================================================================
+setup
+export NAME_TABS=0 AUTO_INDEX=0
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[
+  {"workspace_id":"w1","label":"[1] incident"},
+  {"workspace_id":"w2","label":"[wip] deploy"}
+]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[]}}
+JSON
+fixture tabs_w2.json <<'JSON'
+{"result":{"tabs":[]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[]}}
+JSON
+fixture agents.json <<'JSON'
+{"result":{"agents":[]}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "hand-typed digits are stripped too" "$out" "workspace rename w1 incident"
+check_absent   "non-digit bracket survives"         "$out" "workspace rename w2"
+teardown
+
 t_summary

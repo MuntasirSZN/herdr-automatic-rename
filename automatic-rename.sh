@@ -19,7 +19,11 @@
 #
 # A scope switched off does not merely stop numbering: its pass still runs and
 # strips the prefixes already there, so turning one off is visible on the next
-# event rather than waiting for the "clear" action (see ar_reconcile).
+# event rather than waiting for the "clear" action (see ar_reconcile). Nothing
+# records which prefixes we wrote, so that strip also takes a hand-typed
+# "[1] incident" down to "incident" -- the same label numbering-on would have
+# rewritten to the row's own number anyway. ar_strip_prefix's all-digits rule is
+# the whole of the protection here, and it is what keeps "[wip] foo" intact.
 #
 # Both default on and are configured in config.sh ($HERDR_AUTOMATIC_RENAME_CONFIG). A
 # single unified reconcile drives both: one pass computes a tab's base name and

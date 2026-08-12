@@ -47,6 +47,8 @@ AUTO_INDEX_WORKSPACES=0
 
 Switching a kind off strips the `[N]` already on those rows at the next herdr event, so you do not have to run the `clear` action to tidy up after a config change.
 
+One caveat on that cleanup: nothing here records which `[N]` prefixes the plugin wrote, so a name you typed yourself that opens with a bracketed number loses the bracket along with the rest. `[1] incident` becomes `incident`. Switching numbering off is not what exposes it: leave numbering on and `[1] incident` is rewritten to whatever that row's jump number is. Only digits count, so `[wip] deploy` is safe either way.
+
 If a row of `zsh` tabs tells you nothing, `HIDE_SHELL=1` names only the tabs actually running something and leaves the rest to herdr, which falls back to its own tab number:
 
 ```
