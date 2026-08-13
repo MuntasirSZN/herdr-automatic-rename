@@ -6,6 +6,16 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-13
+
+Splits the `[N]` jump-key numbering by item kind. `AUTO_INDEX_WORKSPACES`,
+`AUTO_INDEX_TABS` and `AUTO_INDEX_AGENTS` each override `AUTO_INDEX` for one
+kind of row, so numbered tabs above plain workspace names is one line of
+config.
+
+Nothing changes for a config that names none of the new knobs. `AUTO_INDEX`
+still switches all three kinds together.
+
 ### Added
 
 - `AUTO_INDEX_WORKSPACES`, `AUTO_INDEX_TABS` and `AUTO_INDEX_AGENTS` split the
@@ -219,7 +229,8 @@ First public release.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers,
   the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.2.3...v0.3.0
