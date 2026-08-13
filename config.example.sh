@@ -32,7 +32,9 @@
 # prefixes this plugin wrote, so a name you typed yourself that starts with a
 # bracketed number, say "[1] incident", loses the bracket too. Naming the kind
 # here is how you ask for the cleanup and accept that. A config with only
-# AUTO_INDEX=0 in it never triggers it and keeps every label untouched.
+# AUTO_INDEX=0 in it never triggers it, so workspace and agent labels stay as
+# they are. Tabs are the exception, and only under NAME_TABS=1: that pass runs
+# for the naming, and has always taken the prefix off on its way through.
 # Anything else in brackets ("[wip] foo") is left alone, digits are the only
 # trigger.
 

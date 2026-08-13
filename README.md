@@ -47,7 +47,7 @@ AUTO_INDEX_WORKSPACES=0
 
 Setting one of those to `0` also strips the `[N]` already on those rows, at the next herdr event, so you do not have to run the `clear` action to tidy up after the change.
 
-That cleanup runs only for a kind you name. Nothing here records which `[N]` prefixes the plugin wrote, so it cannot tell one of ours from a name you typed that opens with a bracketed number: `[1] incident` becomes `incident`. Naming the kind is how you ask for that. A config carrying only `AUTO_INDEX=0`, from before these settings existed, keeps every label exactly as it is. Only digits count either way, so `[wip] deploy` is never touched.
+That cleanup runs only for a kind you name. Nothing here records which `[N]` prefixes the plugin wrote, so it cannot tell one of ours from a name you typed that opens with a bracketed number: `[1] incident` becomes `incident`. Naming the kind is how you ask for that. A config carrying only `AUTO_INDEX=0`, from before these settings existed, leaves workspace and agent labels exactly as they are. Tabs are the exception, and only under `NAME_TABS=1`: that pass runs for the naming, and has always stripped the prefix on its way through. Only digits count either way, so `[wip] deploy` is never touched.
 
 If a row of `zsh` tabs tells you nothing, `HIDE_SHELL=1` names only the tabs actually running something and leaves the rest to herdr, which falls back to its own tab number:
 
