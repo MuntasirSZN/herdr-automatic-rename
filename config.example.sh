@@ -69,6 +69,16 @@
 # keeps showing the shell so it does not flicker.
 # IGNORED_PROGRAMS=(ls eza ll la cd z zoxide cat bat less more echo pwd clear which man head tail wc cp mv rm mkdir touch fzf sudo doas)
 
+# Language runtimes and package runners that front for the program you actually
+# launched. An agent installed from npm is usually a bin shim pointing at a JS
+# entrypoint, so the foreground process is `node` and the tab would be named
+# after the runtime; pip and pipx console scripts do the same through `python`.
+# When one of these is the foreground program in a pane herdr has detected an
+# agent in, the tab is named after that agent instead ("codex", not "node").
+# Both conditions are needed, so a plain `node server.js` tab keeps its name.
+# Add your interpreter here if it resolves to a versioned name (python3.12).
+# WRAPPER_PROGRAMS=(node bun deno npx bunx npm pnpm yarn python python3 uv uvx pipx ruby)
+
 # Rename specific programs on the tab. "<program>=<label>" pairs; wins over every
 # rule except the bare-prompt shell name.
 # PROGRAM_ALIASES=(

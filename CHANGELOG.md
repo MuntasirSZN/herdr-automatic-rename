@@ -6,6 +6,33 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Fixed
+
+- An agent whose entrypoint is an interpreted script named its tab after the
+  interpreter. An npm bin shim is a JS file behind a node shebang, so the kernel
+  execs the runtime and the pane's foreground process is `node` on every
+  platform: a codex pane read `node`. Before 0.2.3 the same pane read
+  `MainThread` -- the resolution chain then had no argv[0] step, so a Linux
+  pane (no argv0) fell through to the process's `name`, which for node is its
+  thread name; the #6 fix moved these tabs from `MainThread` to `node`. A pip
+  or pipx installed agent hits the same thing through `python`, its console
+  script being a shebang file too. (An agent whose package ships or execs a
+  native binary -- claude, opencode -- reports its own name and was never
+  affected.)
+
+  Where the foreground program is a language runtime or package runner (the new
+  `WRAPPER_PROGRAMS` list) and herdr has detected an agent in that pane, herdr's
+  answer is used instead and the tab reads `codex`. The agent is read off the
+  pane objects the reconcile already holds -- herdr publishes its detection
+  result on the pane itself -- so the lookup costs no extra herdr call on any
+  version.
+
+  Both conditions are required, so a plain `node server.js` tab keeps its name,
+  and an agent that reports its own name never consults the pane's agent field.
+  Identification stays herdr's job on purpose: its detector already unwraps
+  runtime-fronted agents, so a pane it cannot identify is an upstream detection
+  gap, not something this plugin second-guesses from `argv`.
+
 ## [0.6.0] - 2026-08-13
 
 Splits the `[N]` jump-key numbering by item kind. `AUTO_INDEX_WORKSPACES`,

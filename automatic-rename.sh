@@ -350,6 +350,23 @@ ar_resolve_pane() {
   ' 2>/dev/null
 }
 
+# ar_pane_agent_kind <pane_id> -> the agent herdr detected in that pane, or "".
+# herdr publishes its detection result on the pane object itself (.agent), so
+# this reads the AR_PANES_JSON the reconcile already fetched -- no extra herdr
+# call on any version. The panes carrying .agent are exactly the ones
+# `agent list` reports (verified against a live herdr 0.8.0). The neighboring
+# .agent_session is deliberately NOT consulted: it is a resume reference, and a
+# pane can carry one while detection reports nothing (herdr#803's half-wired
+# state), so naming from it would bypass the detection gate on a stale ref.
+ar_pane_agent_kind() {
+  printf '%s' "$AR_PANES_JSON" | jq -r --arg p "$1" '
+    (.result.panes // .panes // [])
+    | map(select(.pane_id == $p))
+    | .[0]
+    | if . == null then "" else (.agent // "") end
+  ' 2>/dev/null
+}
+
 # ar_pane_program <pane_id> -> TSV "program<TAB>cmdline".
 # The foreground command is the process-group leader (pid == group id). At a bare
 # prompt the leader IS the login shell, whose argv0 ("-zsh") strips to "zsh".
@@ -385,7 +402,7 @@ ar_pane_program() {
 # failure); a successful HIDE_SHELL computation returns 0 with EMPTY output, so
 # the caller must read the status, not the string, to tell the two apart.
 ar_tab_name() {
-  local pane info prog="" cmd=""
+  local pane info prog="" cmd="" kind=""
   pane=$(ar_resolve_pane "$1" "$2" "$3")
   [ -n "$pane" ] || return 1
   # process-info can fail transiently (pane closing, socket hiccup) or resolve no
@@ -395,6 +412,19 @@ ar_tab_name() {
   info=$(ar_pane_program "$pane") || return 1
   IFS=$'\t' read -r prog cmd <<< "$info"
   [ -n "$prog" ] || return 1
+  # An agent installed through npm or npx fronts as its runtime, so the tab would
+  # be named "node" for a pane herdr knows is running codex. Where the foreground
+  # program is one of those runtimes AND herdr reports an agent for the pane, its
+  # answer wins. Both conditions are needed: a plain `node server.js` tab has no
+  # agent and keeps its name, and an agent that reports its own name never
+  # reaches this.
+  if ar_in_list "$prog" "${WRAPPER_PROGRAMS[@]}"; then
+    kind=$(ar_pane_agent_kind "$pane")
+    if [ -n "$kind" ]; then
+      prog=$kind
+      cmd=$kind
+    fi
+  fi
   ar_format "$prog" "$cmd"
 }
 

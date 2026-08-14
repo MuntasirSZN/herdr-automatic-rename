@@ -60,6 +60,19 @@ declare -p NAME_ONLY_PROGRAMS >/dev/null 2>&1 || NAME_ONLY_PROGRAMS=(nvim vim vi
 # keeps showing the shell (SHELL_NAME) so it does not flicker.
 declare -p IGNORED_PROGRAMS >/dev/null 2>&1 || IGNORED_PROGRAMS=(ls eza ll la cd z zoxide cat bat less more echo pwd clear which man head tail wc cp mv rm mkdir touch fzf sudo doas)
 
+# Language runtimes and package runners that front for the program you actually
+# launched. An agent installed from npm is usually a bin shim pointing at a JS
+# entrypoint: the kernel execs the interpreter, so the foreground process is
+# node and the tab would be named after it. A pip or pipx console script is the
+# same story for python. (An agent whose package ships or execs a native binary
+# -- claude, opencode -- reports its own name and never needs this.)
+#
+# Where herdr has detected an agent in that pane, its answer is used instead (see
+# ar_tab_name). Everywhere else these are named as any other program, so a plain
+# `node server.js` tab is untouched.
+declare -p WRAPPER_PROGRAMS >/dev/null 2>&1 || WRAPPER_PROGRAMS=(node bun deno npx bunx npm pnpm yarn
+  python python3 uv uvx pipx ruby)
+
 # Ordered, complete `sed -E` programs applied to the final display string.
 declare -p SUBSTITUTE_SETS >/dev/null 2>&1 || SUBSTITUTE_SETS=(
   's|.*ipython([32])|ipython\1|'
