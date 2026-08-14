@@ -657,4 +657,75 @@ check_absent   "non-digit bracket survives"    "$out" "workspace rename w2"
 check_absent   "unnamed kind still untouched"  "$out" "agent rename"
 teardown
 
+# ======================================================================
+# Scenario 19: an agent behind a language runtime.
+#
+# An agent installed through npm or npx runs as its runtime (its bin shim is a
+# JS file behind a node shebang), so a codex pane was named "node". herdr
+# detects the agent regardless and publishes it on the pane object, and where
+# the foreground program is a runtime that answer wins. No agents.json fixture:
+# the name must come from the pane fields alone, with no `agent list` call.
+#
+# Both halves are required, and the scenario pins each: t2 is an ordinary node
+# program with no agent in the pane and keeps its name, t3 is an agent that
+# reports itself and is unaffected. t4 pins the gate itself: its pane carries
+# only an agent_session (a resume ref -- herdr#803's half-wired state, where
+# detection reports nothing and agent list excludes the pane), which must NOT
+# name the tab.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=1
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[
+  {"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true},
+  {"tab_id":"w1:t2","label":"2","pane_count":1,"focused":false},
+  {"tab_id":"w1:t3","label":"3","pane_count":1,"focused":false},
+  {"tab_id":"w1:t4","label":"4","pane_count":1,"focused":false}
+]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t1","focused":true,"agent":"codex","agent_status":"idle",
+   "agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"019f"}},
+  {"pane_id":"p2","tab_id":"w1:t2","focused":false,"agent_status":"unknown"},
+  {"pane_id":"p3","tab_id":"w1:t3","focused":false,"agent":"claude","agent_status":"idle",
+   "agent_session":{"source":"herdr:claude","agent":"claude","kind":"id","value":"ce04"}},
+  {"pane_id":"p4","tab_id":"w1:t4","focused":false,"agent_status":"unknown",
+   "agent_session":{"source":"herdr:claude","agent":"claude","kind":"id","value":"dead"}}
+]}}
+JSON
+# p1: codex through npx -- argv0 absent, argv[0] is the runtime, name is a thread.
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv":["node","/home/u/.npm/_npx/x/node_modules/.bin/codex"],
+  "name":"MainThread","cmdline":"node /home/u/.npm/_npx/x/node_modules/.bin/codex"}]}}}
+JSON
+# p2: an ordinary node program, no agent in the pane.
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"node","cmdline":"node server.js"}]}}}
+JSON
+# p3: an agent that reports its own name.
+fixture procinfo_p3.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":300,
+  "foreground_processes":[{"pid":300,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+# p4: node again, but the pane holds only a session ref -- no detected agent.
+fixture procinfo_p4.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":400,
+  "foreground_processes":[{"pid":400,"argv0":"node","cmdline":"node worker.js"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "runtime + detected agent -> the agent" "$out" "tab rename w1:t1 [1] codex"
+check_absent   "the runtime never names that tab"      "$out" "[1] node"
+check_contains "an ordinary node program is untouched" "$out" "tab rename w1:t2 [2] node"
+check_contains "a self-reporting agent is unchanged"   "$out" "tab rename w1:t3 [3] claude"
+check_contains "a session ref alone never names"       "$out" "tab rename w1:t4 [4] node"
+check_absent   "no rename from the stale session ref"  "$out" "[4] claude"
+teardown
+
 t_summary

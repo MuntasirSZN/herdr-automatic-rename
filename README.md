@@ -145,6 +145,7 @@ Override the path with `HERDR_AUTOMATIC_RENAME_CONFIG`.
 | `SHELLS` | `zsh bash sh fish dash ksh` | Programs counted as "a shell prompt" and shown by their own name. |
 | `NAME_ONLY_PROGRAMS` | editors, git tools, agents | Programs always shown by bare name, never with args (`nvim`, `claude`). |
 | `IGNORED_PROGRAMS` | `ls`, `cd`, `cat`, ... | Quick commands that should not rename the tab. It keeps showing the shell instead. |
+| `WRAPPER_PROGRAMS` | `node`, `npx`, `bun`, `python`, ... | Language runtimes and package runners that front for the program you launched. In a pane herdr has detected an agent in, the tab is named after that agent instead of the runtime. |
 | `PROGRAM_ALIASES` | none | Force a specific program to a custom label, e.g. `("lazygit=lg")`. |
 | `SUBSTITUTE_SETS` | two rules | `sed -E` rewrites that tidy up the label, e.g. to shorten a path-heavy command line. |
 | `ICONS_ENABLED` | `0` | `1` prepends a Nerd Font glyph for the program (needs a Nerd Font installed). Shell labels never get one, so the tab doesn't flicker between `zsh` and `<glyph> zsh`. |
