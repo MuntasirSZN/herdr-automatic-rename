@@ -6,6 +6,25 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-18
+
+Names a tab running a coding agent after the task the agent reports -- `Squash
+merge command` instead of a fifth tab reading `claude`. herdr publishes the
+title on the pane object the reconcile already holds, so the label costs no
+extra herdr call. It follows the work on an event the plugin already subscribes
+to, so nothing polls for it.
+
+A tab with more than one pane is named after the pane that matters. For the
+usual agent-and-shell split that is the agent, not the half you happen to be
+typing in. Several naming bugs go with it: a background split kept the name it
+had before the split, a tab whose rename herdr rejected was never named again,
+and a label carrying a backslash or a control character reached herdr mangled.
+
+Upgrade note for anyone running a coding agent in a tab. `AGENT_TITLES` defaults
+to on, so those tabs stop reading `claude` and start reading the task. Set
+`AGENT_TITLES=0` to keep the program name. `MAX_TITLE_LEN` (28) and
+`TITLE_IGNORE` tune what gets through.
+
 ### Added
 
 - A tab running a coding agent is named after the task the agent reports rather
@@ -421,7 +440,8 @@ First public release.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers,
   the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.4.0...v0.5.0
