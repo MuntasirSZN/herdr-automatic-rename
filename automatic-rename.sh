@@ -362,7 +362,12 @@ ar_name_eligible() {
 #
 # Everything below is the fallback for a herdr whose snapshot carries no layouts
 # and for the per-list path, which has none: the sole pane of a single-pane tab,
-# else the tab's OWN focused pane, else "". Reads the cached $AR_PANES_JSON.
+# else the tab's OWN focused pane, else "". Nothing here reads the session-wide
+# focus, and a multi-pane tab with no focused pane of its own gets no answer
+# rather than an arbitrary one -- pane focus follows whichever client moved it
+# last, so a focused tab whose panes all read unfocused is what a second client
+# or a remote attach looks like, and its first pane is a guess. Reads the cached
+# $AR_PANES_JSON.
 ar_resolve_pane() {
   local tid=$1 pc=$2 foc=$3 lp=${4:-}
   if [ -n "$lp" ]; then
@@ -373,7 +378,7 @@ ar_resolve_pane() {
     (.result.panes // .panes // []) as $p
     | ($p | map(select(.tab_id == $t))) as $tp
     | (if $pc == "1" then $tp[0]
-       elif $foc == "true" then (($tp | map(select(.focused)) | .[0]) // $tp[0])
+       elif $foc == "true" then ($tp | map(select(.focused)) | .[0])
        else null end)
     | if . == null then "" else (.pane_id // "") end
   ' 2>/dev/null

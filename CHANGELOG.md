@@ -25,8 +25,11 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 - The focused tab was named from the GLOBALLY focused pane, which belongs to
   whichever client moved focus last. With a second client attached, or a remote
-  attach, that pane can sit in a different tab. Per-tab layouts remove the
-  guess.
+  attach, that pane can sit in a different tab. Per-tab layouts remove the guess,
+  and the pane-list fallback now reads only the tab's own panes. A focused tab
+  with several panes and no focused pane of its own -- which is what that same
+  second client looks like on a herdr with no layouts -- keeps the label it has
+  rather than being named after an arbitrary one of them.
 
 - Where herdr named no foreground process group at all but still reported one
   process for the pane, no name was computed. Some Linux container and sandbox

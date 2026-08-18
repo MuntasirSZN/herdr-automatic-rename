@@ -890,4 +890,70 @@ check "a landed rename is recorded as ours" "nvim true" \
   "$(jq -r '."w1:t1" | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
 teardown
 
+# ======================================================================
+# Scenario 23: the no-layouts fallback, where pane focus is all there is.
+#   No snapshot.json here, so ar_resolve_pane gets no _layout_pane and takes the
+#   pane-list rule -- the path an older herdr is stuck on, and the only one where
+#   the session-wide focus flag could still steal a name.
+#   w1:t1 is focused with two panes, and pB is its own focused pane. The pane
+#   carrying .focused FIRST in the list is pX, which belongs to another tab
+#   entirely: that is what a second client or a remote attach looks like, and
+#   reading it would name w1:t1 "htop". Naming by the tab's OWN panes reads "nvim".
+#   w2:t1 is the other half: focused, two panes, NEITHER of them focused, so there
+#   is no answer to give. Its first pane runs lazygit, so a rename to "lazygit" is
+#   what falling back to an arbitrary pane would look like -- any rename of w2:t1
+#   fails this scenario.
+#   w2:t2 keeps the single-pane arm honest: one pane, unfocused tab, still named.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[
+  {"workspace_id":"w1","label":"api"},
+  {"workspace_id":"w2","label":"web"}
+]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"1","pane_count":2,"focused":true}]}}
+JSON
+fixture tabs_w2.json <<'JSON'
+{"result":{"tabs":[
+  {"tab_id":"w2:t1","label":"2","pane_count":2,"focused":true},
+  {"tab_id":"w2:t2","label":"3","pane_count":1,"focused":false}
+]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"pX","tab_id":"w2:t2","focused":true},
+  {"pane_id":"pA","tab_id":"w1:t1","focused":false},
+  {"pane_id":"pB","tab_id":"w1:t1","focused":true},
+  {"pane_id":"pC","tab_id":"w2:t1","focused":false},
+  {"pane_id":"pD","tab_id":"w2:t1","focused":false}
+]}}
+JSON
+fixture procinfo_pX.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":700,
+  "foreground_processes":[{"pid":700,"argv0":"htop","cmdline":"htop"}]}}}
+JSON
+fixture procinfo_pA.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":701,
+  "foreground_processes":[{"pid":701,"argv0":"psql","cmdline":"psql"}]}}}
+JSON
+fixture procinfo_pB.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":702,
+  "foreground_processes":[{"pid":702,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+fixture procinfo_pC.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":703,
+  "foreground_processes":[{"pid":703,"argv0":"lazygit","cmdline":"lazygit"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "own focused pane names the focused tab"     "$out" "tab rename w1:t1 nvim"
+check_absent   "another tab's focused pane never names it"  "$out" "tab rename w1:t1 htop"
+check_absent   "no focused pane of its own -> no name"      "$out" "tab rename w2:t1"
+check_absent   "and no arbitrary first pane either"         "$out" "lazygit"
+check_contains "a single-pane tab is still named"           "$out" "tab rename w2:t2 htop"
+teardown
+
 t_summary
