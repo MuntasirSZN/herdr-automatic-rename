@@ -6,6 +6,72 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- A tab running a coding agent is named after the task the agent reports rather
+  than after the agent (`AGENT_TITLES`, default on). Naming by foreground
+  program has one case it cannot answer: five `claude` tabs all read `claude`,
+  and the tab bar stops being a way to find anything. A coding agent already
+  publishes the task as its terminal title and keeps it current as the work
+  moves, so that is what the tab shows -- `Squash merge command`, `Check PR 2169
+  relevance`. herdr publishes the title on the pane object the reconcile already
+  holds, so reading it costs no extra herdr call on any version, and a tab named
+  this way needs no `pane process-info` at all, which leaves an agent-heavy
+  session making fewer calls than before. The label follows the work on
+  `pane.agent_status_changed`, an event the plugin already subscribes to, so
+  nothing polls for it.
+
+  A title only replaces the program name when it says something.
+  `ar_title_clean` refuses the three kinds that say nothing: one naming the agent
+  instead of its work (the agent's own herdr kind, that kind followed by `code`,
+  or a `TITLE_IGNORE` entry, which is what an agent titles a session it has no
+  task for yet), one that is just the directory the pane sits in, and a bare
+  number, which is herdr's own generated tab label handed back through the title.
+  Every refusal falls through to the program name, `PROGRAM_ALIASES` and the
+  `WRAPPER_PROGRAMS` unwrapping included.
+
+  A title that survives replaces the program name outright, alias and all:
+  `AGENT_TITLES` is the request for the task, and an alias shortening `claude`
+  to `cl` is not a request to hide the work. The program still supplies the
+  icon, and the label gets its own budget, `MAX_TITLE_LEN` (28) rather than
+  `MAX_NAME_LEN` (20), cut at a word boundary when that leaves at least half of
+  it: a title is a sentence, and 20 characters were sized for command names.
+
+  Before any of that, the leading run of non-alphanumerics comes off. herdr
+  keeps an ANSI-stripped copy of the title and stripped means exactly that: an
+  agent parks a spinner glyph in front of its title while it works, and claude
+  cycles four of them. Without the strip the label would flip between `Task` and
+  `<glyph> Task` on every status event, and each flip is a rename. `jq` does
+  that strip, and the case-folding for the comparisons, in one call, because its
+  character classes know Unicode: a byte-wise strip under the C locale herdr may
+  launch a plugin in would eat the first letter of a title that opens with a
+  non-ASCII word. The function still takes strings and returns strings, which is
+  what keeps it in `naming.sh`.
+
+- A tab with more than one pane is named after the pane that matters. Naming it
+  from its own focused pane, which is what the layouts fix below gives it, still
+  read the wrong half of the usual agent split. An agent sits in one pane and a
+  shell in the other, and focus is in the shell most of the time, so the tab
+  advertised `zsh` while the interesting thing sat beside it. The pick is now,
+  in order: the tab's own focused pane when herdr reports an agent in it, then
+  any pane of the tab holding an agent that is working or blocked, then the
+  focused pane. So a split stays about the agent while you read or type in the
+  shell half, and an idle agent stops at the second rule on purpose -- a
+  finished agent should not hold the name of a tab you have moved on to. The
+  choice is made in the snapshot reshape and travels on the tab row as
+  `_name_pane`, so the tab loop costs nothing extra for it. A herdr whose
+  snapshot carries no layouts keeps the older inference (the sole pane of a
+  single-pane tab, else the tab's own focused pane).
+
+- The `reset` and `clear` actions report what they did as a herdr notification.
+  Both are built for a keybinding, where the only feedback was the tab bar
+  redrawing. A `reset` that found no tab to re-adopt, or that ran under
+  `NAME_TABS=0`, looked exactly like one that worked, and `clear` on an already
+  clean session looked like nothing at all. Each outcome now names itself. Best
+  effort, so a herdr without `notification show` declines it and the action
+  still does its work; the uninstall path (`--clear`) notifies through the same
+  helper.
+
 ### Fixed
 
 - A tab whose rename herdr rejected stopped being named at all. Ownership was

@@ -28,6 +28,28 @@ unset _ar_icons_dir
 : "${MAX_NAME_LEN:=20}"     # truncate the final label to this many chars
 : "${SHOW_PROGRAM_ARGS:=0}" # 1 = regular programs show their full command line; 0 = name only
 
+# 1 = name a tab running a coding agent after the task the agent reports in its
+# terminal title ("Squash merge command"), rather than after the agent program
+# ("claude"). Coding agents keep that title current as the work changes, so this
+# is what tells five claude tabs apart. herdr publishes it on the pane, so the
+# name costs no extra call -- and where it lands the tab needs no process lookup
+# at all. 0 names every agent tab after its program, as before.
+#
+# A title only replaces the program name when it says something: see
+# ar_title_clean for what gets refused. Whenever it refuses, naming falls back to
+# the program, PROGRAM_ALIASES included.
+: "${AGENT_TITLES:=1}"
+
+# Truncate a title to this many characters, at a word boundary where one is close
+# enough. Titles are sentences, not command names, so they need more room than
+# MAX_NAME_LEN gives -- with numbering on, the "[N] " prefix eats four more.
+: "${MAX_TITLE_LEN:=28}"
+
+# Field separator for the one jq call in ar_title_clean, matching the engine's
+# (which sets it before sourcing this file). A tab or a newline would not do: bash
+# counts both as IFS whitespace and `read` collapses them, losing an empty field.
+: "${AR_ROW_SEP:=$'\037'}"
+
 # Name shown at a bare prompt (no foreground program), and while an
 # IGNORED_PROGRAMS command runs, so the tab holds steady instead of flickering.
 : "${SHELL_NAME:=${SHELL##*/}}"
@@ -79,6 +101,14 @@ declare -p SUBSTITUTE_SETS >/dev/null 2>&1 || SUBSTITUTE_SETS=(
   's|.*poetry shell.*|poetry|'
 )
 
+# Titles that name the agent instead of the work it is doing. An agent sets one
+# of these before it has a task (at startup, or once a session is cleared), and a
+# tab reading "Claude Code" says less than "claude" does. Matched case-insensitively
+# against the whole title. The agent kind itself, that kind followed by "code", the
+# directory the pane sits in, and a bare number are refused without being listed.
+declare -p TITLE_IGNORE >/dev/null 2>&1 || TITLE_IGNORE=("claude code" "codex cli" "gemini cli"
+  "opencode" "amp code" "cursor agent" "new session" "untitled")
+
 # Exact program-name renames: "<program>=<label>" pairs. A matching foreground
 # program is shown as <label> regardless of its category (e.g. "clx=hn" makes a
 # clx tab read "hn"). Takes priority over every rule except the bare-prompt shell
@@ -118,14 +148,58 @@ ar_subst() {
   printf '%s' "$s"
 }
 
+# ar_title_clean <title> <agent kind> <pane directory> -> the task the title
+# describes, or "" when it describes no task and the program name is the better
+# label.
+#
+# The leading run of non-alphanumerics goes first: an agent parks a spinner glyph
+# there while it works (claude cycles four of them), and herdr reports the title
+# with the glyph still on it, so a tab would flip between "Task" and "<glyph> Task"
+# on every status change. jq does that strip because its character classes know
+# Unicode -- a byte-wise one would eat the first letter of "Uberprufung" written
+# properly. The same call lowercases both sides of the comparisons below, which is
+# what keeps this to one process.
+ar_title_clean() {
+  local t=$1 kind=$2 dir=$3 out stripped lower dirlower entry
+  [ -n "$t" ] || return 0
+  out=$(printf '%s' "$t" | jq -Rr --arg dir "$dir" '
+    (sub("^[^[:alnum:]]+"; "")) as $s
+    | [ $s, ($s | ascii_downcase), ($dir | ascii_downcase) ]
+    | join([31] | implode)' 2>/dev/null) || return 0
+  IFS=$AR_ROW_SEP read -r stripped lower dirlower <<< "$out"
+  [ -n "$stripped" ] || return 0
+  # A bare number is herdr's own tab label handed back, not a task.
+  case $lower in
+  ''|*[!0-9]*) : ;;
+  *) return 0 ;;
+  esac
+  # The agent naming itself: "claude", "Claude Code", or the directory it is in,
+  # which is what claude titles a session it has nothing to say about yet.
+  [ "$lower" = "$kind" ] && return 0
+  [ "$lower" = "$kind code" ] && return 0
+  [ -n "$dirlower" ] && [ "$lower" = "$dirlower" ] && return 0
+  for entry in "${TITLE_IGNORE[@]}"; do
+    [ "$lower" = "$entry" ] && return 0
+  done
+  printf '%s' "$stripped"
+}
+
 # ---- helpers ----
 
-# ar_format <program|""> <cmdline> -> final tab label
+# ar_format <program|""> <cmdline> [title] -> final tab label
 #   program == "" means a bare prompt (name by the shell).
 ar_format() {
-  local prog=$1 cmdline=$2 name="" ic aliased is_shell=0
+  local prog=$1 cmdline=$2 title=${3:-} name="" ic aliased is_shell=0 max
+  max=${MAX_NAME_LEN:-20}
   aliased=$(ar_alias "$prog")
-  if [ -z "$prog" ]; then
+  if [ -n "$title" ]; then
+    # A task title from ar_title_clean. It replaces the program name outright,
+    # alias and all: AGENT_TITLES is the switch for wanting the task instead, and
+    # an alias set to shorten "claude" to "cl" is not a request to hide the work.
+    # It still gets the icon for the program below, and its own length budget.
+    name=$title
+    max=${MAX_TITLE_LEN:-28}
+  elif [ -z "$prog" ]; then
     name=$SHELL_NAME
     is_shell=1
   elif [ -n "$aliased" ]; then
@@ -205,7 +279,6 @@ ar_format() {
   # hard dependency of this plugin) always reads input as UTF-8, so it slices on
   # codepoint boundaries regardless of the ambient locale; fall back to the byte
   # cut only if jq is somehow unavailable.
-  local max=${MAX_NAME_LEN:-20}
   if [ "${#name}" -gt "$max" ]; then
     local truncated
     truncated=$(printf '%s' "$name" | jq -Rrs --argjson n "$max" '.[:$n]' 2>/dev/null || printf '')
@@ -213,6 +286,15 @@ ar_format() {
       name=$truncated
     else
       name=${name:0:$max}
+    fi
+    # A title is a sentence, so cut it at a word boundary rather than mid-word --
+    # but only when that leaves most of the budget, since "Investigate" tells you
+    # more than "I" does.
+    if [ -n "$title" ]; then
+      local short=${name% *}
+      case $name in
+      *' '*) [ "${#short}" -ge $(( max / 2 )) ] && name=$short ;;
+      esac
     fi
   fi
   printf '%s' "$name"

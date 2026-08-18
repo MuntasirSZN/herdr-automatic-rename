@@ -57,6 +57,12 @@ case "$group" in
       rename) printf 'tab rename %s %s\n' "$1" "$2" >>"$log"
               [ "${HERDR_MOCK_FAIL_RENAME:-0}" = "1" ] && exit 1 ;;
     esac ;;
+  notification)
+    # The two actions notify when they finish. Logged like any other mutating
+    # command so a scenario can assert what the user was told.
+    case "$action" in
+      show) printf 'notification show %s\n' "$*" >>"$log" ;;
+    esac ;;
   pane)
     case "$action" in
       list) serve panes.json '{"result":{"panes":[]}}' ;;

@@ -47,6 +47,30 @@
 # Truncate the final label to this many characters (counted by codepoint).
 # MAX_NAME_LEN=20
 
+# 1 = name a tab running a coding agent after the task the agent reports in its
+# terminal title ("Squash merge command") instead of after the program
+# ("claude"), which is what tells five claude tabs apart. herdr publishes the
+# title on the pane, so the label costs no extra call. A title that names the
+# agent rather than the work, one that is just the pane's directory, and a bare
+# number are refused, and the tab falls back to the program name (aliases
+# included). 0 names every agent tab after its program.
+# AGENT_TITLES=1
+
+# Truncate a title to this many characters, at a word boundary when that leaves
+# most of the budget. A title is a sentence rather than a command name, so it
+# needs more room than MAX_NAME_LEN gives -- and with numbering on the "[N] "
+# prefix eats four more.
+# MAX_TITLE_LEN=28
+
+# Titles that name the agent instead of the work it is doing, matched
+# case-insensitively against the whole title. An agent sets one of these before
+# it has a task (at startup, or once a session is cleared), and "Claude Code"
+# says less than "claude" does. The agent's own kind, that kind followed by
+# "code", the directory the pane sits in, and a bare number are refused without
+# being listed. Assigning the array replaces the default; TITLE_IGNORE=() leaves
+# only those built-in refusals.
+# TITLE_IGNORE=("claude code" "codex cli" "gemini cli" "opencode" "amp code" "cursor agent" "new session" "untitled")
+
 # Name shown at a bare prompt. Defaults to your $SHELL's basename.
 # SHELL_NAME=zsh
 

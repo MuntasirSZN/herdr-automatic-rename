@@ -251,4 +251,129 @@ check "SHOW_PROGRAM_ARGS defaults to name-only" "htop" "$got"
 got=$(bash -c 'SHELL_NAME=zsh; SHOW_PROGRAM_ARGS=1; IGNORED_PROGRAMS=(); . "$1"; ar_format ls "ls -la"' _ "$here/../naming.sh")
 check "empty IGNORED_PROGRAMS override survives" "ls -la" "$got"
 
+# ---- ar_title_clean: the task a title describes, or nothing ----
+# A coding agent keeps its terminal title on the work in progress, which is the
+# one thing naming five tabs after their program cannot do: they all read
+# "claude". So the title is the better name -- but only while it says something
+# about the work, and an agent spends real time saying nothing (it has just
+# started, the session was cleared, it is repeating the directory back). Each
+# refusal below is one of those, and each is the difference between a tab that
+# tells you what it is doing and one that tells you less than "claude" did.
+#
+# The non-ASCII expectations are written as UTF-8 byte escapes for the same
+# reason as the icon glyphs above: bash 3.2 has no $'\uXXXX', and a pasted
+# character is precisely what an editor or a copy-paste has silently eaten before.
+spinner=$(printf '\xe2\x9c\xb3')                       # U+2733, one of claude's four
+uber=$(printf '\xc3\x9cberpr\xc3\xbcfung der Anfrage') # "Überprüfung der Anfrage"
+
+check "a task title is the answer" "Squash merge command" \
+  "$(ar_title_clean 'Squash merge command' claude api)"
+# The spinner an agent parks on the front of the title changes with its status,
+# so a title carried through with the glyph still on it would flip the tab name
+# on every change. Only the LEADING run of non-alphanumerics goes: punctuation
+# inside the sentence is the agent's own wording and stays.
+check "leading spinner is stripped" "Squash merge command" \
+  "$(ar_title_clean "$spinner Squash merge command" claude api)"
+check "punctuation inside a title survives" "Fix: the parser, again" \
+  "$(ar_title_clean 'Fix: the parser, again' claude api)"
+
+# The refusals. Each returns "" so naming falls back to the program name.
+check "an empty title says nothing" "" "$(ar_title_clean '' claude api)"
+check "a title that is only a spinner says nothing" "" \
+  "$(ar_title_clean "$spinner " claude api)"
+# A bare number is herdr's own tab label read back off the pane, not a task.
+check "a bare number is refused" "" "$(ar_title_clean '3' claude api)"
+# ... but a number is only a refusal when it is the WHOLE title: "3 files
+# changed" is a task, and a prefix test would have thrown it away.
+check "a title that merely starts with a digit is kept" "3 files changed" \
+  "$(ar_title_clean '3 files changed' claude api)"
+# The agent naming itself, in the three shapes it does that. Every comparison is
+# case-insensitive because the agent chooses the capitalization, not the user.
+check "the agent kind is refused" "" "$(ar_title_clean 'claude' claude api)"
+check "the agent kind, any case" "" "$(ar_title_clean 'Claude' claude api)"
+# "<kind> code" is refused without being listed, which is what covers an agent
+# whose startup title TITLE_IGNORE has never heard of. droid is deliberately not
+# in the default list, so this pins the rule rather than the list.
+check "the kind followed by code is refused" "" "$(ar_title_clean 'Droid Code' droid api)"
+check "the pane directory repeated back is refused" "" \
+  "$(ar_title_clean 'api' claude api)"
+check "the pane directory, any case" "" "$(ar_title_clean 'API' claude api)"
+# A pane herdr reports no directory for must not turn an empty comparison into a
+# refusal: every title would match it and no agent tab would ever get a name.
+check "no pane directory refuses nothing" "Squash merge command" \
+  "$(ar_title_clean 'Squash merge command' claude '')"
+# TITLE_IGNORE catches the rest, including titles that name an agent other than
+# the one in the pane (an agent launched from a claude pane leaves one behind).
+check "a TITLE_IGNORE entry is refused" "" "$(ar_title_clean 'New Session' claude api)"
+check "a TITLE_IGNORE entry, any case" "" "$(ar_title_clean 'UNTITLED' claude api)"
+check "another agent's name is still refused" "" "$(ar_title_clean 'opencode' claude api)"
+# TITLE_IGNORE is guarded with `declare -p` like every other list here, so a
+# config that empties it deliberately keeps it empty (see IGNORED_PROGRAMS above).
+got=$(bash -c 'SHELL_NAME=zsh; TITLE_IGNORE=(); . "$1"; ar_title_clean "New Session" claude api' _ "$here/../naming.sh")
+check "empty TITLE_IGNORE override survives" "New Session" "$got"
+
+# Titles are prose in whatever language the user works in, so a non-ASCII letter
+# must survive intact. The second check is the load-bearing one: the strip runs
+# through jq because its character classes know Unicode, where a byte-wise strip
+# would read the first byte of "Ü" as non-alphanumeric and eat the letter.
+check "a multibyte title survives" "$uber" "$(ar_title_clean "$uber" claude api)"
+check "a multibyte title survives the spinner strip" "$uber" \
+  "$(ar_title_clean "$spinner$uber" claude api)"
+
+# ---- ar_format with a title: the task IS the label ----
+check "a title becomes the label" "Squash merge command" \
+  "$(ar_format 'claude' '' 'Squash merge command')"
+# The title is taken ahead of PROGRAM_ALIASES on purpose. An alias shortening
+# "claude" to "cl" asks for a tidier program name, not for the work to be hidden;
+# AGENT_TITLES=0 is the knob for wanting program names, and the pair below pins
+# both directions of that.
+check "a title beats an alias" "Squash merge command" \
+  "$(
+    PROGRAM_ALIASES=("claude=cl")
+    ar_format 'claude' 'claude' 'Squash merge command'
+  )"
+check "with no title the alias still wins" "cl" \
+  "$(
+    PROGRAM_ALIASES=("claude=cl")
+    ar_format 'claude' 'claude'
+  )"
+# Icons annotate the program the tab is running, which the title does not change:
+# a task-named claude tab still reads as an agent tab in the tab bar.
+check "a title still gets the program's icon" "$g_agent Squash merge command" \
+  "$(ICONS_ENABLED=1 ar_format 'claude' '' 'Squash merge command')"
+
+# A title is a sentence and needs more room than a command name, so it is cut at
+# MAX_TITLE_LEN (28) rather than MAX_NAME_LEN (20). This one is 24 characters:
+# under the command budget it would lose its last word for no reason.
+check "a title gets the title budget" "Rebase onto main branch!" \
+  "$(ar_format 'claude' '' 'Rebase onto main branch!')"
+# Over the budget it is cut back to a word boundary, because "Investigate the
+# flaky reconc" reads as a rendering bug where "Investigate the flaky" reads as a
+# summary.
+check "an over-long title is cut at a word" "Investigate the flaky" \
+  "$(ar_format 'claude' '' 'Investigate the flaky reconcile test')"
+# The word boundary is only worth it while most of the budget survives: one long
+# word after a short one would leave "Fix", which says less than a cut word does.
+check "a word boundary that leaves too little is not used" "Fix aaaaaaaaaaaaaaaa" \
+  "$(MAX_TITLE_LEN=20 ar_format 'claude' '' 'Fix aaaaaaaaaaaaaaaaaaaaaa')"
+# And the word cut belongs to titles alone: a command line is not prose, and
+# dropping its last argument would be losing information, not tidying. The budget
+# and the boundary here are the ones the rule WOULD fire on, so this fails if the
+# cut ever escapes the title path.
+check "a command line is still cut mid-word" "psql -c aaaaaaaaaaaaaaaaa bb" \
+  "$(MAX_NAME_LEN=28 SHOW_PROGRAM_ARGS=1 ar_format 'psql' 'psql -c aaaaaaaaaaaaaaaaa bbbbbbbbbbbb')"
+# Cut by codepoint, never mid-byte, exactly as the program labels above are.
+check "multibyte title truncation is clean" "ünïcödé" \
+  "$(MAX_TITLE_LEN=7 ar_format 'claude' '' 'ünïcödéxxxxxxx')"
+
+# The knob and the budget both default on/28 in naming.sh, so a user who has
+# never heard of either gets task-named agent tabs. AGENT_TITLES is read by the
+# engine (ar_tab_name), which is why ar_format takes the title as an argument
+# instead: with the knob off no title is passed and every program rule applies as
+# before, pinned by the alias check above and end to end in tests/test_reconcile.sh.
+got=$(bash -c '. "$1"; printf %s "$AGENT_TITLES"' _ "$here/../naming.sh")
+check "AGENT_TITLES defaults to on" "1" "$got"
+got=$(bash -c '. "$1"; printf %s "$MAX_TITLE_LEN"' _ "$here/../naming.sh")
+check "MAX_TITLE_LEN defaults to 28" "28" "$got"
+
 t_summary

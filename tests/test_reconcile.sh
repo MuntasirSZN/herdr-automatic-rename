@@ -29,6 +29,11 @@ setup() {
   unset HERDR_MOCK_FAIL_RENAME                     # per-scenario opt-in; renames succeed by default
   unset HIDE_SHELL                                 # per-scenario opt-in; default is off
   unset AUTO_INDEX_WORKSPACES AUTO_INDEX_TABS AUTO_INDEX_AGENTS   # per-kind opt-in; inherit AUTO_INDEX
+  unset AGENT_TITLES SHOW_PROGRAM_ARGS             # per-scenario opt-in; naming.sh defaults apply
+  # The reset action reads these from herdr. They are also set in every pane of a
+  # live herdr, so a suite run from inside one would otherwise inherit a tab id
+  # that no fixture describes -- and the "nothing to reset" arm could never happen.
+  unset HERDR_TAB_ID HERDR_PLUGIN_CONTEXT_JSON
 }
 fixture() { cat >"$HERDR_MOCK_DIR/$1"; }   # fixture <name>  (JSON on stdin)
 run_event() { /usr/bin/env bash "$ENGINE" "$1"; }
@@ -128,7 +133,10 @@ check_absent   "no agent numbering"       "$out" "agent rename"
 teardown
 
 # ======================================================================
-# Scenario 3: --clear strips every prefix and reverts the agent to detection.
+# Scenario 3: --clear strips every prefix and reverts the agent to detection, and
+#   says so. The action is meant for a keybinding, where a tab bar that quietly
+#   redraws is the only other sign anything happened -- and on a session whose
+#   labels were already bare, nothing redraws at all.
 # ======================================================================
 setup
 export NAME_TABS=1 AUTO_INDEX=1
@@ -149,6 +157,8 @@ out=$(log)
 check_contains "ws prefix stripped"    "$out" "workspace rename w1 api"
 check_contains "tab prefix stripped"   "$out" "tab rename w1:t1 zsh"
 check_contains "agent reverted"        "$out" "agent rename w1:pA --clear"
+check_contains "the clear action notifies" "$out" \
+  "notification show Number prefixes cleared --body Base names restored"
 teardown
 
 # ======================================================================
@@ -1110,6 +1120,273 @@ check_contains "a tab with no label is still named" "$out" "tab rename w1:t1 nvi
 check_contains "a name we own is written until herdr holds it" "$out" "tab rename w1:t2 a b"
 check "and it stays ours" "a b true" \
   "$(jq -r '."w1:t2" | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
+teardown
+
+# ======================================================================
+# Scenario 28: an agent tab is named after the work the agent reports.
+#   Five claude tabs all read "claude", and no amount of program detection fixes
+#   that -- the agent's own terminal title is the only thing that tells them
+#   apart, and herdr publishes it on the pane, so it costs no call. This drives
+#   the whole engine because the title arrives through ar_pane_facts, which is
+#   where the pane's fields (and the directory it sits in) come from.
+#   t1 is the ordinary case, spinner glyph included: herdr's stripped copy is
+#   ANSI-free but the glyph is text, and an agent changes it as its status
+#   changes, so the tab would rename itself for no reason.
+#   t2 is a refusal reaching the fallback: "Claude Code" is what an agent shows
+#   before it has a task, and the tab is better off reading "claude".
+#   t3 is the claim that a title needs no process lookup: no procinfo fixture
+#   exists for its pane at all, so the mock serves "{}" and the program path can
+#   produce nothing. A name here can only have come from the title.
+#   t4 is the directory refusal, which only this level can pin: the name is
+#   compared against the basename of the pane's own cwd.
+#   t5 reads herdr's unstripped title, the only field an older herdr may fill.
+#   t6 is the gate: a pane with no detected agent has a title too (a shell, an
+#   editor, anything that writes one), and it is not a task report.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[
+  {"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true},
+  {"tab_id":"w1:t2","label":"2","pane_count":1,"focused":false},
+  {"tab_id":"w1:t3","label":"3","pane_count":1,"focused":false},
+  {"tab_id":"w1:t4","label":"4","pane_count":1,"focused":false},
+  {"tab_id":"w1:t5","label":"5","pane_count":1,"focused":false},
+  {"tab_id":"w1:t6","label":"6","pane_count":1,"focused":false}
+]}}
+JSON
+# ✳ is the spinner glyph claude parks on the front of its title (jq decodes
+# the escape, so the fixture stays readable and no editor can eat the character).
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t1","focused":true,"agent":"claude","agent_status":"working",
+   "terminal_title_stripped":"✳ Squash merge command","foreground_cwd":"/home/u/dev/api"},
+  {"pane_id":"p2","tab_id":"w1:t2","focused":false,"agent":"claude","agent_status":"idle",
+   "terminal_title_stripped":"Claude Code","foreground_cwd":"/home/u/dev/api"},
+  {"pane_id":"p3","tab_id":"w1:t3","focused":false,"agent":"claude","agent_status":"working",
+   "terminal_title_stripped":"Reticulating splines","foreground_cwd":"/home/u/dev/api"},
+  {"pane_id":"p4","tab_id":"w1:t4","focused":false,"agent":"claude","agent_status":"idle",
+   "terminal_title_stripped":"api","foreground_cwd":"/home/u/dev/api"},
+  {"pane_id":"p5","tab_id":"w1:t5","focused":false,"agent":"codex","agent_status":"working",
+   "terminal_title":"Draft the changelog","cwd":"/home/u/dev/api"},
+  {"pane_id":"p6","tab_id":"w1:t6","focused":false,
+   "terminal_title_stripped":"Downloading the internet","cwd":"/home/u/dev/api"}
+]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+# NOTE: no procinfo_p3.json on purpose -- t3 must be named from its title alone.
+fixture procinfo_p4.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":400,
+  "foreground_processes":[{"pid":400,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+fixture procinfo_p6.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":600,
+  "foreground_processes":[{"pid":600,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+# The glyph is built from its UTF-8 bytes rather than pasted, as in
+# tests/test_naming.sh: a literal one is what an editor eats silently, and a
+# needle that cannot appear is a check that cannot fail.
+spinner=$(printf '\xe2\x9c\xb3')
+check_contains "an agent tab is named after its task"  "$out" "tab rename w1:t1 Squash merge command"
+check_absent   "the spinner never reaches the label"   "$out" "$spinner"
+check_absent   "and the program name is not used"      "$out" "tab rename w1:t1 claude"
+check_contains "a refused title falls back to program" "$out" "tab rename w1:t2 claude"
+check_absent   "the refused title is never a label"    "$out" "Claude Code"
+check_contains "a title needs no process lookup"       "$out" "tab rename w1:t3 Reticulating splines"
+check_contains "a title that is just the cwd is refused" "$out" "tab rename w1:t4 claude"
+check_absent   "the directory is never the label"      "$out" "tab rename w1:t4 api"
+check_contains "the unstripped title is read too"      "$out" "tab rename w1:t5 Draft the changelog"
+check_contains "a pane with no agent is named by program" "$out" "tab rename w1:t6 nvim"
+check_absent   "a non-agent title never names a tab"   "$out" "Downloading the internet"
+teardown
+
+# ======================================================================
+# Scenario 29: AGENT_TITLES=0 is how a user keeps program names, so nothing about
+#   the old naming may change under it -- PROGRAM_ALIASES included, which is the
+#   pair to the unit check that a title outranks an alias. Same pane as scenario
+#   28's t1: a title that would certainly have been used. The alias comes from a
+#   real config file (arrays cannot travel through the environment), which also
+#   pins that the config still loads before naming.sh reads its defaults.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0 AGENT_TITLES=0
+printf 'PROGRAM_ALIASES=("claude=cl")\n' >"$HERDR_AUTOMATIC_RENAME_CONFIG"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t1","focused":true,"agent":"claude","agent_status":"working",
+   "terminal_title_stripped":"Squash merge command","foreground_cwd":"/home/u/dev/api"}
+]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "titles off -> the alias names the tab" "$out" "tab rename w1:t1 cl"
+check_absent   "and the task title is not used"        "$out" "Squash merge command"
+teardown
+
+# ======================================================================
+# Scenario 30: which pane a split tab is ABOUT. A tab holding an agent and a
+#   shell is about the agent, and it stays about the agent while you read the
+#   shell half -- so the naming pane is not simply the one focus sits in. An IDLE
+#   agent is the other side of that: it has nothing to report, and outranking the
+#   pane you are actually looking at would be taking the name away from the work
+#   you are doing. herdr publishes agent_status per pane, and the snapshot carries
+#   the layouts that say where focus sits inside each tab, so the whole rule is
+#   decided in the reshape (hence a snapshot fixture and no titles anywhere: this
+#   scenario is about pane choice alone).
+#   t1: focused pane is a shell, the other pane holds a WORKING agent -> the agent.
+#   t2: the same shape with an IDLE agent -> the focused shell keeps the name.
+#   t3: the focused pane holds the agent itself, and another pane holds a WORKING
+#       one. Focus wins: the tab is named from the pane you are in, not from the
+#       busiest one in it.
+#   t4: BLOCKED is at work too -- an agent waiting on a permission prompt is the
+#       most interesting thing in the session, and dropping that arm would be
+#       invisible everywhere else.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+fixture snapshot.json <<'JSON'
+{"result":{"snapshot":{
+  "workspaces":[{"workspace_id":"w1","label":"api"}],
+  "tabs":[
+    {"tab_id":"w1:t1","label":"1","pane_count":2,"focused":true,"workspace_id":"w1"},
+    {"tab_id":"w1:t2","label":"2","pane_count":2,"focused":false,"workspace_id":"w1"},
+    {"tab_id":"w1:t3","label":"3","pane_count":2,"focused":false,"workspace_id":"w1"},
+    {"tab_id":"w1:t4","label":"4","pane_count":2,"focused":false,"workspace_id":"w1"}
+  ],
+  "panes":[
+    {"pane_id":"p1","tab_id":"w1:t1","focused":true},
+    {"pane_id":"p2","tab_id":"w1:t1","focused":false,"agent":"claude","agent_status":"working"},
+    {"pane_id":"p3","tab_id":"w1:t2","focused":false},
+    {"pane_id":"p4","tab_id":"w1:t2","focused":false,"agent":"claude","agent_status":"idle"},
+    {"pane_id":"p5","tab_id":"w1:t3","focused":false,"agent":"claude","agent_status":"idle"},
+    {"pane_id":"p6","tab_id":"w1:t3","focused":false,"agent":"codex","agent_status":"working"},
+    {"pane_id":"p7","tab_id":"w1:t4","focused":false},
+    {"pane_id":"p8","tab_id":"w1:t4","focused":false,"agent":"amp","agent_status":"blocked"}
+  ],
+  "layouts":[
+    {"tab_id":"w1:t1","focused_pane_id":"p1"},
+    {"tab_id":"w1:t2","focused_pane_id":"p3"},
+    {"tab_id":"w1:t3","focused_pane_id":"p5"},
+    {"tab_id":"w1:t4","focused_pane_id":"p7"}
+  ],
+  "agents":[]
+}}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"-zsh","cmdline":"-zsh"}]}}}
+JSON
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+fixture procinfo_p3.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":300,
+  "foreground_processes":[{"pid":300,"argv0":"-zsh","cmdline":"-zsh"}]}}}
+JSON
+fixture procinfo_p4.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":400,
+  "foreground_processes":[{"pid":400,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+fixture procinfo_p5.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":500,
+  "foreground_processes":[{"pid":500,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+fixture procinfo_p6.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":600,
+  "foreground_processes":[{"pid":600,"argv0":"codex","cmdline":"codex"}]}}}
+JSON
+fixture procinfo_p7.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":700,
+  "foreground_processes":[{"pid":700,"argv0":"-zsh","cmdline":"-zsh"}]}}}
+JSON
+fixture procinfo_p8.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":800,
+  "foreground_processes":[{"pid":800,"argv0":"amp","cmdline":"amp"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "a working agent names the split tab"      "$out" "tab rename w1:t1 claude"
+check_absent   "the focused shell does not name it"       "$out" "tab rename w1:t1 zsh"
+check_contains "an idle agent leaves the focused pane"    "$out" "tab rename w1:t2 zsh"
+check_absent   "an idle agent never outranks focus"       "$out" "tab rename w1:t2 claude"
+check_contains "the focused pane's own agent names it"    "$out" "tab rename w1:t3 claude"
+check_absent   "a busier agent elsewhere does not win"    "$out" "tab rename w1:t3 codex"
+check_contains "a blocked agent is at work as well"       "$out" "tab rename w1:t4 amp"
+check_absent   "the shell half does not name that one"    "$out" "tab rename w1:t4 zsh"
+teardown
+
+# ======================================================================
+# Scenario 31: the reset action says what it did. Both actions are meant for a
+#   keybinding, and a reset that finds nothing to re-adopt otherwise produces no
+#   feedback at all -- an invisible no-op reads as a broken keybinding.
+#   Pass 1: the tab is opted out (renamed by hand) and reset is aimed at it, so
+#   the notification and the rename that follows it have to agree -- reporting a
+#   re-adoption that did not happen is worse than saying nothing.
+#   Pass 2: no tab id anywhere and no focused tab to fall back to, so there is
+#   nothing to re-adopt. Pass 3: naming is off entirely, which is the same
+#   headline for a different reason -- the body is the only thing that separates
+#   them, so both are pinned by their body.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"w1:t1":{"auto":"","enabled":false}}\n' >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"incident","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+HERDR_TAB_ID=w1:t1 run_event reset
+out=$(log)
+check_contains "reset re-adopts the tab it was aimed at" "$out" "tab rename w1:t1 nvim"
+check_contains "and reports the re-adoption"             "$out" \
+  "notification show Tab re-adopted --body Automatic naming is on for this tab again."
+# No tab id, no context JSON, and `tab list` (no --workspace) has no fixture, so
+# the focused-tab fallback finds nothing either.
+: >"$HERDR_MOCK_LOG"
+run_event reset
+out=$(log)
+check_contains "with no tab to re-adopt it says so" "$out" \
+  "notification show Nothing to reset --body No tab to re-adopt."
+check_absent   "and claims no re-adoption"          "$out" "Tab re-adopted"
+# Naming off: the same headline, and the body is what says why.
+: >"$HERDR_MOCK_LOG"
+NAME_TABS=0 HERDR_TAB_ID=w1:t1 run_event reset
+out=$(log)
+check_contains "with naming off it says why" "$out" \
+  "notification show Nothing to reset --body Tab naming is off (NAME_TABS=0)."
+check_absent   "and re-adopts nothing"       "$out" "Tab re-adopted"
 teardown
 
 t_summary

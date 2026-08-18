@@ -374,11 +374,12 @@ ar_name_eligible() {
 # ar_resolve_pane <tab_id> <pane_count> <focused> <layout_pane> -> the active
 # pane_id, or "" when this tab has none to name from.
 #
-# <layout_pane> is the tab's own .focused_pane_id, carried on the tab row by the
-# snapshot reshape in ar_reconcile (which is why this costs no herdr call and no
-# jq of its own). herdr publishes one layout per tab, so it answers for every
-# tab, and it is why a background multi-pane tab can be named at all. See "Which
-# pane names a tab" in docs/ARCHITECTURE.md.
+# <layout_pane> is the pane the snapshot reshape in ar_reconcile picked for this
+# tab and carried on its row (which is why this costs no herdr call and no jq of
+# its own): the tab's own focused pane, or the agent at work in it. herdr
+# publishes one layout per tab, so it answers for every tab, and it is why a
+# background multi-pane tab can be named at all. See "Which pane names a tab" in
+# docs/ARCHITECTURE.md.
 #
 # Everything below is the fallback for a herdr whose snapshot carries no layouts
 # and for the per-list path, which has none: the sole pane of a single-pane tab,
@@ -404,21 +405,35 @@ ar_resolve_pane() {
   ' 2>/dev/null
 }
 
-# ar_pane_agent_kind <pane_id> -> the agent herdr detected in that pane, or "".
-# herdr publishes its detection result on the pane object itself (.agent), so
-# this reads the AR_PANES_JSON the reconcile already fetched -- no extra herdr
-# call on any version. The panes carrying .agent are exactly the ones
-# `agent list` reports (verified against a live herdr 0.8.0). The neighboring
-# .agent_session is deliberately NOT consulted: it is a resume reference, and a
-# pane can carry one while detection reports nothing (herdr#803's half-wired
-# state), so naming from it would bypass the detection gate on a stale ref.
-ar_pane_agent_kind() {
-  printf '%s' "$AR_PANES_JSON" | jq -r --arg p "$1" '
-    (.result.panes // .panes // [])
-    | map(select(.pane_id == $p))
-    | .[0]
-    | if . == null then "" else (.agent // "") end
-  ' 2>/dev/null
+# ar_pane_facts <pane_id> -> sets AR_PANE_AGENT / AR_PANE_TITLE / AR_PANE_DIR.
+# herdr publishes all three on the pane object itself, so this reads the
+# AR_PANES_JSON the reconcile already fetched -- no extra herdr call on any
+# version.
+#
+# AR_PANE_AGENT is herdr's own detection result (.agent). The panes carrying it
+# are exactly the ones `agent list` reports (verified against a live herdr 0.8.0).
+# The neighboring .agent_session is deliberately NOT consulted: it is a resume
+# reference, and a pane can carry one while detection reports nothing (herdr#803's
+# half-wired state), so naming from it would bypass the detection gate on a stale
+# ref.
+#
+# AR_PANE_TITLE is what the program running there set as the terminal title. For a
+# coding agent that is a description of the work in progress, which is the whole
+# of AGENT_TITLES. herdr keeps an ANSI-stripped copy, and _stripped means exactly
+# that -- a spinner glyph is still on the front of it (see ar_title_clean).
+#
+# AR_PANE_DIR is the directory the pane is in, needed only to recognize a title
+# that is just that directory repeated back.
+ar_pane_facts() {
+  local out
+  AR_PANE_AGENT=""; AR_PANE_TITLE=""; AR_PANE_DIR=""
+  out=$(printf '%s' "$AR_PANES_JSON" | jq -r --arg p "$1" "$AR_JQ_CLEAN"'
+    (.result.panes // .panes // []) | map(select(.pane_id == $p)) | .[0] as $pane
+    | [ ($pane.agent | clean),
+        ($pane.terminal_title_stripped // $pane.terminal_title | clean),
+        (($pane.foreground_cwd // $pane.cwd | clean) | split("/") | last) ]
+    | join([31] | implode)' 2>/dev/null) || return 1
+  IFS=$AR_ROW_SEP read -r AR_PANE_AGENT AR_PANE_TITLE AR_PANE_DIR <<< "$out"
 }
 
 # ar_split_program <ar_pane_program output> -> sets AR_PROG / AR_CMD.
@@ -486,9 +501,21 @@ ar_pane_program() {
 # failure); a successful HIDE_SHELL computation returns 0 with EMPTY output, so
 # the caller must read the status, not the string, to tell the two apart.
 ar_tab_name() {
-  local pane info prog="" cmd="" kind=""
+  local pane info prog="" cmd="" title=""
   pane=$(ar_resolve_pane "$1" "$2" "$3" "${4:-}")
   [ -n "$pane" ] || return 1
+  ar_pane_facts "$pane"
+  # An agent tab is named after the work the agent reports, when it reports any:
+  # five claude tabs all read "claude" otherwise, which is the one thing naming
+  # them by program cannot fix. This answer also needs no process lookup, so an
+  # agent-heavy session spends fewer calls than it did before.
+  if [ "${AGENT_TITLES:-1}" = "1" ] && [ -n "$AR_PANE_AGENT" ]; then
+    title=$(ar_title_clean "$AR_PANE_TITLE" "$AR_PANE_AGENT" "$AR_PANE_DIR")
+    if [ -n "$title" ]; then
+      ar_format "$AR_PANE_AGENT" "" "$title"
+      return 0
+    fi
+  fi
   # process-info can fail transiently (pane closing, socket hiccup) or resolve no
   # foreground process; both leave prog empty. Fail so the caller keeps the tab's
   # current name, rather than falling through to ar_format "" "" -> $SHELL_NAME
@@ -504,12 +531,9 @@ ar_tab_name() {
   # answer wins. Both conditions are needed: a plain `node server.js` tab has no
   # agent and keeps its name, and an agent that reports its own name never
   # reaches this.
-  if ar_in_list "$prog" "${WRAPPER_PROGRAMS[@]}"; then
-    kind=$(ar_pane_agent_kind "$pane")
-    if [ -n "$kind" ]; then
-      prog=$kind
-      cmd=$kind
-    fi
+  if ar_in_list "$prog" "${WRAPPER_PROGRAMS[@]}" && [ -n "$AR_PANE_AGENT" ]; then
+    prog=$AR_PANE_AGENT
+    cmd=$AR_PANE_AGENT
   fi
   ar_format "$prog" "$cmd"
 }
@@ -630,7 +654,7 @@ ar_reconcile_tabs() {
     if [ "${AR_HAVE_SNAPSHOT:-0}" = "1" ]; then
       # Slice this workspace's tabs out of the cached snapshot, preserving array
       # order (what cmd+N numbers by). Same shape as `tab list --workspace`, plus
-      # the _layout_pane the reshape joined on (see ar_resolve_pane).
+      # the _name_pane the reshape joined on (see ar_resolve_pane).
       tjson=$(printf '%s' "$AR_SNAP_TABS_JSON" | jq -c --arg w "$w" \
         '{result:{tabs:[(.result.tabs // [])[]|select(.workspace_id==$w)]}}' 2>/dev/null)
     else
@@ -640,7 +664,7 @@ ar_reconcile_tabs() {
     rows=$(printf '%s' "$tjson" | jq -r "$AR_JQ_CLEAN"'
       (.result.tabs // .tabs // [])[]
       | [ .tab_id, (.label | clean), ((.pane_count // 0) | tostring),
-          ((.focused // false) | tostring), (._layout_pane // ""),
+          ((.focused // false) | tostring), (._name_pane // ""),
           (((.label // "") != (.label | clean)) | tostring) ]
       | join([31] | implode)' 2>/dev/null)
     [ -n "$rows" ] || continue
@@ -929,6 +953,18 @@ ar_wait_tab_gone() {
   done
 }
 
+# ar_notify <title> [body] - tell the user an action ran. Both actions are meant
+# for a keybinding, where the only other feedback is the tab bar redrawing (or,
+# for a reset that finds nothing to re-adopt, nothing at all). Best effort: an
+# older herdr without `notification show` just declines.
+ar_notify() {
+  if [ -n "${2:-}" ]; then
+    "$HERDR" notification show "$1" --body "$2" >/dev/null 2>&1 || true
+  else
+    "$HERDR" notification show "$1" >/dev/null 2>&1 || true
+  fi
+}
+
 # ======================================================================
 # passes
 # ======================================================================
@@ -964,15 +1000,32 @@ ar_reconcile() {
     AR_HAVE_SNAPSHOT=1
     wsjson=$(printf '%s' "$snap" | jq -c \
       '{result:{workspaces:((.result.snapshot // .snapshot).workspaces // [])}}' 2>/dev/null)
-    # Each tab carries the .focused_pane_id of its own layout as _layout_pane:
-    # that is the pane naming reads (see ar_resolve_pane), it is per-tab data, and
-    # joining it here means the tab loop never asks for it again. A herdr with no
-    # layouts leaves it empty and naming falls back to the pane list.
+    # Each tab carries the pane its NAME comes from as _name_pane: per-tab data,
+    # joined here so the tab loop never asks for it again (see ar_resolve_pane).
+    #
+    # Which pane that is, in order:
+    #   1. the tab's own focused pane, when an agent is running in it;
+    #   2. any pane of the tab holding an agent that is working or blocked;
+    #   3. the tab's own focused pane.
+    # A tab split between an agent and a shell is about the agent, and it stays
+    # about the agent while you read the shell half -- but an IDLE agent does not
+    # outrank whatever you are actually looking at. A herdr with no layouts leaves
+    # this empty and naming falls back to the pane list.
     AR_SNAP_TABS_JSON=$(printf '%s' "$snap" | jq -c \
       '(.result.snapshot // .snapshot) as $s
        | ($s.layouts // []) as $lay
+       | ($s.panes // []) as $pan
        | {result:{tabs:[ $s.tabs[]? | .tab_id as $t
-           | . + {_layout_pane: (($lay | map(select(.tab_id == $t)) | .[0].focused_pane_id) // "")} ]}}' 2>/dev/null)
+           | (($lay | map(select(.tab_id == $t)) | .[0].focused_pane_id) // "") as $lp
+           | ($pan | map(select(.tab_id == $t))) as $tp
+           | { _name_pane:
+                 (($tp | map(select(.pane_id == $lp and ((.agent // "") != ""))) | .[0].pane_id)
+               // ($tp | map(select(((.agent // "") != "")
+                                    and ((.agent_status // "") == "working"
+                                         or (.agent_status // "") == "blocked")))
+                       | .[0].pane_id)
+               // ($lp | select(. != ""))
+               // "") } + . ]}}' 2>/dev/null)
     AR_SNAP_AGENTS_JSON=$(printf '%s' "$snap" | jq -c \
       '{result:{agents:((.result.snapshot // .snapshot).agents // [])}}' 2>/dev/null)
     if [ "$CLEAR" != "1" ] && [ "$NAME_TABS" = "1" ]; then
@@ -1143,9 +1196,17 @@ ar_main() {
       fi
       [ -n "$tab" ] && [ "$NAME_TABS" = "1" ] && AR_FORCE_TAB="$tab"
       ar_run full
+      if [ -n "${AR_FORCE_TAB:-}" ]; then
+        ar_notify "Tab re-adopted" "Automatic naming is on for this tab again."
+      elif [ "$NAME_TABS" = "1" ]; then
+        ar_notify "Nothing to reset" "No tab to re-adopt."
+      else
+        ar_notify "Nothing to reset" "Tab naming is off (NAME_TABS=0)."
+      fi
       ;;
     clear|--clear)
       ar_run full                            # CLEAR=1 already set above
+      ar_notify "Number prefixes cleared" "Base names restored, agents back to detection."
       ;;
     tab.closed)
       ar_wait_tab_gone "${HERDR_TAB_ID:-}"   # settle before the reconcile

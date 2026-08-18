@@ -23,13 +23,13 @@ skip-if-correct, so re-firing the pass (herdr's own rename re-emits
 
 ## Naming lives in a pure module
 
-`naming.sh` turns `(program, cmdline)` into a display name and touches neither
-herdr nor the filesystem. That keeps the naming rules (shells, name-only
-programs, ignored programs, aliases, substitutions, truncation, icons) unit
-testable in isolation. The icon knobs, glyph map, and lookup live in `icons.sh`
-(sourced by `naming.sh`) so the 100+ arm case statement stays out of the naming
-logic. The engine calls `ar_format` across that seam. Every function in these
-files uses the `ar_` prefix.
+`naming.sh` turns `(program, cmdline, title)` into a display name and touches
+neither herdr nor the filesystem. That keeps the naming rules (shells, name-only
+programs, ignored programs, aliases, substitutions, agent titles, truncation,
+icons) unit testable in isolation. The icon knobs, glyph map, and lookup live in
+`icons.sh` (sourced by `naming.sh`) so the 100+ arm case statement stays out of
+the naming logic. The engine calls `ar_format` across that seam. Every function
+in these files uses the `ar_` prefix.
 
 ## Rows carry values, not escapes
 
@@ -170,10 +170,62 @@ on whatever event arrives next, which in an active session is usually seconds aw
 collapse can still jump by the old numbering. Upstream support, either an event or
 a `collapsed` field on `WorkspaceInfo`, is what would close that window.
 
+## An agent tab is named from its terminal title
+
+Five agent panes named after their foreground program give five tabs reading
+`claude`, which is the one thing the program-name rule cannot fix. The task is
+what tells them apart, and a coding agent already publishes it: it sets its
+terminal title to a description of the work and keeps that current as the work
+moves. So where herdr reports an agent for the pane, `ar_tab_name` prefers the
+title over the program name (`AGENT_TITLES`, default on).
+
+Reading it is free. herdr publishes the title on the pane object itself, beside
+the detection result, so `ar_pane_facts` lifts the agent, the title, and the
+pane's directory out of the `AR_PANES_JSON` the reconcile already fetched: one jq
+over cached JSON, no herdr call on any version. A title that lands also ends the
+computation, so such a tab skips the `pane process-info` call the program path
+needs, which leaves an agent-heavy session making fewer calls than before.
+Refreshes ride `pane.agent_status_changed`, an event the plugin already
+subscribes to for agent numbering, so the label follows the work with nothing
+polling.
+
+`ar_title_clean` decides whether a title says anything. It refuses:
+
+- the agent naming itself: its herdr kind (`claude`), that kind followed by
+  `code` (`Claude Code`), or a `TITLE_IGNORE` entry, which is what an agent
+  titles a session it has no task for yet;
+- the directory the pane sits in, which is what claude falls back to at startup;
+- a bare number, which is herdr's own generated tab label handed back through the
+  title.
+
+Each refusal returns the empty string, and naming carries on to the program,
+`PROGRAM_ALIASES` and the `WRAPPER_PROGRAMS` unwrapping included. A title that
+survives replaces the program name outright, alias and all: `AGENT_TITLES` is the
+request for the task, and an alias shortening `claude` to `cl` is not a request to
+hide the work. The program still supplies the icon, and the label gets its own
+budget, `MAX_TITLE_LEN` (28) rather than `MAX_NAME_LEN` (20), cut at a word
+boundary when that leaves at least half of it -- a title is a sentence, and
+`Investigate` says more than `I` does.
+
+The first thing `ar_title_clean` does is drop the leading run of
+non-alphanumerics. herdr keeps an ANSI-stripped copy of the title
+(`terminal_title_stripped`) and stripped means exactly that: the spinner glyph an
+agent parks in front of its title while it works is still on it, and claude
+cycles four of them. Without the strip the label would flip between `Task` and
+`<glyph> Task` on every status event, and each flip is a rename.
+
+`jq` does that strip, and the case-folding both sides of the comparisons above
+need, in one call. Its character classes know Unicode; a byte-wise strip would
+eat the first letter of a title that opens with a non-ASCII word, and herdr may
+launch a plugin with no `LC_*` at all. Reaching for jq keeps the function inside
+the module's rule rather than bending it -- strings in, strings out, no herdr
+and no filesystem -- and `ar_format` next door already calls it to truncate on
+codepoint boundaries for the same locale reason.
+
 ## Which pane names a tab
 
-A tab's name comes from one pane's foreground process, so the pass has to pick
-that pane. The snapshot's `layouts` array answers directly: one entry per tab,
+A tab's name comes from one of its panes, so the pass has to pick that pane. The
+snapshot's `layouts` array is what makes the choice possible: one entry per tab,
 each carrying the `focused_pane_id` of that tab's own focus. It holds for tabs
 nobody is looking at, which the pane list cannot report -- no pane of a
 background tab carries `.focused` -- and it is per-tab, so it never picks up the
@@ -181,10 +233,24 @@ globally focused pane, which belongs to whichever client moved focus last and
 may sit in another tab entirely (herdr supports several clients and remote
 attach).
 
+Focus alone is not the whole answer for a tab with several panes, though. A split
+with an agent in one pane and a shell in the other is about the agent, and while
+the agent works focus sits in the shell, so naming by focus alone advertised the
+shell. The reshape picks, in order:
+
+1. the tab's own focused pane, when herdr reports an agent running in it;
+2. any pane of the tab holding an agent whose status is `working` or `blocked`;
+3. the tab's own focused pane.
+
+Rule 2 asks for a status on purpose. An idle agent has nothing to say about a tab
+you have moved on to, and naming that tab after it would take the label away from
+the pane you are reading.
+
 That is per-tab data, so it travels with the tab: the reshape that slices the
-snapshot joins it onto each tab row as `_layout_pane`, and the tab loop reads it
-off the row it already has. `ar_resolve_pane` holds only the inference for rows
-where that column is empty, which costs the loop nothing on either path.
+snapshot joins the pane it picked onto each tab row as `_name_pane`, and the tab
+loop reads it off the row it already has. `ar_resolve_pane` holds only the
+inference for rows where that column is empty, which costs the loop nothing on
+either path.
 
 Older herdr, and the per-list fallback path, ship no layouts. There the pass
 keeps the original rule: the sole pane of a single-pane tab, else the tab's own

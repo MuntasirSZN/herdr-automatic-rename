@@ -4,7 +4,7 @@
 
 ## Features
 
-**1. Automatic tab rename with the foreground process.** Inspired by [tmux](https://github.com/tmux/tmux)'s `automatic-rename`, each tab shows its foreground process (e.g., `nvim`, `claude`) or the shell at a bare prompt (e.g., `zsh`). Custom renames are respected.
+**1. Automatic tab rename with the foreground process, or with what a coding agent is working on.** Inspired by [tmux](https://github.com/tmux/tmux)'s `automatic-rename`, each tab shows its foreground process (e.g., `nvim`, `claude`) or the shell at a bare prompt (e.g., `zsh`). A tab running a coding agent shows the task instead of the agent, read from the terminal title the agent keeps current, so five `claude` tabs read `Squash merge command` and `Check PR 2169 relevance` rather than `claude` five times. Custom renames are respected.
 
 **2. Automatic prefix spaces/tabs with the 1-9 keybind jump number**. Add an `[N]` prefix to each workspace and tab matching the `1-9` binding for that slot. Glance at the tabs or sidebar, see what runs where, and quickly jump by number. Agents get one too on herdr `< 0.7.5`, which is the last release whose agent names allow it.
 
@@ -27,6 +27,19 @@ with the plugin  │ [1] zsh │ [2] nvim │ [3] zsh │ [4] notes │
 | `nvim README.md` | `2` | `[2] nvim` |
 | `ls -la`, an `IGNORED_PROGRAMS` entry | `3` | `[3] zsh` |
 | a tab you renamed `notes` yourself | `notes` | `[4] notes` |
+
+A row of `claude` tabs is the case a program name cannot help with. A coding agent reports the task it is on as its terminal title and keeps that current as the work moves, so the tab shows the task. Two tabs of another workspace, same config:
+
+| Tab is running | herdr alone | with the plugin |
+| --- | --- | --- |
+| `claude`, mid-task | `1` | `[1] Squash merge command` |
+| `claude`, nothing asked of it yet | `2` | `[2] claude` |
+
+herdr publishes the title on the pane object it already sends, so the label costs no extra call, and a tab named from a title needs no foreground-process lookup at all. It refreshes on herdr's `pane.agent_status_changed` events, so the name follows the work with nothing polling.
+
+A title has to say something to be used. One that names the agent rather than the work (`Claude Code`, the agent's own kind, anything in `TITLE_IGNORE`), one that is just the pane's directory, and a bare number are all refused, and the tab falls back to the program name, `PROGRAM_ALIASES` included. The spinner glyph an agent parks in front of its title while it works is stripped off, or the label would flip on every status change. `AGENT_TITLES=0` turns the whole thing off and names agent tabs after their program, as before.
+
+For a tab with more than one pane, the name comes from the pane that matters: the tab's own focused pane when an agent is running in it, else an agent that is working or blocked anywhere in the tab, else the focused pane. So an agent-plus-shell split still reads as the agent while you type in the shell half, and an idle agent does not take the name away from what you are looking at. The shell hook is per-pane, so a command you start in that shell half does name the tab after the command while it runs; the next herdr event applies the rule above again.
 
 Workspaces get numbered, never renamed, so only the prefix is new:
 
@@ -140,6 +153,9 @@ Override the path with `HERDR_AUTOMATIC_RENAME_CONFIG`.
 | `AUTO_INDEX_AGENTS` | `AUTO_INDEX` | Number agents (herdr `< 0.7.5` only, and only under the grouped panel sort). |
 | `SHOW_PROGRAM_ARGS` | `0` | `0` shows just the program name (`git`), `1` shows its full command line (`git log --oneline`). |
 | `MAX_NAME_LEN` | `20` | Cut the finished label off after this many characters. |
+| `AGENT_TITLES` | `1` | Name a tab running a coding agent after the task in the agent's terminal title (`Squash merge command`) rather than after the program (`claude`). `0` names every agent tab after its program. |
+| `MAX_TITLE_LEN` | `28` | Cut a title label off after this many characters, at a word boundary where one is close enough. Titles are sentences, so they get more room than `MAX_NAME_LEN` gives a command name. |
+| `TITLE_IGNORE` | `claude code`, `codex cli`, ... | Titles that name the agent instead of its work, compared case-insensitively against the whole title. A match is refused and the tab is named after the program. The agent's own kind, that kind plus `code`, the pane's directory, and a bare number are refused without being listed. |
 | `SHELL_NAME` | `$SHELL` basename | Label shown at an idle prompt when no program is running (e.g. `zsh`). |
 | `HIDE_SHELL` | `0` | `1` gives a shell tab no name at all, so herdr's own tab number shows there instead of `zsh`. Covers the login shell (`SHELL_NAME`), not just the fixed `SHELLS` list. |
 | `SHELLS` | `zsh bash sh fish dash ksh` | Programs counted as "a shell prompt" and shown by their own name. |
@@ -159,6 +175,8 @@ Override the path with `HERDR_AUTOMATIC_RENAME_CONFIG`.
 
 - `reset`: re-adopt a hand-renamed tab.
 - `clear`: strip every `[N]`, restore base names, revert agents to detection.
+
+Both report what they did as a herdr notification, since a keybinding leaves nothing else to confirm them by: a `reset` that found no tab to re-adopt, or that ran with `NAME_TABS=0`, says so rather than looking like one that worked. A herdr with no `notification show` declines the notification and the action still runs.
 
 Run from the CLI, or bind a key:
 
