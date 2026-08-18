@@ -27,7 +27,7 @@ chmod +x "$MOCK" 2>/dev/null || true
 # ======================================================================
 . "$ENGINE"
 
-positions() { ar_workspace_positions "$1" "$2" | tr '\t' ' ' | tr '\n' '|'; }
+positions() { ar_workspace_positions "$1" "$2" | tr '\037' ' ' | tr '\n' '|'; }
 
 WS='{"result":{"workspaces":[
   {"workspace_id":"wA","label":"main","focused":false,

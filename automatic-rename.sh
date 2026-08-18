@@ -77,6 +77,16 @@ CONFIG_FILE="${HERDR_AUTOMATIC_RENAME_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/
 # unambiguous without touching anything the user can see.
 AR_JQ_CLEAN='def clean: (. // "") | tostring | gsub("[[:cntrl:]]"; " ");'
 
+# Those rows are split on the ASCII unit separator rather than a tab, because
+# bash counts a tab as IFS WHITESPACE: `read` collapses a run of them, so one
+# empty field shifts every field after it. A tab with an empty label -- what
+# HIDE_SHELL leaves behind -- parsed its pane count as its label and was never
+# named again. A non-whitespace delimiter keeps empty fields where they belong,
+# and clean has already taken every character of this class out of the values, so
+# it cannot turn up inside one. jq spells it [31] | implode, for the same reason
+# this file cannot: a literal control character in source is unreadable.
+AR_ROW_SEP=$'\037'
+
 # The prerequisite checks, config + naming load, toggle defaults, mode parse, and
 # dispatch all live in ar_main (bottom of file) so that sourcing this file for
 # unit tests loads ONLY the function definitions and touches nothing at runtime.
@@ -586,7 +596,7 @@ ar_workspace_positions() {
     | $rows[] | ._i as $i | ($order | index($i)) as $pos
     | [ .workspace_id, (.label | clean),
         ((if $pos == null then 0 else $pos + 1 end) | tostring) ]
-    | join("\t")' 2>/dev/null
+    | join([31] | implode)' 2>/dev/null
 }
 
 # Workspaces: number them by herdr's visible sidebar order. Arg 1 is a cached
@@ -596,7 +606,7 @@ ar_renumber_workspaces() {
   [ -n "$json" ] || return 0
   rows=$(ar_workspace_positions "$json" "$(ar_collapsed_spaces)")
   [ -n "$rows" ] || return 0
-  while IFS=$'\t' read -r wid label pos; do
+  while IFS=$AR_ROW_SEP read -r wid label pos; do
     [ -n "$wid" ] || continue
     base=$(ar_strip_prefix "$label")
     [ -n "$base" ] || continue          # empty label: nothing to number, leave it
@@ -630,11 +640,12 @@ ar_reconcile_tabs() {
     rows=$(printf '%s' "$tjson" | jq -r "$AR_JQ_CLEAN"'
       (.result.tabs // .tabs // [])[]
       | [ .tab_id, (.label | clean), ((.pane_count // 0) | tostring),
-          ((.focused // false) | tostring), (._layout_pane // "") ]
-      | join("\t")' 2>/dev/null)
+          ((.focused // false) | tostring), (._layout_pane // ""),
+          (((.label // "") != (.label | clean)) | tostring) ]
+      | join([31] | implode)' 2>/dev/null)
     [ -n "$rows" ] || continue
     i=0
-    while IFS=$'\t' read -r tid label pcount foc lpane; do
+    while IFS=$AR_ROW_SEP read -r tid label pcount foc lpane dirty; do
       [ -n "$tid" ] || continue
       i=$(( i + 1 ))
       AR_SEEN_TABS="$AR_SEEN_TABS $tid"
@@ -681,7 +692,14 @@ ar_reconcile_tabs() {
       # claiming a base the tab does not have, and the next pass read that
       # mismatch as a hand rename and opted the tab out of naming for good --
       # recoverable only through the reset action. Same order as ar_fast_once.
-      if [ "$want" = "$label" ] || "$HERDR" tab rename "$tid" "$want" >/dev/null 2>&1; then
+      # A label that already matches needs no rename -- unless the label herdr
+      # holds is not the one just compared. Rows arrive with their control
+      # characters replaced (see AR_JQ_CLEAN), so a label carrying one reads as
+      # equal to the cleaned name and would otherwise keep that character for
+      # good. Worth a rename only for a name this plugin owns: a label it does
+      # not own keeps whatever the user put there, control characters included.
+      if { [ "$want" = "$label" ] && { [ "$named" = "0" ] || [ "$dirty" != "true" ]; }; } \
+         || "$HERDR" tab rename "$tid" "$want" >/dev/null 2>&1; then
         ar_state_claim "$tid" "$name" "$named"
       fi
     done <<< "$rows"
@@ -831,7 +849,7 @@ ar_renumber_agents() {
     (.result.agents // .agents // [])[]
     | [ (.pane_id // .terminal_id // "" | clean), (.name // .agent // "" | clean),
         (.agent_session.agent // .agent // "" | clean) ]
-      | join("\t")' 2>/dev/null)
+      | join([31] | implode)' 2>/dev/null)
   [ -n "$rows" ] || return 0
 
   # Revert to detection (strip our "[N]") on uninstall, with agent numbering
@@ -853,7 +871,7 @@ ar_renumber_agents() {
     strip=1
   fi
   if [ "$strip" = "1" ]; then
-    while IFS=$'\t' read -r tid label detected; do
+    while IFS=$AR_ROW_SEP read -r tid label detected; do
       [ -n "$tid" ] || continue
       base=$(ar_strip_prefix "$label")
       base=$(ar_unpark_base "$base" "$detected")
@@ -864,7 +882,7 @@ ar_renumber_agents() {
   fi
 
   local -a P_TID P_WANT
-  while IFS=$'\t' read -r tid label detected; do
+  while IFS=$AR_ROW_SEP read -r tid label detected; do
     [ -n "$tid" ] || continue
     i=$(( i + 1 ))
     base=$(ar_strip_prefix "$label")

@@ -1063,4 +1063,53 @@ check "the tab is still ours" "nvim true" \
   "$(jq -r '."w1:t2" | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
 teardown
 
+# ======================================================================
+# Scenario 27: rows with an empty field, and a label that has to be rewritten.
+#   w1:t1 carries NO label, which is what HIDE_SHELL leaves and what herdr shows
+#   its own number for. Its row therefore has an empty field in the middle, and a
+#   tab-delimited row loses those: bash counts a tab as IFS whitespace, collapses
+#   the run, and every field after it shifts, so this tab used to read its pane
+#   count as its label and was never named again.
+#   w1:t2 is owned at the base "a b" and its label carries the raw control
+#   character an older fast path could leave there. Rows arrive cleaned, so the
+#   label reads as equal to the name computed for it and no rename looks needed --
+#   which would leave that character in place for good. A name this plugin owns is
+#   written until herdr holds exactly it.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0 SHOW_PROGRAM_ARGS=1
+STATE="$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"w1:t2":{"auto":"a b","enabled":true}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[
+  {"tab_id":"w1:t1","label":"","pane_count":1,"focused":true},
+  {"tab_id":"w1:t2","label":"a\tb","pane_count":1,"focused":false}
+]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t1","focused":true},
+  {"pane_id":"p2","tab_id":"w1:t2","focused":false}
+]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":300,
+  "foreground_processes":[{"pid":300,"argv0":"psql","cmdline":"a b"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "a tab with no label is still named" "$out" "tab rename w1:t1 nvim"
+check_contains "a name we own is written until herdr holds it" "$out" "tab rename w1:t2 a b"
+check "and it stays ours" "a b true" \
+  "$(jq -r '."w1:t2" | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
+teardown
+
 t_summary

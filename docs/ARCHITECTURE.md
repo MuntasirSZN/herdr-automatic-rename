@@ -44,6 +44,12 @@ and leaves everything a user can see untouched. `ar_pane_program` goes one
 further and returns its two values one per line, which is sound for the same
 reason.
 
+The delimiter is the ASCII unit separator, not a tab, because bash counts a tab
+as IFS whitespace: `read` collapses a run of them, so a single empty field shifts
+every field after it. A tab with no label (what `HIDE_SHELL` leaves) used to
+parse its pane count as its label and was never named again. `clean` is what
+makes the separator safe, since no value can contain a character in that class.
+
 ## Why config and state sit at fixed paths
 
 State (`~/.local/state/herdr-automatic-rename/`) and config

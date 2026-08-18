@@ -53,6 +53,21 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   scrub downstream can tell from text somebody typed, and it doubled every
   backslash in a command line on the way past.
 
+- A tab carrying no label at all was never named again. Its row had an empty
+  field in the middle, and the rows were split on a tab, which bash counts as
+  whitespace: `read` collapses a run of them, so every field after the empty one
+  shifted and the tab read its own pane count as its label. `HIDE_SHELL=1` with
+  numbering off is exactly that state, so a tab blanked once stayed blank however
+  many programs ran in it. Rows are split on the ASCII unit separator now, which
+  keeps an empty field in place; nothing can carry one, since the values have
+  their control characters removed on the way out of jq.
+
+- A name this plugin owns is now written until herdr holds exactly it. Rows
+  arrive with control characters replaced, so a label carrying one read as equal
+  to the name computed for it and no rename looked necessary, which left the
+  character there for good. A label the plugin does NOT own is still left exactly
+  as the user typed it.
+
 - Numbering a tab whose name holds a backslash rewrote that name. Every row the
   reconcile reads came back through `@tsv`, which doubles a backslash, so a tab
   called `C:\temp` was renamed to `C:\\temp` (workspace and agent rows read the
