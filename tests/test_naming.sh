@@ -345,6 +345,15 @@ check "a task with a slash is kept"        "Fix CI/CD pipeline" \
 check "a description ending in the dir is kept" "Fix build for services/payments" \
   "$(_clean "Fix build for services/payments" claude payments)"
 check "a bare path with no slash left is refused" "" "$(_clean "~/.config" claude .config)"
+# A trailing slash names the same directory, and the tail of a string that ends in
+# one is empty -- which matches no directory and would walk the whole path past
+# every refusal above.
+check "a trailing slash does not walk a path past it" "" "$(_clean "/home/u/dev/api/" claude api)"
+check "nor does one on a tilde path"                  "" "$(_clean "~/dev/api/" claude api)"
+check "nor on a dot directory"                        "" "$(_clean "~/.config/" claude .config)"
+# The guard trims ONE trailing slash, so a description is still read as a sentence.
+check "a task ending in a slash is still kept" "Fix CI/CD pipeline/" \
+  "$(_clean "Fix CI/CD pipeline/" claude myproj)"
 # A pane herdr reports no directory for must not turn an empty comparison into a
 # refusal: every title would match it and no agent tab would ever get a name.
 check "no pane directory refuses nothing" "Squash merge command" \

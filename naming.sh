@@ -184,9 +184,14 @@ ar_title_clean() {
   # payments ends in exactly that word. A path has no spaces; a sentence about the
   # work almost always does. The leading dot is dropped from the directory too,
   # because a title of "~/.config" has already lost its own to the strip above.
+  #
+  # The trailing slash comes off before the tail is taken: `~/dev/api/` names the
+  # same directory `~/dev/api` does, and ${lower##*/} on a string that ends in one
+  # is EMPTY, which matches no directory and walked the whole path through.
   case $lower in
   *[[:space:]]*) : ;;
-  *) [ -n "$dirlc" ] && { [ "${lower##*/}" = "$dirlc" ] || [ "${lower##*/}" = "${dirlc#.}" ]; } && return 0 ;;
+  *) local tail=${lower%/}; tail=${tail##*/}
+     [ -n "$dirlc" ] && { [ "$tail" = "$dirlc" ] || [ "$tail" = "${dirlc#.}" ]; } && return 0 ;;
   esac
   printf '%s' "$t"
 }
