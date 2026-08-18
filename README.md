@@ -2,19 +2,19 @@
 
 [![tests](https://github.com/qu8n/herdr-automatic-rename/actions/workflows/ci.yml/badge.svg)](https://github.com/qu8n/herdr-automatic-rename/actions/workflows/ci.yml)
 
-## Features
+Two things herdr does not do on its own.
 
-**1. Automatic tab rename with the foreground process, or with what a coding agent is working on.** Inspired by [tmux](https://github.com/tmux/tmux)'s `automatic-rename`, each tab shows its foreground process (e.g., `nvim`, `claude`) or the shell at a bare prompt (e.g., `zsh`). A tab running a coding agent shows the task instead of the agent, read from the terminal title the agent keeps current, so five `claude` tabs read `Squash merge command` and `Check PR 2169 relevance` rather than `claude` five times. Custom renames are respected.
+**Name each tab after what it is running.** Inspired by [tmux](https://github.com/tmux/tmux)'s `automatic-rename`. A tab shows its foreground process (`nvim`, `claude`), or the shell at a bare prompt (`zsh`). A tab running a coding agent shows the task instead, read from the terminal title the agent keeps current, so five `claude` tabs read `Squash merge command` and `Check PR 2169 relevance` rather than `claude` five times.
 
-**2. Automatic prefix spaces/tabs with the 1-9 keybind jump number**. Add an `[N]` prefix to each workspace and tab matching the `1-9` binding for that slot. Glance at the tabs or sidebar, see what runs where, and quickly jump by number. Agents get one too on herdr `< 0.7.5`, which is the last release whose agent names allow it.
+**Prefix workspaces and tabs with their jump number.** An `[N]` matching the `1-9` binding for that slot, so you can glance at the tab bar or sidebar and jump by number. Agents get one too on herdr `< 0.7.5`, the last release whose name rule allows it.
 
-Each feature can be toggled and work independently.
+Each feature toggles independently. A manual rename always wins.
 
 <img width="3216" height="2088" alt="readme-demo-screenshot" src="https://github.com/user-attachments/assets/43f620c0-d667-4fa9-b76c-dbafde41b7ec" />
 
 ## Before and after
 
-herdr labels a new tab with a number, and leaves workspace and agent rows at their plain names. One four-tab workspace, before and after (stock config: `NAME_TABS=1`, `AUTO_INDEX=1`):
+herdr labels a new tab with a number and leaves workspace rows at their plain names. One four-tab workspace on the stock config (`NAME_TABS=1`, `AUTO_INDEX=1`):
 
 ```
 herdr alone      │ 1       │ 2        │ 3       │ notes     │
@@ -27,42 +27,24 @@ with the plugin  │ [1] zsh │ [2] nvim │ [3] zsh │ [4] notes │
 | `nvim README.md` | `2` | `[2] nvim` |
 | `ls -la`, an `IGNORED_PROGRAMS` entry | `3` | `[3] zsh` |
 | a tab you renamed `notes` yourself | `notes` | `[4] notes` |
-
-A row of `claude` tabs is the case a program name cannot help with. A coding agent reports the task it is on as its terminal title and keeps that current as the work moves, so the tab shows the task. Two tabs of another workspace, same config:
-
-| Tab is running | herdr alone | with the plugin |
-| --- | --- | --- |
 | `claude`, mid-task | `1` | `[1] Squash merge command` |
 | `claude`, nothing asked of it yet | `2` | `[2] claude` |
 
-herdr publishes the title on the pane object it already sends, so the label costs no extra call, and a tab named from a title needs no foreground-process lookup at all. It refreshes on herdr's `pane.agent_status_changed` events, so the name follows the work with nothing polling.
+Workspaces are numbered, never renamed. `dotfiles` becomes `[1] dotfiles`. Agent rows keep their detected names on current herdr (see [Notes](#notes)).
 
-A title has to say something to be used. One that names the agent rather than the work (`Claude Code`, the agent's own kind, anything in `TITLE_IGNORE`), one that is the pane's directory or the path to it, and a bare number are all refused, and the tab falls back to the program name, `PROGRAM_ALIASES` included. The spinner glyph an agent parks in front of its title while it works is stripped off, or the label would flip on every status change. `AGENT_TITLES=0` turns the whole thing off and names agent tabs after their program, as before.
+Turn one feature off and you keep the other half: `AUTO_INDEX=0` names without the prefix (`zsh`, `nvim`), and `NAME_TABS=0` leaves every base name alone and adds only the `[N]`.
 
-For a tab with more than one pane, the name comes from the pane that matters: the tab's own focused pane when an agent is running in it, else an agent that is working or blocked anywhere in the tab, else the focused pane. So an agent-plus-shell split still reads as the agent while you type in the shell half, and an idle agent does not take the name away from what you are looking at. The shell hook is per-pane, so a command you start in that shell half names the tab after it the instant it starts. That holds until the next herdr event, which applies the rule above again: with an agent at work beside you, the tab goes back to reading as the agent, usually within a second.
+### Agent tabs
 
-Workspaces get numbered, never renamed, so only the prefix is new:
+herdr publishes the terminal title on the pane object it already sends, so the task label costs no extra call. It refreshes on `pane.agent_status_changed`, so nothing polls. The spinner glyph an agent parks in front of its title is stripped off, or the label would flip on every status change.
 
-| Sidebar row | herdr alone | with the plugin |
-| --- | --- | --- |
-| workspace | `dotfiles` | `[1] dotfiles` |
-| agent | `claude` | `claude` (see below) |
+A title has to say something to be used. One that names the agent rather than the work (`Claude Code`, the agent's own kind, anything in `TITLE_IGNORE`), one that is the pane's directory or the path to it, and a bare number are all refused, and the tab falls back to the program name. `AGENT_TITLES=0` turns titles off and names every agent tab after its program, as before.
 
-Agents are the exception. herdr `0.7.5` restricted agent names to `^[a-z][a-z0-9_-]{0,31}$`, which no `[N] ` prefix can satisfy, so on herdr `>= 0.7.5` agent rows are left at their detected names and any `[N]` a previous version of this plugin managed to set is stripped back off. On herdr `< 0.7.5` agents still get `[1] claude`.
+For a tab with several panes, the name comes from the pane that matters: the tab's own focused pane when an agent runs in it, else an agent working or blocked anywhere in the tab, else the focused pane. An agent-plus-shell split still reads as the agent while you type in the shell half, and an idle agent does not take the name away from what you are looking at. The shell hook is per-pane, so a command you start in that half names the tab the instant it starts, until the next herdr event applies the rule above again.
 
-Turn one feature off and you keep the other half: `AUTO_INDEX=0` names without the prefix (`zsh`, `nvim`), and `NAME_TABS=0` leaves every base name as herdr or you left it and adds only the `[N]`. `SHOW_PROGRAM_ARGS=1` swaps a program's name for its whole command line, so a `npm run dev` tab reads `[2] npm run dev` rather than `[2] npm`.
+### Quiet shell tabs
 
-Numbering also splits by item kind. `AUTO_INDEX_WORKSPACES`, `AUTO_INDEX_TABS` and `AUTO_INDEX_AGENTS` each default to whatever `AUTO_INDEX` is and override it when you set them, so `AUTO_INDEX` remains the single switch for all of it and these are the exceptions. Numbered tabs above plain workspace names is one line:
-
-```sh
-AUTO_INDEX_WORKSPACES=0
-```
-
-Setting one of those to `0` also strips the `[N]` already on those rows, at the next herdr event, so you do not have to run the `clear` action to tidy up after the change.
-
-That cleanup runs only for a kind you name. Nothing here records which `[N]` prefixes the plugin wrote, so it cannot tell one of ours from a name you typed that opens with a bracketed number: `[1] incident` becomes `incident`. Naming the kind is how you ask for that. A config carrying only `AUTO_INDEX=0`, from before these settings existed, leaves workspace and agent labels exactly as they are. Tabs are the exception, and only under `NAME_TABS=1`: that pass runs for the naming, and has always stripped the prefix on its way through. Only digits count either way, so `[wip] deploy` is never touched.
-
-If a row of `zsh` tabs tells you nothing, `HIDE_SHELL=1` names only the tabs actually running something and leaves the rest to herdr, which falls back to its own tab number:
+If a row of `zsh` tabs tells you nothing, `HIDE_SHELL=1` names only the tabs actually running something and leaves the rest to herdr's own tab number:
 
 ```
 HIDE_SHELL=0, AUTO_INDEX=0  │ lazygit     │ nvim     │ fish │ pi     │
@@ -70,15 +52,18 @@ HIDE_SHELL=1, AUTO_INDEX=0  │ lazygit     │ nvim     │ 3    │ pi     │
 HIDE_SHELL=1, AUTO_INDEX=1  │ [1] lazygit │ [2] nvim │ [3]  │ [4] pi │
 ```
 
-That covers a bare prompt, an explicit shell, and anything in `IGNORED_PROGRAMS`. With numbering on, the label keeps the jump number and nothing else, so you can still jump to the tab.
+That covers a bare prompt, an explicit shell, the login shell itself, and anything in `IGNORED_PROGRAMS`. With numbering on, the label keeps the jump number, so you can still get there.
 
 ## Requirements
 
 herdr `>= 0.7.1`, `jq`, and bash. Linux or macOS.
 
-herdr `>= 0.7.4` is recommended. There a plugin rename repaints the tab bar immediately, so live renames appear the instant they happen; on older herdr the new name still lands but the tab bar only catches up on the next redraw (a focus change or resize). herdr `>= 0.7.2` also lets a full reconcile read its whole state in one `api snapshot` call — without it the plugin falls back to per-list queries automatically.
+Newer herdr versions add more, each detected at runtime:
 
-Two newer versions add smaller wins, both detected at runtime: on herdr `>= 0.7.5` a restored session is reconciled the moment herdr comes up rather than at the first event, and on `>= 0.8.0` reordering a worktree group renumbers immediately. Everything else works down to `0.7.1`.
+- `0.7.2`: a reconcile reads herdr's whole state in one `api snapshot` call instead of per-list queries.
+- `0.7.4` (recommended): a plugin rename repaints the tab bar immediately. Below it the new name still lands, but the bar catches up only on the next redraw, such as a focus change or a resize.
+- `0.7.5`: a restored session is reconciled when herdr comes up rather than at the first event.
+- `0.8.0`: reordering a worktree group renumbers right away.
 
 ## Install
 
@@ -90,7 +75,7 @@ Events work immediately.
 
 ### Shell hook (highly recommended)
 
-Renames the instant a command starts. Without it, naming waits for the next focus or tab event. Source your shell's hook so that it self-locates the engine wherever herdr installed it.
+Renames the instant a command starts. Without it, naming waits for the next focus or tab event. Source your shell's hook, which self-locates the engine wherever herdr installed it.
 
 **zsh** (`~/.zshrc`):
 
@@ -100,7 +85,7 @@ for _f in ${HOME}/.config/herdr/plugins/github/herdr-automatic-rename-*/shell/ho
 done
 ```
 
-**bash** (`~/.bashrc`, after any prompt/history tool like starship or atuin):
+**bash** (`~/.bashrc`, after any prompt or history tool like starship or atuin):
 
 ```bash
 for _f in "$HOME"/.config/herdr/plugins/github/herdr-automatic-rename-*/shell/hook.bash; do
@@ -116,13 +101,13 @@ for _f in $HOME/.config/herdr/plugins/github/herdr-automatic-rename-*/shell/hook
 end
 ```
 
-No-op outside a herdr pane. On bash it cooperates with bash-preexec / atuin / ble.sh, else owns `DEBUG` without clobbering an existing trap.
+Outside a herdr pane the hook does nothing. On bash it cooperates with bash-preexec, atuin, and ble.sh, else owns `DEBUG` without clobbering an existing trap.
 
-A command word that is not an external program (a shell function, builtin, or typo) never renames the tab directly. The hook flags it, and the engine reads the pane's real foreground process a moment later: an instant function leaves the tab name alone, and a function that opens `nvim` names the tab `nvim`.
+A command word that is not an external program (a shell function, a builtin, or a typo) never renames the tab directly. The hook flags it and the engine reads the pane's real foreground process a moment later, so an instant function leaves the tab name alone and a function that opens `nvim` names the tab `nvim`.
 
 ### Turn off herdr's new-tab name prompt
 
-herdr asks each new tab for a name (`prompt_new_tab_name`, on by default). Under `NAME_TABS=1` that prompt has nothing left to do, and a name typed into it counts as a hand rename, which opts the tab out of naming until you `reset` it. Turn it off:
+herdr asks each new tab for a name (`prompt_new_tab_name`, on by default). Under `NAME_TABS=1` that prompt has nothing left to do, and a name typed into it counts as a hand rename, which opts the tab out until you `reset` it:
 
 ```toml
 # ~/.config/herdr/config.toml
@@ -130,7 +115,7 @@ herdr asks each new tab for a name (`prompt_new_tab_name`, on by default). Under
 prompt_new_tab_name = false
 ```
 
-New tabs then arrive with herdr's generated number for the plugin to name. Accepting the prompt's prefilled number works as well, since a bare integer reads as a placeholder, but it costs a keystroke per tab. Keep `prompt_new_workspace_name` if you use it: the plugin only prefixes workspace names, it never generates them.
+New tabs then arrive with herdr's generated number for the plugin to name. Accepting the prompt's prefilled number works too, since a bare integer reads as a placeholder, but it costs a keystroke per tab. Keep `prompt_new_workspace_name` if you use it: the plugin only prefixes workspace names, it never generates them.
 
 ## Configuration
 
@@ -146,37 +131,37 @@ Override the path with `HERDR_AUTOMATIC_RENAME_CONFIG`.
 
 | Knob | Default | What it does |
 | --- | --- | --- |
-| `NAME_TABS` | `1` | Rename each tab to its foreground program. `0` leaves tab names alone. |
-| `AUTO_INDEX` | `1` | Add the `[N]` jump-key number (1-9) in front of each workspace and tab (and agent on herdr `< 0.7.5`). |
-| `AUTO_INDEX_WORKSPACES` | `AUTO_INDEX` | Number workspaces. Set it alone to keep numbered tabs while workspace names stay plain. |
-| `AUTO_INDEX_TABS` | `AUTO_INDEX` | Number tabs. |
-| `AUTO_INDEX_AGENTS` | `AUTO_INDEX` | Number agents (herdr `< 0.7.5` only, and only under the grouped panel sort). |
-| `SHOW_PROGRAM_ARGS` | `0` | `0` shows just the program name (`git`), `1` shows its full command line (`git log --oneline`). |
+| `NAME_TABS` | `1` | Name each tab after its foreground program. `0` leaves tab names alone. |
+| `AUTO_INDEX` | `1` | Add the `[N]` jump number (1-9) to workspaces and tabs, and to agents on herdr `< 0.7.5`. |
+| `AUTO_INDEX_WORKSPACES`<br>`AUTO_INDEX_TABS`<br>`AUTO_INDEX_AGENTS` | `AUTO_INDEX` | Number one kind of row. Each defaults to `AUTO_INDEX` and overrides it, so `AUTO_INDEX` stays the single switch and these are the exceptions. |
+| `SHOW_PROGRAM_ARGS` | `0` | `0` shows the program name (`git`), `1` its whole command line (`git log --oneline`). |
 | `MAX_NAME_LEN` | `20` | Cut the finished label off after this many characters. |
-| `AGENT_TITLES` | `1` | Name a tab running a coding agent after the task in the agent's terminal title (`Squash merge command`) rather than after the program (`claude`). `0` names every agent tab after its program. |
-| `MAX_TITLE_LEN` | `MAX_NAME_LEN` + 8 | Cut a title label off after this many characters, at a word boundary where one is close enough. Titles are sentences, so they get more room than a command name, and narrowing `MAX_NAME_LEN` for a narrow tab bar narrows titles with it. |
-| `TITLE_IGNORE` | `claude code`, `codex cli`, ... | Titles that name the agent instead of its work, compared against the whole title, ignoring the case of ASCII letters. A match is refused and the tab is named after the program. The agent's own kind, that kind plus `code`, the pane's directory, and a bare number are refused without being listed. |
-| `SHELL_NAME` | `$SHELL` basename | Label shown at an idle prompt when no program is running (e.g. `zsh`). |
-| `HIDE_SHELL` | `0` | `1` gives a shell tab no name at all, so herdr's own tab number shows there instead of `zsh`. Covers the login shell (`SHELL_NAME`), not just the fixed `SHELLS` list. |
-| `SHELLS` | `zsh bash sh fish dash ksh` | Programs counted as "a shell prompt" and shown by their own name. |
+| `AGENT_TITLES` | `1` | Name a coding-agent tab after the task in its terminal title (`Squash merge command`) rather than after the program (`claude`). |
+| `MAX_TITLE_LEN` | `MAX_NAME_LEN` + 8 | Cut a title label off after this many characters, at a word boundary where one is close enough. Titles are sentences, so they get more room than a command name. |
+| `TITLE_IGNORE` | `claude code`, `codex cli`, ... | Titles that name the agent instead of its work, matched against the whole title, ignoring ASCII case. |
+| `SHELL_NAME` | `$SHELL` basename | Label shown at an idle prompt, such as `zsh`. |
+| `HIDE_SHELL` | `0` | `1` gives a shell tab no name at all, so herdr's own tab number shows there instead. |
+| `SHELLS` | `zsh bash sh fish dash ksh` | Programs counted as a shell prompt and shown by their own name. |
 | `NAME_ONLY_PROGRAMS` | editors, git tools, agents | Programs always shown by bare name, never with args (`nvim`, `claude`). |
-| `IGNORED_PROGRAMS` | `ls`, `cd`, `cat`, ... | Quick commands that should not rename the tab. It keeps showing the shell instead. |
-| `WRAPPER_PROGRAMS` | `node`, `npx`, `bun`, `python`, ... | Language runtimes and package runners that front for the program you launched. In a pane herdr has detected an agent in, the tab is named after that agent instead of the runtime. |
-| `PROGRAM_ALIASES` | none | Force a specific program to a custom label, e.g. `("lazygit=lg")`. |
+| `IGNORED_PROGRAMS` | `ls`, `cd`, `cat`, ... | Quick commands that should not rename the tab. It keeps showing the shell. |
+| `WRAPPER_PROGRAMS` | `node`, `npx`, `python`, ... | Runtimes and package runners that front for the program you launched. In a pane herdr detected an agent in, the tab is named after that agent instead. |
+| `PROGRAM_ALIASES` | none | Force a program to a custom label, e.g. `("lazygit=lg")`. |
 | `SUBSTITUTE_SETS` | two rules | `sed -E` rewrites that tidy up the label, e.g. to shorten a path-heavy command line. |
-| `ICONS_ENABLED` | `0` | `1` prepends a Nerd Font glyph for the program (needs a Nerd Font installed). Shell labels never get one, so the tab doesn't flicker between `zsh` and `<glyph> zsh`. |
-| `ICON_STYLE` | `name_and_icon` | When icons are on, show `name_and_icon`, `icon` only, or `name` only. |
-| `ICON_FALLBACK` | `?` | Glyph for programs missing from the builtin map (~170 programs, from tmux-nerd-font-window-name's `defaults.yml`). `''` turns the fallback off; under `ICON_STYLE=icon` it is treated as no glyph (a bare `?` label says nothing). |
-| `ICON_MAP` | none | Per-program icon overrides, `("prog=glyph")` pairs; wins over the builtin map. |
+| `ICONS_ENABLED` | `0` | `1` prepends a Nerd Font glyph for the program. Shell labels never get one, so the tab does not flicker between `zsh` and `<glyph> zsh`. |
+| `ICON_STYLE` | `name_and_icon` | With icons on, show `name_and_icon`, `icon` only, or `name` only. |
+| `ICON_FALLBACK` | `?` | Glyph for programs missing from the builtin map (~170 programs, from tmux-nerd-font-window-name's `defaults.yml`). `''` turns the fallback off. |
+| `ICON_MAP` | none | Per-program icon overrides, `("prog=glyph")` pairs. Wins over the builtin map. |
 
-`config.example.sh` documents each with examples.
+`config.example.sh` documents each one with examples.
+
+Setting one of the `AUTO_INDEX_*` knobs to `0` also strips the `[N]` already on those rows, at the next herdr event. Nothing records which prefixes the plugin wrote, so that cleanup cannot tell one of ours from a name you typed that opens with a bracketed number: `[1] incident` becomes `incident`. Naming the kind is how you ask for it, which is why a config carrying only `AUTO_INDEX=0` leaves workspace and agent labels as they are. Tabs are the exception under `NAME_TABS=1`, where that pass has always taken the prefix off on its way through. Only digits count, so `[wip] deploy` is never touched.
 
 ## Actions
 
 - `reset`: re-adopt a hand-renamed tab.
 - `clear`: strip every `[N]`, restore base names, revert agents to detection.
 
-Both report what they did as a herdr notification, since a keybinding leaves nothing else to confirm them by. A `reset` says it re-adopted the tab only when that tab had opted out and now carries an automatic name again: one that found no such tab, one that ran with `NAME_TABS=0`, and one whose rename herdr refused each say so instead of looking like a reset that worked. If another naming pass holds the lock, both actions wait briefly and then tell you to try again, rather than dropping the request. A herdr with no `notification show` declines the notification and the action still runs.
+Both report what they did as a herdr notification, since a keybinding leaves nothing else to confirm them by. A `reset` claims success only when that tab had opted out and now carries an automatic name again; one that found no such tab, one that ran with `NAME_TABS=0`, and one whose rename herdr refused each say so instead. If another naming pass holds the lock, both actions wait briefly and then ask you to try again rather than dropping the request. A herdr with no `notification show` declines the notification, and the action still runs.
 
 Run from the CLI, or bind a key:
 
@@ -205,14 +190,16 @@ herdr plugin uninstall herdr-automatic-rename
 ## Notes
 
 - **Manual renames win.** Rename a tab yourself and naming leaves it alone. Numbering still applies. `clear` the label or `reset` to hand it back.
-- **Agent numbering needs herdr `< 0.7.5`.** That release added a name rule (`^[a-z][a-z0-9_-]{0,31}$`) that rejects a bracketed number outright, so newer herdr leaves agent rows alone and strips any prefix an older setup left behind. Where it does apply, it also needs grouped (`spaces`) sort, the mode whose CLI order matches the panel `focus_agent` follows. In `priority` sort that order is API-invisible, so numbers are stripped there too.
-- **Tab names go quiet on Linux runtimes with no foreground process group.** Naming reads the pane's foreground process, and some container and sandbox setups leave herdr unable to see one, which makes tab naming do nothing at all (numbering is unaffected). herdr `>= 0.8.0` has an opt-in fallback: set `HERDR_PROCESS_DETECTION=child-groups` in its environment. It is best-effort by herdr's own account, since in that mode a background job can look like the foreground one, so a tab may occasionally follow the wrong process. This plugin fills in one corner of that gap without guessing: where herdr names no foreground group at all but reports exactly one process for the pane, there is nothing to choose between, so the tab is named after it rather than not at all. Two or more processes with no named group would be a guess, and the tab keeps its own label instead. So does a pane herdr reports no process for.
+- **Agent numbering needs herdr `< 0.7.5`.** That release added a name rule (`^[a-z][a-z0-9_-]{0,31}$`) that rejects a bracketed number outright, so newer herdr leaves agent rows alone and strips any prefix an older setup left behind. Where it does apply it also needs grouped (`spaces`) sort, the mode whose CLI order matches the panel `focus_agent` follows. In `priority` sort that order is API-invisible, so numbers are stripped there too.
+- **Tab names go quiet on Linux runtimes with no foreground process group.** Naming reads the pane's foreground process, and some container and sandbox setups leave herdr unable to see one, which stops tab naming entirely (numbering is unaffected). herdr `>= 0.8.0` has an opt-in fallback: set `HERDR_PROCESS_DETECTION=child-groups` in its environment. It is best-effort by herdr's own account, since in that mode a background job can look like the foreground one. The plugin covers one case of that without guessing: where herdr names no foreground group but reports exactly one process for the pane, there is nothing to choose between, so the tab is named after it. Two or more processes with no named group would be a guess, and the tab keeps its own label instead.
 - **Collapsing a space renumbers.** `alt+N` counts the sidebar's visible rows, so a collapsed space hides its worktree workspaces from numbering and every row below it moves up. The hidden ones go bare until you expand. Focusing one of those worktrees while the space stays collapsed renders that row again, which shifts the rows below it back down. herdr publishes collapse only in `session.json`, on a 5-second debounce and with no event to hook, so the first jump right after a collapse can still use the old numbers.
 - **Stops at 9.** No binding reaches a 10th item, so `10+` stay bare.
 
 ## Development
 
-Engine: `automatic-rename.sh` (bash 3.2, needs only `jq` and the herdr CLI). Pure naming: `naming.sh` (icons: `icons.sh`). Tests need only bash and jq:
+Engine: `automatic-rename.sh` (bash 3.2, needs only `jq` and the herdr CLI). Pure naming: `naming.sh`, with icons in `icons.sh`. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) covers the non-obvious decisions.
+
+Tests need only bash and jq:
 
 ```sh
 ./tests/run.sh            # all
