@@ -17,7 +17,7 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   relevance`. herdr publishes the title on the pane object the reconcile already
   holds, so reading it costs no extra herdr call on any version, and a tab named
   this way needs no `pane process-info` at all, which leaves an agent-heavy
-  session making fewer calls than before. The label follows the work on
+  session making fewer herdr round-trips than before. The label follows the work on
   `pane.agent_status_changed`, an event the plugin already subscribes to, so
   nothing polls for it.
 
@@ -73,6 +73,12 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   helper.
 
 ### Fixed
+
+- Running the test suite inside a herdr pane renamed that session's tabs. The hook
+  tests source the real hooks, and a hook resolves the real engine next to itself,
+  so with `HERDR_TAB_ID` inherited from the pane and nothing pointing the engine at
+  the fake herdr, every hook call the tests made went to the live session. They run
+  fully sandboxed now.
 
 - A tab whose rename herdr rejected stopped being named at all. Ownership was
   recorded before the rename was issued, so a failed one left state claiming a

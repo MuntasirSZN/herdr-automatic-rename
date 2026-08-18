@@ -8,6 +8,23 @@ here=$(cd "$(dirname "$0")" && pwd)
 . "$here/lib.sh"
 REPO=$(cd "$here/.." && pwd)
 
+# These tests source the REAL hooks, and a hook resolves the REAL engine next to
+# itself -- that resolution is half of what is under test. So every hook function
+# they call would otherwise reach a live herdr: run this file inside a herdr pane
+# and the engine renames the pane's own tab, then reconciles the whole session,
+# because HERDR_TAB_ID and HERDR_PANE_ID are inherited from that pane and nothing
+# pointed the engine anywhere else. Sandbox the whole file: the fake herdr instead
+# of the real one, its fixtures and log in a temp directory, state alongside them,
+# and tab and pane ids that exist nowhere.
+HOOKS_SB=$(mktemp -d "${TMPDIR:-/tmp}/hal-hooks.XXXXXX")
+export HERDR_BIN_PATH="$here/mocks/herdr"
+export HERDR_MOCK_DIR="$HOOKS_SB/fixtures"; mkdir -p "$HERDR_MOCK_DIR"
+export HERDR_MOCK_LOG="$HOOKS_SB/renames.log"; : >"$HERDR_MOCK_LOG"
+export XDG_STATE_HOME="$HOOKS_SB/state"
+export HERDR_AUTOMATIC_RENAME_CONFIG="$HOOKS_SB/none.sh"
+export HERDR_SOCKET_PATH="$HOOKS_SB/herdr.sock"
+export HERDR_TAB_ID="sandbox:t0"
+
 # ---- bash ----
 got=$(HERDR_PANE_ID=x HAL_HOOK="$REPO/shell/hook.bash" /usr/bin/env bash -c 'source "$HAL_HOOK"; echo "$_har_bin"')
 check "bash: self-locates engine next to hook" "$REPO/automatic-rename.sh" "$got"
@@ -113,5 +130,9 @@ if command -v fish >/dev/null 2>&1; then
 else
   echo "# skip: fish not installed"
 fi
+
+# The sandbox is only ever written to by the fake herdr, so this is tidy-up, not
+# cleanup that anything depends on.
+trash-put "$HOOKS_SB" 2>/dev/null || true
 
 t_summary
