@@ -132,7 +132,8 @@ else
 fi
 
 # The sandbox is only ever written to by the fake herdr, so this is tidy-up, not
-# cleanup that anything depends on.
-trash-put "$HOOKS_SB" 2>/dev/null || true
+# cleanup that anything depends on. Same form the rest of the suite uses, since
+# the suite is meant to need nothing but bash and jq.
+rm -rf "$HOOKS_SB" 2>/dev/null || true
 
 t_summary

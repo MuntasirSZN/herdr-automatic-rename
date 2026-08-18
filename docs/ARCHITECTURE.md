@@ -80,6 +80,14 @@ rerun flag and exit; the holder loops until no new work arrives. A fast-path run
 that loses the lock still lands, because the holder's re-pass is a full reconcile
 that recomputes names itself.
 
+An **action** cannot defer that way. Deferring works because every pass computes
+the same thing, and an action's request does not live in the state the holder
+reads: which tab to re-adopt, or whether to strip, is in the contender's own
+process. So `reset` and `clear` wait for the lock (bounded, since a pass runs in
+well under a second) and report that they are waiting rather than handing the job
+to a pass that knows nothing about it. Exiting there is what used to make a reset
+pressed during a burst of events do nothing, and say nothing either.
+
 ## The shell hooks find their own engine
 
 herdr installs a github plugin to a content-hashed directory, so the hooks

@@ -1578,7 +1578,8 @@ teardown
 #   was never there succeeds quietly, so a reset that got as far as the reconcile
 #   used to report a re-adoption for ANY resolvable tab id -- and whether the tab
 #   is back under naming is the one thing this keybinding exists to say. So the
-#   opt-out is read BEFORE the delete and only `enabled: false` is a re-adoption.
+#   opt-out is read BEFORE the delete, and a re-adoption needs that AND the tab
+#   being named and owned again in the same pass.
 #   Scenario 31 pins the arm where the tab HAD opted out (plus no tab at all and
 #   naming off); these are the three ways a resolvable tab had not.
 #   Pass 1: a fresh tab with no state entry at all.
@@ -1608,7 +1609,7 @@ HERDR_TAB_ID=w1:t1 run_event reset
 out=$(log)
 check_contains "reset still names the tab it was aimed at" "$out" "tab rename w1:t1 nvim"
 check_contains "a tab with no opt-out is told there was nothing" "$out" \
-  "notification show Nothing to reset --body That tab had not opted out of naming."
+  "notification show Nothing to reset --body That tab was already named automatically."
 check_absent   "and no re-adoption is claimed"            "$out" "Tab re-adopted"
 # Pass 2: the same tab, now a name this plugin owns and has NOT been opted out of.
 : >"$HERDR_MOCK_LOG"
@@ -1617,15 +1618,82 @@ check "pass 1 left the tab owned and enabled" "nvim true" \
 HERDR_TAB_ID=w1:t1 run_event reset
 out=$(log)
 check_contains "an owned tab is no re-adoption either" "$out" \
-  "notification show Nothing to reset --body That tab had not opted out of naming."
+  "notification show Nothing to reset --body That tab was already named automatically."
 check_absent   "still no re-adoption claimed"          "$out" "Tab re-adopted"
 # Pass 3: an id that resolves to no tab at all.
 : >"$HERDR_MOCK_LOG"
 HERDR_TAB_ID=w9:t9 run_event reset
 out=$(log)
 check_contains "a stale tab id re-adopts nothing" "$out" \
-  "notification show Nothing to reset --body That tab had not opted out of naming."
+  "notification show Nothing to reset --body No tab to re-adopt."
 check_absent   "and says so without claiming one" "$out" "Tab re-adopted"
+teardown
+
+# ======================================================================
+# Scenario 36: a reset whose rename does not land says so.
+#   The tab HAD opted out, so the old rule reported a re-adoption the moment its
+#   state was cleared -- but herdr rejects the rename, nothing claims the tab, and
+#   on the next pass it reads as first-seen with a hand-typed name and opts itself
+#   straight back out. The user had been told naming was back on. A re-adoption now
+#   needs the claim as well, and the tab is told the reset did not take.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+export HERDR_MOCK_FAIL_RENAME=1
+STATE="$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"w1:t1":{"auto":"","enabled":false}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"notes","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+HERDR_TAB_ID=w1:t1 run_event reset
+out=$(log)
+check_contains "the reset still tries the rename"   "$out" "tab rename w1:t1 nvim"
+check_contains "a rename that fails is not a re-adoption" "$out" \
+  "notification show Reset did not take --body That tab had opted out, but the rename did not land."
+check_absent   "and nothing claims otherwise"      "$out" "Tab re-adopted"
+teardown
+
+# ======================================================================
+# Scenario 37: an action that cannot take the lock says so instead of vanishing.
+#   Events defer to whoever holds the lock, which is right: any pass computes the
+#   same names, so the holder does their work too. An action carries a request that
+#   lives in its own process -- which tab to re-adopt, whether to strip -- so
+#   handing it over drops it. It used to exit right there, before the notification,
+#   so a reset pressed during a burst of events did nothing and said nothing.
+#   A lock directory with a fresh timestamp is a held lock: younger than the steal
+#   window, so ar_lock refuses it for the whole wait.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename/lock"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true}]}}
+JSON
+HERDR_TAB_ID=w1:t1 run_event reset
+out=$(log)
+check_contains "a contended reset reports the wait" "$out" \
+  "notification show Reset is waiting --body Another naming pass held the lock. Try again."
+check_absent   "and renames nothing"               "$out" "tab rename"
+check_absent   "and claims no re-adoption"         "$out" "Tab re-adopted"
+: >"$HERDR_MOCK_LOG"
+run_event --clear
+out=$(log)
+check_contains "a contended clear reports it too"  "$out" \
+  "notification show Clear is waiting --body Another naming pass held the lock. Try again."
 teardown
 
 t_summary

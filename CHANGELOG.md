@@ -67,10 +67,18 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   Both are built for a keybinding, where the only feedback was the tab bar
   redrawing. A `reset` that found no tab to re-adopt, or that ran under
   `NAME_TABS=0`, looked exactly like one that worked, and `clear` on an already
-  clean session looked like nothing at all. Each outcome now names itself, and
-  `reset` reads whether the tab had actually opted out before it clears the
-  state, so a stale tab id is told there was nothing to do rather than that it
-  was re-adopted. Best
+  clean session looked like nothing at all. Each outcome now names itself. A
+  re-adoption is reported only when both halves happened: the tab had opted out
+  (read before its state is cleared) and it is named and owned again by the end of
+  the pass. Reporting it from the first half alone told the user naming was back on
+  even when the rename that followed failed, and a tab in that position opts itself
+  straight back out on the next event.
+
+  Both actions also wait for the lock instead of deferring to whoever holds it.
+  Events can defer, because any pass computes the same names, but an action carries
+  a request that lives in its own process, so handing the job over dropped it: a
+  reset pressed during a burst of events did nothing at all, and reported nothing
+  either, since the deferral exited before the notification. Best
   effort, so a herdr without `notification show` declines it and the action
   still does its work; the uninstall path (`--clear`) notifies through the same
   helper.

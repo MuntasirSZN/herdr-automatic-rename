@@ -322,6 +322,12 @@ ar_state_prune() { # <keep tab_ids...> - drop entries for tabs that no longer ex
 # event. Reads what ar_name_eligible published for this same tab.
 ar_state_claim() {
   [ "$3" = "1" ] || return 0
+  # A reset is only done when the tab it targeted is named and owned again, which
+  # is here: the reconcile reached this tab, computed a name, and the label now
+  # carries it. Reporting the re-adoption from the state the tab had BEFORE the
+  # reset told the user it worked even when the rename that followed failed, and a
+  # tab in that position opts itself back out on the next pass.
+  [ -n "${AR_FORCE_TAB:-}" ] && [ "$1" = "$AR_FORCE_TAB" ] && AR_FORCE_ADOPTED=1
   [ "${AR_STATE_ENABLED:-}" = "true" ] && [ "${AR_STATE_AUTO:-}" = "$2" ] && return 0
   ar_state_set "$1" "$2" true
 }
@@ -1026,8 +1032,13 @@ ar_reconcile() {
     #   3. the tab's own focused pane.
     # A tab split between an agent and a shell is about the agent, and it stays
     # about the agent while you read the shell half -- but an IDLE agent does not
-    # outrank whatever you are actually looking at. A herdr with no layouts leaves
-    # this empty and naming falls back to the pane list.
+    # outrank whatever you are actually looking at.
+    #
+    # A herdr with no layouts cannot answer rules 1 or 3, since both are the tab's
+    # own focused pane, so such a tab is picked by rule 2 or not at all: an agent at
+    # work still names its tab there, and everything else falls to the pane-list
+    # inference in ar_resolve_pane. Deliberate -- the rule needs no layout, and a
+    # split with an agent working in it is the case the rule exists for.
     AR_SNAP_TABS_JSON=$(printf '%s' "$snap" | jq -c "$AR_JQ_CLEAN"'
       (.result.snapshot // .snapshot) as $s
        | ($s.layouts // []) as $lay
@@ -1137,8 +1148,22 @@ ar_fast_once() {
 # is a superset of the single-tab rename, so a structural event that raced a
 # preexec is still handled (and its lost rename recovered) inside this loop.
 ar_run() {
-  local want="${1:-full}"
-  ar_lock || { : > "$RERUN_FLAG" 2>/dev/null || true; exit 0; }
+  local want="${1:-full}" mode="${2:-event}" tries=0
+  while ! ar_lock; do
+    # An EVENT can defer: raising the rerun flag makes whoever holds the lock do
+    # this work too, and every pass computes the same thing. An ACTION cannot. Its
+    # request lives in this process (AR_FORCE_TAB, CLEAR), so handing the job over
+    # would drop it silently -- a reset pressed during a burst of events did
+    # nothing at all, and said nothing either, since exiting here never reached the
+    # notification. So it waits for its turn, and gives up rather than hanging.
+    if [ "$mode" != "action" ]; then
+      : > "$RERUN_FLAG" 2>/dev/null || true
+      exit 0
+    fi
+    tries=$(( tries + 1 ))
+    [ "$tries" -ge 20 ] && return 1   # ~2s, where a pass runs in well under one
+    sleep 0.1 2>/dev/null || return 1
+  done
   trap 'ar_unlock' EXIT
   local guard=0
   while :; do
@@ -1219,24 +1244,33 @@ ar_main() {
           | jq -r 'first((.result.tabs // .tabs)[] | select(.focused) | .tab_id) // empty' 2>/dev/null)
       fi
       [ -n "$tab" ] && [ "$NAME_TABS" = "1" ] && AR_FORCE_TAB="$tab"
-      ar_run full
-      # Only a tab that had opted OUT of naming has anything to re-adopt, and the
-      # reconcile reports that through AR_FORCE_WAS_OUT, so what comes back is what
-      # happened: a stale tab id, a tab that was never renamed by hand, and a run
-      # that lost the lock and did nothing are all told there was nothing to do.
-      if [ -n "${AR_FORCE_WAS_OUT:-}" ]; then
+      if ! ar_run full action; then
+        ar_notify "Reset is waiting" "Another naming pass held the lock. Try again."
+        exit 0
+      fi
+      # Two facts, both from the pass that just ran: the tab HAD opted out
+      # (AR_FORCE_WAS_OUT, read before its state was cleared) and it is named and
+      # owned again (AR_FORCE_ADOPTED, set where that claim is recorded). Only both
+      # together are a re-adoption. Either alone is worth saying out loud, because
+      # a keybinding has nothing else to report with.
+      if [ -n "${AR_FORCE_WAS_OUT:-}" ] && [ -n "${AR_FORCE_ADOPTED:-}" ]; then
         ar_notify "Tab re-adopted" "Automatic naming is on for this tab again."
+      elif [ -n "${AR_FORCE_WAS_OUT:-}" ]; then
+        ar_notify "Reset did not take" "That tab had opted out, but the rename did not land."
       elif [ "$NAME_TABS" != "1" ]; then
         ar_notify "Nothing to reset" "Tab naming is off (NAME_TABS=0)."
-      elif [ -n "${AR_FORCE_TAB:-}" ]; then
-        ar_notify "Nothing to reset" "That tab had not opted out of naming."
+      elif [ -n "${AR_FORCE_ADOPTED:-}" ]; then
+        ar_notify "Nothing to reset" "That tab was already named automatically."
       else
         ar_notify "Nothing to reset" "No tab to re-adopt."
       fi
       ;;
     clear|--clear)
-      ar_run full                            # CLEAR=1 already set above
-      ar_notify "Number prefixes cleared" "Base names restored, agents back to detection."
+      if ar_run full action; then            # CLEAR=1 already set above
+        ar_notify "Number prefixes cleared" "Base names restored, agents back to detection."
+      else
+        ar_notify "Clear is waiting" "Another naming pass held the lock. Try again."
+      fi
       ;;
     tab.closed)
       ar_wait_tab_gone "${HERDR_TAB_ID:-}"   # settle before the reconcile

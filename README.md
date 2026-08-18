@@ -176,7 +176,7 @@ Override the path with `HERDR_AUTOMATIC_RENAME_CONFIG`.
 - `reset`: re-adopt a hand-renamed tab.
 - `clear`: strip every `[N]`, restore base names, revert agents to detection.
 
-Both report what they did as a herdr notification, since a keybinding leaves nothing else to confirm them by: a `reset` that found no tab to re-adopt, or that ran with `NAME_TABS=0`, says so rather than looking like one that worked. A herdr with no `notification show` declines the notification and the action still runs.
+Both report what they did as a herdr notification, since a keybinding leaves nothing else to confirm them by. A `reset` says it re-adopted the tab only when that tab had opted out and now carries an automatic name again: one that found no such tab, one that ran with `NAME_TABS=0`, and one whose rename herdr refused each say so instead of looking like a reset that worked. If another naming pass holds the lock, both actions wait briefly and then tell you to try again, rather than dropping the request. A herdr with no `notification show` declines the notification and the action still runs.
 
 Run from the CLI, or bind a key:
 
