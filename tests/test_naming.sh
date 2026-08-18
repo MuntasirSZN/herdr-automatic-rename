@@ -329,6 +329,16 @@ check "the kind followed by code is refused" "" "$(_clean 'Droid Code' droid api
 check "the pane directory repeated back is refused" "" \
   "$(_clean 'api' claude api)"
 check "the pane directory, any case" "" "$(_clean 'API' claude api)"
+
+# A title that is a PATH says where the agent sits, not what it is doing, and an
+# agent with nothing to report is exactly where that comes from. The list of
+# refusals catches the bare directory name; these catch the path it ends. The last
+# case is the one that has to survive: a task description is allowed a slash.
+check "an absolute path title is refused"  "" "$(_clean "/home/u/dev/api" claude api)"
+check "a tilde path title is refused"      "" "$(_clean "~/dev/api" claude api)"
+check "a dot directory title is refused"   "" "$(_clean "~/.config" claude .config)"
+check "a task with a slash is kept"        "Fix CI/CD pipeline" \
+  "$(_clean "Fix CI/CD pipeline" claude myproj)"
 # A pane herdr reports no directory for must not turn an empty comparison into a
 # refusal: every title would match it and no agent tab would ever get a name.
 check "no pane directory refuses nothing" "Squash merge command" \

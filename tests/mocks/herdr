@@ -59,9 +59,11 @@ case "$group" in
       # only way to make ar_run take its coalescing loop a second time -- the loop
       # clears the flag when it starts, so a test cannot raise it beforehand.
       rename) printf 'tab rename %s %s\n' "$1" "$2" >>"$log"
-              if [ -n "${HERDR_MOCK_RERUN_ONCE:-}" ]; then
+              # Once means once: the unset would only apply inside this child, so
+              # a marker file next to the flag is what remembers.
+              if [ -n "${HERDR_MOCK_RERUN_ONCE:-}" ] && [ ! -f "$HERDR_MOCK_RERUN_ONCE.done" ]; then
                 : >"$HERDR_MOCK_RERUN_ONCE" 2>/dev/null || true
-                unset HERDR_MOCK_RERUN_ONCE
+                : >"$HERDR_MOCK_RERUN_ONCE.done" 2>/dev/null || true
               fi
               [ "${HERDR_MOCK_FAIL_RENAME:-0}" = "1" ] && exit 1 ;;
     esac ;;

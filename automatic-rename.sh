@@ -284,12 +284,16 @@ ar_state_set() { # <tab_id> <auto-name> <enabled true|false>
   base='{}'
   [ -f "$STATE_FILE" ] && base=$(cat "$STATE_FILE" 2>/dev/null)
   [ -n "$base" ] || base='{}'
-  tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 0
+  # A write that did not land reports it. Ownership IS this file, so swallowing a
+  # full disk or an unwritable state directory told the reset action a tab was
+  # re-adopted while the next pass, finding no entry, opted it straight back out.
+  tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 1
   if printf '%s' "$base" | jq --arg t "$1" --arg a "$2" --argjson e "$3" \
        '.[$t] = {auto: $a, enabled: $e}' > "$tmp" 2>/dev/null; then
-    mv "$tmp" "$STATE_FILE"
+    mv "$tmp" "$STATE_FILE" || return 1
   else
     rm -f "$tmp"
+    return 1
   fi
 }
 ar_state_del() { # <tab_id>
@@ -322,14 +326,17 @@ ar_state_prune() { # <keep tab_ids...> - drop entries for tabs that no longer ex
 # event. Reads what ar_name_eligible published for this same tab.
 ar_state_claim() {
   [ "$3" = "1" ] || return 0
-  # A reset is only done when the tab it targeted is named and owned again, which
-  # is here: the reconcile reached this tab, computed a name, and the label now
-  # carries it. Reporting the re-adoption from the state the tab had BEFORE the
-  # reset told the user it worked even when the rename that followed failed, and a
-  # tab in that position opts itself back out on the next pass.
+  # Ownership has to be RECORDED, not merely computed, before a reset can say the
+  # tab is back under naming: reporting it any earlier told the user it worked when
+  # the rename failed, or when the state write did, and a tab in either position
+  # opts itself straight back out on the next pass.
+  if [ "${AR_STATE_ENABLED:-}" = "true" ] && [ "${AR_STATE_AUTO:-}" = "$2" ]; then
+    :                                    # state already says this; nothing to write
+  elif ! ar_state_set "$1" "$2" true; then
+    return 1
+  fi
   [ -n "${AR_FORCE_TAB:-}" ] && [ "$1" = "$AR_FORCE_TAB" ] && AR_FORCE_ADOPTED=1
-  [ "${AR_STATE_ENABLED:-}" = "true" ] && [ "${AR_STATE_AUTO:-}" = "$2" ] && return 0
-  ar_state_set "$1" "$2" true
+  return 0
 }
 
 # ar_name_eligible <tab_id> <base label, prefix already stripped>
@@ -447,7 +454,7 @@ ar_pane_facts() {
     # Unicode-aware compare would have to move back into jq per tab.
     | ($pane.terminal_title_stripped // $pane.terminal_title | task) as $t
     | [ ($pane.agent | clean), $t, ($t | ascii_downcase),
-        ((($pane.foreground_cwd // $pane.cwd | clean) | split("/") | last) // "" | ascii_downcase) ]
+        ((($pane.foreground_cwd // $pane.cwd | clean) | split("/") | last) // "" | task | ascii_downcase) ]
     | join([31] | implode)' 2>/dev/null)
   IFS=$AR_ROW_SEP read -r AR_PANE_AGENT AR_PANE_TITLE AR_PANE_TITLE_LC AR_PANE_DIR_LC <<< "$out"
 }
@@ -1064,7 +1071,7 @@ ar_reconcile() {
                    _name_title: $ti,
                    _name_title_lc: ($ti | ascii_downcase),
                    _name_dir_lc: ((($p.foreground_cwd // $p.cwd | clean)
-                                   | split("/") | last) // "" | ascii_downcase) } ]}}' 2>/dev/null)
+                                   | split("/") | last) // "" | task | ascii_downcase) } ]}}' 2>/dev/null)
     AR_SNAP_AGENTS_JSON=$(printf '%s' "$snap" | jq -c \
       '{result:{agents:((.result.snapshot // .snapshot).agents // [])}}' 2>/dev/null)
     if [ "$CLEAR" != "1" ] && [ "$NAME_TABS" = "1" ]; then

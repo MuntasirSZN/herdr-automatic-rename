@@ -85,5 +85,34 @@ reset_state
 ar_state_set tX "" false
 AR_FORCE_TAB=tX ar_name_eligible tX "still-named"; check_rc "force re-adopts" 0 $?
 
+# ---- a claim that could not be written is not a claim ----
+# Ownership IS this file, so a write that fails and says nothing let the reset
+# action report a re-adoption for a tab the next pass would find unowned and opt
+# straight back out. An unwritable state directory is how that arrives in the
+# field (a full disk is the other); the reconcile cannot be driven this way,
+# because the same permissions stop it taking its lock, so the rule is pinned
+# here on the two functions that carry it.
+ar_state_set tW nvim true
+AR_STATE_ENABLED=$(ar_state_get tW enabled)
+AR_STATE_AUTO=$(ar_state_get tW auto)
+AR_FORCE_TAB=tW AR_FORCE_ADOPTED="" ar_state_claim tW nvim 1
+check_rc "an unchanged claim needs no write" 0 $?
+
+chmod 555 "$STATE_DIR"
+ar_state_set tZ nvim true
+check_rc "a write into an unwritable dir fails" 1 $?
+AR_STATE_ENABLED="" AR_STATE_AUTO="" ar_state_claim tZ nvim 1
+check_rc "and the claim fails with it" 1 $?
+AR_FORCE_ADOPTED=""
+AR_FORCE_TAB=tZ AR_STATE_ENABLED="" AR_STATE_AUTO="" ar_state_claim tZ nvim 1 || true
+check "a failed claim never reports an adoption" "" "$AR_FORCE_ADOPTED"
+chmod 755 "$STATE_DIR"
+
+AR_FORCE_ADOPTED=""
+AR_FORCE_TAB=tZ AR_STATE_ENABLED="" AR_STATE_AUTO="" ar_state_claim tZ nvim 1
+check "a claim that landed reports one" "1" "$AR_FORCE_ADOPTED"
+check "and the tab is owned"            "nvim true" \
+  "$(ar_state_get tZ auto) $(ar_state_get tZ enabled)"
+
 rm -rf "$SB" 2>/dev/null || true
 t_summary

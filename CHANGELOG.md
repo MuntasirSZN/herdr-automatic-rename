@@ -74,6 +74,11 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   even when the rename that followed failed, and a tab in that position opts itself
   straight back out on the next event.
 
+  A title that is a path is refused with the rest: an agent titling itself
+  `~/dev/api` is naming where it sits, not what it is doing, and the bare
+  directory name was the only form caught before. A task description that happens
+  to carry a slash keeps its whole tail, which matches no directory.
+
   Both actions also wait for the lock instead of deferring to whoever holds it.
   Events can defer, because any pass computes the same names, but an action carries
   a request that lives in its own process, so handing the job over dropped it: a
