@@ -416,19 +416,22 @@ ar_pane_program() {
     | ($pi.foreground_process_group_id) as $g
     | ($pi.foreground_processes // []) as $fp
     # Where herdr names NO foreground group (some Linux container and sandbox
-    # setups: it cannot read one, so this field is null) but still reports
-    # processes, naming the tab approximately beats not naming it at all. The
-    # oldest pid is the pick: a group leader is created before the processes it
-    # leads, so it degenerates to the leader wherever one is reported, and unlike
-    # array position it is stable across passes -- herdr does not order this list
-    # (a live 0.8.0 lists a `caffeinate` child ahead of the `claude` leader), and
-    # an unstable pick would flap the name and re-rename the tab every pass.
-    # A named group whose process is absent stays a no-answer: that is a group
-    # racing its own exit, where the name the tab already has is the better
-    # guess. An
-    # EMPTY list yields ["", ""] either way, so "no data" keeps its no-guess
-    # contract.
-    | (if $g == null then ($fp | min_by(.pid))
+    # setups: it cannot read one, so this field is null) it can still report the
+    # processes in the pane, and a list of exactly ONE is not ambiguous: there is
+    # nothing to choose between, so naming the tab after it is not a guess and
+    # beats leaving naming dead on those hosts.
+    #
+    # Two or more with no named group IS a guess, and this plugin does not make
+    # it. herdr documents its own degraded detection as one where a background job
+    # can look like the foreground one, and it does not order this list (a live
+    # 0.8.0 lists a `caffeinate` child ahead of the `claude` leader it belongs
+    # to), so a pick here could name the tab after something nobody is running --
+    # and the reconcile would then own that name until the process set changed.
+    #
+    # A named group whose process is absent from the list is also a no-answer:
+    # that is a group racing its own exit, where the name the tab already has is
+    # the better answer. So is an EMPTY list, which yields ["", ""] as before.
+    | (if $g == null then (if ($fp | length) == 1 then $fp[0] else null end)
        else ($fp | map(select(.pid == $g)) | first) end) as $p
     | if ($p == null) then
         ["", ""]

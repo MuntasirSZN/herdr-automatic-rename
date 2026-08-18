@@ -791,15 +791,16 @@ teardown
 # ======================================================================
 # Scenario 21: process-info with no foreground group to match against. herdr
 #   reports a null group where it cannot read one at all (some Linux container
-#   and sandbox setups) while still listing processes, and naming the tab
-#   approximately beats leaving it on herdr's "1". t1 pins the pick: the OLDEST
-#   pid, not the first array entry -- herdr does not order this list (a live
-#   0.8.0 lists a `caffeinate` child ahead of the `claude` leader it belongs to),
-#   and an unstable pick would rename the tab on every pass.
-#   The other two shapes keep the no-guess contract. t2: a group herdr DID name
-#   whose process is absent from the list is a group racing its own exit, so the
-#   name the tab already has stays. t3: an empty list is no process to fall back
-#   to (same outcome as the process-info blip in scenario 4).
+#   and sandbox setups) while still listing processes. t1: exactly ONE process
+#   reported is not a choice, so naming the tab after it is not a guess and beats
+#   leaving it on herdr's "1".
+#   The other three shapes all keep the no-guess contract. t2: two processes with
+#   no named group IS a choice -- herdr does not order this list and says a
+#   background job can look like the foreground one there -- so the tab keeps its
+#   own label rather than being named after either. t3: a group herdr DID name
+#   whose process is absent is a group racing its own exit, so the name the tab
+#   already has stays. t4: an empty list is no process to fall back to (same
+#   outcome as the process-info blip in scenario 4).
 # ======================================================================
 setup
 export NAME_TABS=1 AUTO_INDEX=0
@@ -810,38 +811,45 @@ fixture tabs_w1.json <<'JSON'
 {"result":{"tabs":[
   {"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true},
   {"tab_id":"w1:t2","label":"2","pane_count":1,"focused":false},
-  {"tab_id":"w1:t3","label":"3","pane_count":1,"focused":false}
+  {"tab_id":"w1:t3","label":"3","pane_count":1,"focused":false},
+  {"tab_id":"w1:t4","label":"4","pane_count":1,"focused":false}
 ]}}
 JSON
 fixture panes.json <<'JSON'
 {"result":{"panes":[
   {"pane_id":"p1","tab_id":"w1:t1","focused":true},
   {"pane_id":"p2","tab_id":"w1:t2","focused":false},
-  {"pane_id":"p3","tab_id":"w1:t3","focused":false}
+  {"pane_id":"p3","tab_id":"w1:t3","focused":false},
+  {"pane_id":"p4","tab_id":"w1:t4","focused":false}
 ]}}
 JSON
-# No group named at all. `git` is listed FIRST and `nvim` is the older pid, so a
-# name of "nvim" can only have come from the pid rule.
+# No group named, one process reported: nothing to choose between.
 fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":null,
+  "foreground_processes":[{"pid":4242,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+# No group named, two processes: naming the tab after either one is a guess.
+fixture procinfo_p2.json <<'JSON'
 {"result":{"process_info":{"foreground_process_group_id":null,
   "foreground_processes":[
     {"pid":4243,"argv0":"git","cmdline":"git status"},
-    {"pid":4242,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
-JSON
-fixture procinfo_p2.json <<'JSON'
-{"result":{"process_info":{"foreground_process_group_id":999,
-  "foreground_processes":[{"pid":4242,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+    {"pid":4242,"argv0":"htop","cmdline":"htop"}]}}}
 JSON
 fixture procinfo_p3.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":999,
+  "foreground_processes":[{"pid":4242,"argv0":"lazygit","cmdline":"lazygit"}]}}}
+JSON
+fixture procinfo_p4.json <<'JSON'
 {"result":{"process_info":{"foreground_process_group_id":null,
   "foreground_processes":[]}}}
 JSON
 run_event tab.focused
 out=$(log)
-check_contains "no group named -> oldest pid names the tab" "$out" "tab rename w1:t1 nvim"
-check_absent   "the first listed process is not the name"   "$out" "git"
-check_absent   "a named group with no process names nothing" "$out" "tab rename w1:t2"
-check_absent   "an empty process list still names nothing"   "$out" "tab rename w1:t3"
+check_contains "no group, one process -> it names the tab"   "$out" "tab rename w1:t1 nvim"
+check_absent   "no group, two processes -> no name"          "$out" "tab rename w1:t2"
+check_absent   "neither ambiguous process is picked"         "$out" "htop"
+check_absent   "a named group with no process names nothing" "$out" "tab rename w1:t3"
+check_absent   "an empty process list still names nothing"   "$out" "tab rename w1:t4"
 teardown
 
 # ======================================================================

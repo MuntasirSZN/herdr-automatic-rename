@@ -28,16 +28,16 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   attach, that pane can sit in a different tab. Per-tab layouts remove the
   guess.
 
-- Where herdr named no foreground process group at all but still reported
-  processes, no name was computed. Some Linux container and sandbox setups
-  cannot expose a foreground group, which is what left tab naming doing nothing
-  there. Such a pane is now named after the oldest process reported: a group
-  leader is created before the processes it leads, so the pick lands on the
-  leader wherever one is reported, and unlike array position it holds still
-  across passes -- herdr does not order that list, and an unstable pick would
-  rename the tab on every pass. A group herdr DID name whose process is absent
-  from the list is a group racing its own exit, and still computes no name; so
-  does a pane herdr reports no process for.
+- Where herdr named no foreground process group at all but still reported one
+  process for the pane, no name was computed. Some Linux container and sandbox
+  setups cannot expose a foreground group, which is what left tab naming doing
+  nothing there. A single reported process is not a choice, so such a pane is now
+  named after it. Two or more with no named group would be: herdr does not order
+  that list and documents its own degraded detection as one where a background job
+  can look like the foreground one, so those panes keep the label they have. A
+  group herdr DID name whose process is absent from the list is a group racing its
+  own exit, and still computes no name; so does a pane herdr reports no process
+  for.
 
 - A label carrying a control character reached herdr verbatim: `argv` can hold a
   newline or a tab, so `SHOW_PROGRAM_ARGS=1` could put one in the tab bar.
