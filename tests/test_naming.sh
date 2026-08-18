@@ -339,6 +339,12 @@ check "a tilde path title is refused"      "" "$(_clean "~/dev/api" claude api)"
 check "a dot directory title is refused"   "" "$(_clean "~/.config" claude .config)"
 check "a task with a slash is kept"        "Fix CI/CD pipeline" \
   "$(_clean "Fix CI/CD pipeline" claude myproj)"
+# The tail rule reads a path, not a sentence that ends in one. This description
+# ends in exactly the directory it works on, which is the case the whitespace
+# guard exists for.
+check "a description ending in the dir is kept" "Fix build for services/payments" \
+  "$(_clean "Fix build for services/payments" claude payments)"
+check "a bare path with no slash left is refused" "" "$(_clean "~/.config" claude .config)"
 # A pane herdr reports no directory for must not turn an empty comparison into a
 # refusal: every title would match it and no agent tab would ever get a name.
 check "no pane directory refuses nothing" "Squash merge command" \

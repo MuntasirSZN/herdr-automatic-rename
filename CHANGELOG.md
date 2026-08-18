@@ -28,7 +28,12 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   task for yet), one that is just the directory the pane sits in, and a bare
   number, which is herdr's own generated tab label handed back through the title.
   Every refusal falls through to the program name, `PROGRAM_ALIASES` and the
-  `WRAPPER_PROGRAMS` unwrapping included.
+  `WRAPPER_PROGRAMS` unwrapping included. A path to that directory is refused
+  the same way, since an agent titling itself `~/dev/api` is still naming where it
+  sits: only a title with no whitespace, though, because a description like `Fix
+  build for services/payments` also ends in a directory name and is still the work.
+  Every comparison is made against the title in the shape the tab would carry it,
+  so a trailing space cannot walk a refused title past them.
 
   A title that survives replaces the program name outright, alias and all:
   `AGENT_TITLES` is the request for the task, and an alias shortening `claude`
@@ -73,11 +78,6 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   the pass. Reporting it from the first half alone told the user naming was back on
   even when the rename that followed failed, and a tab in that position opts itself
   straight back out on the next event.
-
-  A title that is a path is refused with the rest: an agent titling itself
-  `~/dev/api` is naming where it sits, not what it is doing, and the bare
-  directory name was the only form caught before. A task description that happens
-  to carry a slash keeps its whole tail, which matches no directory.
 
   Both actions also wait for the lock instead of deferring to whoever holds it.
   Events can defer, because any pass computes the same names, but an action carries

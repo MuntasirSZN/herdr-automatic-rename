@@ -67,8 +67,14 @@ LOCK_DIR="$STATE_DIR/lock"
 RERUN_FLAG="$STATE_DIR/rerun"
 CONFIG_FILE="${HERDR_AUTOMATIC_RENAME_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr-automatic-rename/config.sh}"
 
+# `task` is the shape a TITLE arrives in: control characters gone, the leading run
+# of non-alphanumerics gone (an agent parks a spinner glyph there), no trailing
+# space, and inner runs of it collapsed. One normalization, because the refusals in
+# ar_title_clean compare exact strings and the label is what they compared: a title
+# of "Claude Code " used to match no refusal and then be trimmed into a label.
+#
 # Every jq below that hands a herdr-supplied string to a shell variable runs it
-# through this first, and joins its rows on a literal tab rather than using @tsv.
+# through clean first, and joins its rows on a literal tab rather than using @tsv.
 # @tsv keeps a row parseable by ESCAPING what would break it, and those escapes
 # are the problem: a tab out of argv arrives as the two printable characters \t,
 # which no scrub can tell from text somebody typed, and every backslash in the
@@ -76,7 +82,7 @@ CONFIG_FILE="${HERDR_AUTOMATIC_RENAME_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/
 # to "C:\\temp". Removing the control characters instead makes the row
 # unambiguous without touching anything the user can see.
 AR_JQ_CLEAN='def clean: (. // "") | tostring | gsub("[[:cntrl:]]"; " ");
-def task: clean | sub("^[^[:alnum:]]+"; "");
+def task: clean | sub("^[^[:alnum:]]+"; "") | sub("[[:space:]]+$"; "") | gsub("[[:space:]]+"; " ");
 def lc: clean | ascii_downcase;'
 
 # Those rows are split on the ASCII unit separator rather than a tab, because
@@ -454,7 +460,7 @@ ar_pane_facts() {
     # Unicode-aware compare would have to move back into jq per tab.
     | ($pane.terminal_title_stripped // $pane.terminal_title | task) as $t
     | [ ($pane.agent | clean), $t, ($t | ascii_downcase),
-        ((($pane.foreground_cwd // $pane.cwd | clean) | split("/") | last) // "" | task | ascii_downcase) ]
+        ((($pane.foreground_cwd // $pane.cwd | clean) | split("/") | last) // "" | ascii_downcase) ]
     | join([31] | implode)' 2>/dev/null)
   IFS=$AR_ROW_SEP read -r AR_PANE_AGENT AR_PANE_TITLE AR_PANE_TITLE_LC AR_PANE_DIR_LC <<< "$out"
 }
@@ -1071,7 +1077,7 @@ ar_reconcile() {
                    _name_title: $ti,
                    _name_title_lc: ($ti | ascii_downcase),
                    _name_dir_lc: ((($p.foreground_cwd // $p.cwd | clean)
-                                   | split("/") | last) // "" | task | ascii_downcase) } ]}}' 2>/dev/null)
+                                   | split("/") | last) // "" | ascii_downcase) } ]}}' 2>/dev/null)
     AR_SNAP_AGENTS_JSON=$(printf '%s' "$snap" | jq -c \
       '{result:{agents:((.result.snapshot // .snapshot).agents // [])}}' 2>/dev/null)
     if [ "$CLEAR" != "1" ] && [ "$NAME_TABS" = "1" ]; then

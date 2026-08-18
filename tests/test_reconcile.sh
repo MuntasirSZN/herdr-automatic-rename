@@ -1736,4 +1736,48 @@ check "the rerun leaves the hand-typed name alone" " false" \
   "$(jq -r '."w1:t1" | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
 teardown
 
+# ======================================================================
+# Scenario 39: a title is normalized where it is lifted, not later.
+#   The refusals compare exact strings, and the label used to be normalized after
+#   them: a title of "Claude Code " (one trailing space) matched no refusal, then
+#   had the space trimmed on its way into the tab bar and was recorded as a task.
+#   Same for "3 ", which is herdr's own tab label wearing a space. Both are lifted
+#   in their final shape now, so the comparisons see what the tab would carry.
+#   t3 is the other half: a real title arrives spinner-stripped, its inner run of
+#   spaces collapsed, and its trailing space gone.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+fixture snapshot.json <<'JSON'
+{"result":{"snapshot":{
+  "workspaces":[{"workspace_id":"w1","label":"api"}],
+  "tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"1","pane_count":1,"focused":true},
+          {"tab_id":"w1:t2","workspace_id":"w1","label":"2","pane_count":1,"focused":false},
+          {"tab_id":"w1:t3","workspace_id":"w1","label":"3","pane_count":1,"focused":false}],
+  "panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true,"agent":"claude","agent_status":"idle",
+            "terminal_title_stripped":"Claude Code ","cwd":"/w/api"},
+           {"pane_id":"p2","tab_id":"w1:t2","focused":false,"agent":"claude","agent_status":"idle",
+            "terminal_title_stripped":"3 ","cwd":"/w/api"},
+           {"pane_id":"p3","tab_id":"w1:t3","focused":false,"agent":"claude","agent_status":"idle",
+            "terminal_title_stripped":"  Squash   merge command ","cwd":"/w/api"}],
+  "layouts":[{"tab_id":"w1:t1","focused_pane_id":"p1"},
+             {"tab_id":"w1:t2","focused_pane_id":"p2"},
+             {"tab_id":"w1:t3","focused_pane_id":"p3"}],
+  "agents":[]}}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "a product name with a trailing space is still refused" "$out" "tab rename w1:t1 claude"
+check_contains "so is herdr's own label with one"                      "$out" "tab rename w1:t2 claude"
+check_contains "and a real title arrives in the shape it will carry"   "$out" "tab rename w1:t3 Squash merge command"
+teardown
+
 t_summary

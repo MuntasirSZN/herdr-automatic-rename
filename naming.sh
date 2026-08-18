@@ -177,9 +177,17 @@ ar_title_clean() {
   # A title that is a PATH is the same "nothing to say yet" answer in a longer
   # coat: an agent titling itself `~/dev/api` or `/home/u/dev/api` is naming where
   # it sits, not what it is doing. The list above catches the bare directory name;
-  # this catches the path it ends. A task description that happens to carry a
-  # slash ("Fix CI/CD pipeline") keeps a tail no directory matches.
-  [ -n "$dirlc" ] && [ "${lower##*/}" = "$dirlc" ] && return 0
+  # this catches the path that ends in it.
+  #
+  # Only for a title with no whitespace in it, though, or a real description would
+  # go the same way: "Fix build for services/payments" in a directory called
+  # payments ends in exactly that word. A path has no spaces; a sentence about the
+  # work almost always does. The leading dot is dropped from the directory too,
+  # because a title of "~/.config" has already lost its own to the strip above.
+  case $lower in
+  *[[:space:]]*) : ;;
+  *) [ -n "$dirlc" ] && { [ "${lower##*/}" = "$dirlc" ] || [ "${lower##*/}" = "${dirlc#.}" ]; } && return 0 ;;
+  esac
   printf '%s' "$t"
 }
 
