@@ -401,7 +401,19 @@ ar_pane_agent_kind() {
   ' 2>/dev/null
 }
 
-# ar_pane_program <pane_id> -> TSV "program<TAB>cmdline".
+# ar_split_program <ar_pane_program output> -> sets AR_PROG / AR_CMD.
+# Two lines in, two globals out: `read` would do it, but it reports the missing
+# second line (an empty command line, which command substitution has already
+# trimmed away) as a failure, and this runs inside an && chain.
+ar_split_program() {
+  AR_PROG=${1%%$'\n'*}
+  case $1 in
+  *$'\n'*) AR_CMD=${1#*$'\n'} ;;
+  *) AR_CMD="" ;;
+  esac
+}
+
+# ar_pane_program <pane_id> -> "program" and "cmdline", one per line.
 # The foreground command is the process-group leader (pid == group id). At a bare
 # prompt the leader IS the login shell, whose argv0 ("-zsh") strips to "zsh".
 #
@@ -417,6 +429,13 @@ ar_pane_program() {
   local out
   out=$("$HERDR" pane process-info --pane "$1" 2>/dev/null) || return 1
   printf '%s' "$out" | jq -r '
+    # Control characters go here, at the edge, not later in the naming rules:
+    # argv can hold a tab or a newline, and @tsv would hand those on as the
+    # printable two-character sequences \t and \n, which no scrub downstream can
+    # tell from text somebody typed. So each value is emitted on its own LINE
+    # instead, which is only safe because this filter has already removed the
+    # newlines -- and it spares the label the doubled backslash @tsv adds too.
+    def clean: (. // "") | tostring | gsub("[[:cntrl:]]"; " ");
     (.result.process_info // .process_info) as $pi
     | ($pi.foreground_process_group_id) as $g
     | ($pi.foreground_processes // []) as $fp
@@ -439,12 +458,11 @@ ar_pane_program() {
     | (if $g == null then (if ($fp | length) == 1 then $fp[0] else null end)
        else ($fp | map(select(.pid == $g)) | first) end) as $p
     | if ($p == null) then
-        ["", ""]
+        "", ""
       else
-        [ (($p.argv0 // (($p.argv // [])[0]) // $p.name // "") | sub("^-"; "") | split("/") | last),
-          ($p.cmdline // (($p.argv // []) | join(" "))) ]
+        (($p.argv0 // (($p.argv // [])[0]) // $p.name // "") | clean | sub("^-"; "") | split("/") | last),
+        (($p.cmdline // (($p.argv // []) | join(" "))) | clean)
       end
-    | @tsv
   ' 2>/dev/null
 }
 
@@ -461,7 +479,9 @@ ar_tab_name() {
   # current name, rather than falling through to ar_format "" "" -> $SHELL_NAME
   # and clobbering (e.g.) an "nvim" tab with "zsh" on a blip.
   info=$(ar_pane_program "$pane") || return 1
-  IFS=$'\t' read -r prog cmd <<< "$info"
+  ar_split_program "$info"
+  prog=$AR_PROG
+  cmd=$AR_CMD
   [ -n "$prog" ] || return 1
   # An agent installed through npm or npx fronts as its runtime, so the tab would
   # be named "node" for a pane herdr knows is running codex. Where the foreground
@@ -974,7 +994,9 @@ ar_fast_once() {
   if [ "$MODE" = "preexec" ]; then
     if [ "${AR_FAST_SAMPLE:-}" = "1" ]; then
       info=$(ar_pane_program "${HERDR_PANE_ID:-}") || return 0
-      IFS=$'\t' read -r prog cmd <<< "$info"
+      ar_split_program "$info"
+      prog=$AR_PROG
+      cmd=$AR_CMD
       [ -n "$prog" ] || return 0
     else
       cmd="${AR_FAST_ARG:-}"

@@ -47,7 +47,7 @@ opt-out is tracked in a small JSON state file keyed by `tab_id`: the last base
 the plugin set, and whether auto-naming is still enabled for that tab.
 
 That recorded base is the plugin's only evidence of what it named a tab, so it
-is written for a name the tab actually **carries** — the label already matches,
+is written for a name the tab actually **carries** -- the label already matches,
 or the `rename` reported success. A base recorded for a rename that never landed
 is indistinguishable, one pass later, from a name typed by hand: the label does
 not match what state claims, so the tab opts out of naming and only the `reset`
@@ -156,8 +156,8 @@ a `collapsed` field on `WorkspaceInfo`, is what would close that window.
 A tab's name comes from one pane's foreground process, so the pass has to pick
 that pane. The snapshot's `layouts` array answers directly: one entry per tab,
 each carrying the `focused_pane_id` of that tab's own focus. It holds for tabs
-nobody is looking at, which the pane list cannot report — no pane of a
-background tab carries `.focused` — and it is per-tab, so it never picks up the
+nobody is looking at, which the pane list cannot report -- no pane of a
+background tab carries `.focused` -- and it is per-tab, so it never picks up the
 globally focused pane, which belongs to whichever client moved focus last and
 may sit in another tab entirely (herdr supports several clients and remote
 attach).

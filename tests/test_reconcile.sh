@@ -956,4 +956,66 @@ check_absent   "and no arbitrary first pane either"         "$out" "lazygit"
 check_contains "a single-pane tab is still named"           "$out" "tab rename w2:t2 htop"
 teardown
 
+# ======================================================================
+# Scenario 24: control characters out of argv, through the real path.
+#   argv can hold a tab or a newline, and SHOW_PROGRAM_ARGS=1 puts argv in the
+#   label. tests/test_naming.sh covers what ar_format does with one, but that is
+#   not where they arrive: they come out of `pane process-info` as JSON, and the
+#   jq that reads it used to hand them on as the printable sequences \t and \n --
+#   past every scrub, into the tab bar, indistinguishable from typed text. This
+#   drives the whole reconcile so the transport is what is under test.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0 SHOW_PROGRAM_ARGS=1
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+# A real tab and a real newline in the command line, plus a run of spaces.
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"psql","cmdline":"psql -c a\tb\nc   d"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "control characters land as single spaces" "$out" "tab rename w1:t1 psql -c a b c d"
+check_absent   "no escaped tab survives into the label"   "$out" 'a\tb'
+check_absent   "no escaped newline either"                "$out" 'b\nc'
+teardown
+
+# ======================================================================
+# Scenario 25: the transport carries one value per LINE, which only holds
+#   because the jq that reads process-info replaces control characters first.
+#   A newline inside argv0 is what tests that: without the replacement, jq emits
+#   three lines for two values, the split takes "ps" as the whole program name,
+#   and the tab is named after a program nothing is running. With it, the name
+#   arrives whole. SHOW_PROGRAM_ARGS=0 so the label IS the program name.
+#   (Scenario 24 cannot pin this: a control character in the COMMAND LINE lands
+#   in the last field, where ar_format scrubs it either way.)
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0 SHOW_PROGRAM_ARGS=0
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"ps\nql","cmdline":"ps\nql -h db"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "a newline in argv0 does not split the value" "$out" "tab rename w1:t1 ps ql"
+teardown
+
 t_summary

@@ -43,10 +43,15 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   for.
 
 - A label carrying a control character reached herdr verbatim: `argv` can hold a
-  newline or a tab, so `SHOW_PROGRAM_ARGS=1` could put one in the tab bar.
-  Control characters are now scrubbed, runs of whitespace collapsed, and the ends
-  trimmed, before truncation. A clean label -- nearly all of them -- costs no
-  extra process.
+  newline or a tab, so `SHOW_PROGRAM_ARGS=1` could put one in the tab bar. They
+  are now replaced where they arrive, in the jq that reads `pane process-info`,
+  and the label has its whitespace runs collapsed and its ends trimmed before
+  truncation. A clean label -- nearly all of them -- costs no extra process.
+
+  The two values that reader returns travel one per line now rather than as TSV.
+  `@tsv` escaped a real tab into the printable two characters `\t`, which no
+  scrub downstream can tell from text somebody typed, and it doubled every
+  backslash in a command line on the way past.
 
 ## [0.6.1] - 2026-08-14
 
