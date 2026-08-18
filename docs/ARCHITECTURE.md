@@ -274,10 +274,18 @@ came back empty the pane came from the pane list instead, and its facts have sti
 to be read: taking the row's empty fields for that pane cost such a tab both its
 title and the runtime unwrap, so a `node`-fronted agent read `node` again.
 
-Older herdr, and the per-list fallback path, ship no layouts. There the pass
-keeps the original rule: the sole pane of a single-pane tab, else the tab's own
-focused pane, else nothing. A background multi-pane tab resolves no pane on that
-path and keeps whatever name it has.
+Older herdr, and the per-list fallback path, ship no layouts. Rules 1 and 3 both
+ask for the tab's own focused pane, so neither can be answered there. Rule 2 asks
+only for an agent at work among the tab's panes, so it still can, and it still
+does: a no-layout snapshot names such a tab after that agent. Deliberate -- a
+split with an agent working in it is the case the rule exists for, and the rule
+never needed a layout to see it. Everything else falls to the inference in
+`ar_resolve_pane`: the sole pane of a single-pane tab, else the tab's own focused
+pane, else nothing. So a background multi-pane tab keeps whatever name it has
+unless an agent is working in it.
+
+The per-list path is the narrower case. With no snapshot there is no reshape at
+all, so rule 2 never runs either and that inference is the whole of it.
 
 ## The placeholder rule
 

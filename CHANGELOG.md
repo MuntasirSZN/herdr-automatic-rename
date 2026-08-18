@@ -65,8 +65,11 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   finished agent should not hold the name of a tab you have moved on to. The
   choice is made in the snapshot reshape and travels on the tab row as
   `_name_pane`, so the tab loop costs nothing extra for it. A herdr whose
-  snapshot carries no layouts keeps the older inference (the sole pane of a
-  single-pane tab, else the tab's own focused pane).
+  snapshot carries no layouts can answer neither the first rule nor the third,
+  since both ask for the tab's own focused pane. The second asks only for an
+  agent at work, so it still answers there, and everything it does not answer
+  falls to the older inference (the sole pane of a single-pane tab, else the
+  tab's own focused pane).
 
 - The `reset` and `clear` actions report what they did as a herdr notification.
   Both are built for a keybinding, where the only feedback was the tab bar
@@ -109,7 +112,9 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   no pane to read: none of a background tab's panes carries `.focused`, and the
   pane list is all the pass looked at. It now takes the tab's own
   `focused_pane_id` from the snapshot's `layouts`, which answers for every tab.
-  Older herdr, whose snapshot has no layouts, keeps the previous behavior.
+  Older herdr, whose snapshot has no layouts, keeps the previous behavior --
+  except for a tab with an agent at work in it, which the rule above names
+  without asking for a layout.
 
 - The focused tab was named from the GLOBALLY focused pane, which belongs to
   whichever client moved focus last. With a second client attached, or a remote

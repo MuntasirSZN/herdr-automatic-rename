@@ -1780,4 +1780,65 @@ check_contains "so is herdr's own label with one"                      "$out" "t
 check_contains "and a real title arrives in the shape it will carry"   "$out" "tab rename w1:t3 Squash merge command"
 teardown
 
+# ======================================================================
+# Scenario 40: which of the three pane rules survives a snapshot with NO layouts.
+#   Rules 1 and 3 both ask for the tab's own focused pane, so a herdr that
+#   publishes no layouts can answer neither. Rule 2 asks only for an agent at
+#   work among the tab's panes, so it still answers -- and a background
+#   multi-pane tab, the one the pane list can say nothing about, is named after
+#   that agent. Scenario 33 pins the other half on the same path: no layout and
+#   no working agent picks nothing, and the pane-list inference takes over.
+#   w1:t1 is the rule that survives: background, two panes, an agent WORKING in
+#     the second. Named after its task, off a snapshot with no layouts at all.
+#   w1:t2 is the boundary: the same tab with the agent IDLE. Rule 2 wants an
+#     agent at work, so nothing is picked, and the pane-list inference has no
+#     answer for a background multi-pane tab -- the tab keeps its placeholder.
+#   A regression either way shows up here: restrict rule 2 to layouts and t1
+#   stops being named; drop the status test and t2 starts being.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+# No "layouts" key, as an older herdr's snapshot has none.
+fixture snapshot.json <<'JSON'
+{"result":{"snapshot":{
+  "workspaces":[{"workspace_id":"w1","label":"api"}],
+  "tabs":[
+    {"tab_id":"w1:t1","label":"1","pane_count":2,"focused":false,"workspace_id":"w1"},
+    {"tab_id":"w1:t2","label":"2","pane_count":2,"focused":false,"workspace_id":"w1"}
+  ],
+  "panes":[
+    {"pane_id":"p1","tab_id":"w1:t1","focused":false,"foreground_cwd":"/home/u/dev/api"},
+    {"pane_id":"p2","tab_id":"w1:t1","focused":false,"agent":"claude","agent_status":"working",
+     "terminal_title_stripped":"Squash merge command","foreground_cwd":"/home/u/dev/api"},
+    {"pane_id":"p3","tab_id":"w1:t2","focused":false,"foreground_cwd":"/home/u/dev/api"},
+    {"pane_id":"p4","tab_id":"w1:t2","focused":false,"agent":"claude","agent_status":"idle",
+     "terminal_title_stripped":"Check PR relevance","foreground_cwd":"/home/u/dev/api"}
+  ],
+  "agents":[]
+}}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"zsh","cmdline":"-zsh"}]}}}
+JSON
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+fixture procinfo_p3.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":300,
+  "foreground_processes":[{"pid":300,"argv0":"zsh","cmdline":"-zsh"}]}}}
+JSON
+fixture procinfo_p4.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":400,
+  "foreground_processes":[{"pid":400,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "no layouts: an agent at work still names its tab" "$out" \
+  "tab rename w1:t1 Squash merge command"
+check_absent   "and never after the shell beside it"     "$out" "tab rename w1:t1 zsh"
+check_absent   "an idle agent picks no pane without a layout" "$out" "tab rename w1:t2"
+teardown
+
 t_summary
