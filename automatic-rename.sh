@@ -441,6 +441,10 @@ ar_pane_facts() {
   AR_PANE_AGENT=""; AR_PANE_TITLE=""; AR_PANE_TITLE_LC=""; AR_PANE_DIR_LC=""
   out=$(printf '%s' "$AR_PANES_JSON" | jq -r --arg p "$1" "$AR_JQ_CLEAN"'
     (.result.panes // .panes // []) | map(select(.pane_id == $p)) | .[0] as $pane
+    # ascii_downcase folds ASCII only, so a title and a directory that differ just
+    # by the case of a non-ASCII letter are not seen as equal. Deliberate: the
+    # refusals it feeds are about product names and directory names, and a
+    # Unicode-aware compare would have to move back into jq per tab.
     | ($pane.terminal_title_stripped // $pane.terminal_title | task) as $t
     | [ ($pane.agent | clean), $t, ($t | ascii_downcase),
         ((($pane.foreground_cwd // $pane.cwd | clean) | split("/") | last) // "" | ascii_downcase) ]
@@ -1088,6 +1092,13 @@ ar_reconcile() {
   if ar_index_pass agents; then
     ar_renumber_agents
   fi
+  # The force was for this pass. ar_run can loop the reconcile when events land
+  # while it runs, and a tab still forced on a later loop is a tab whose opt-out
+  # check is still bypassed: rename it by hand inside that window and the next loop
+  # would take the name back instead of leaving it alone, which is the one promise
+  # this plugin makes. AR_FORCE_WAS_OUT and AR_FORCE_ADOPTED outlive it, because
+  # the action still has to report what happened.
+  AR_FORCE_TAB=""
 }
 
 # Fast path for the shell hooks: rename only the current tab (no cross-tab work).

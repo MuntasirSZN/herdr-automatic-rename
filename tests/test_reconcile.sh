@@ -25,7 +25,7 @@ setup() {
   printf 'agent_panel_sort = "spaces"\n' >"$HERDR_CONFIG_FILE"
   export HERDR_SOCKET_PATH="$SB/herdr.sock"   # keeps herdr state reads (session.json) in the sandbox
   export SHELL_NAME=zsh
-  unset HERDR_MOCK_VERSION HERDR_MOCK_NO_VERSION   # per-scenario opt-in; mock default is current herdr
+  unset HERDR_MOCK_VERSION HERDR_MOCK_NO_VERSION HERDR_MOCK_RERUN_ONCE   # per-scenario opt-in; mock default is current herdr
   unset HERDR_MOCK_FAIL_RENAME                     # per-scenario opt-in; renames succeed by default
   unset HIDE_SHELL                                 # per-scenario opt-in; default is off
   unset AUTO_INDEX_WORKSPACES AUTO_INDEX_TABS AUTO_INDEX_AGENTS   # per-kind opt-in; inherit AUTO_INDEX
@@ -1694,6 +1694,46 @@ run_event --clear
 out=$(log)
 check_contains "a contended clear reports it too"  "$out" \
   "notification show Clear is waiting --body Another naming pass held the lock. Try again."
+teardown
+
+# ======================================================================
+# Scenario 38: the reset force does not outlive the pass it was for.
+#   ar_run coalesces: an event landing while a pass runs makes the holder run the
+#   reconcile again. Every one of those passes used to inherit AR_FORCE_TAB, and a
+#   forced tab has its opt-out check bypassed by design -- so renaming the tab by
+#   hand inside that window meant the next loop took the name straight back, which
+#   is the one thing this plugin promises not to do.
+#   The mock raises the rerun flag from inside the first rename, which is the only
+#   way to reach the second loop (ar_run clears the flag when it starts). The tab
+#   label in the fixtures never changes, so on the second pass it reads exactly
+#   like a tab renamed by hand: the pass must opt it out, not re-adopt it again.
+#   The action still reports the re-adoption its first pass earned.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+STATE="$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+export HERDR_MOCK_RERUN_ONCE="$XDG_STATE_HOME/herdr-automatic-rename/rerun"
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"w1:t1":{"auto":"","enabled":false}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"notes","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+HERDR_TAB_ID=w1:t1 run_event reset
+out=$(log)
+check_contains "the first pass re-adopts the tab" "$out" "tab rename w1:t1 nvim"
+check_contains "and the action says so"           "$out" "notification show Tab re-adopted"
+check "the rerun leaves the hand-typed name alone" " false" \
+  "$(jq -r '."w1:t1" | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
 teardown
 
 t_summary

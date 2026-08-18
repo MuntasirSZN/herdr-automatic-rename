@@ -155,7 +155,7 @@ Override the path with `HERDR_AUTOMATIC_RENAME_CONFIG`.
 | `MAX_NAME_LEN` | `20` | Cut the finished label off after this many characters. |
 | `AGENT_TITLES` | `1` | Name a tab running a coding agent after the task in the agent's terminal title (`Squash merge command`) rather than after the program (`claude`). `0` names every agent tab after its program. |
 | `MAX_TITLE_LEN` | `MAX_NAME_LEN` + 8 | Cut a title label off after this many characters, at a word boundary where one is close enough. Titles are sentences, so they get more room than a command name, and narrowing `MAX_NAME_LEN` for a narrow tab bar narrows titles with it. |
-| `TITLE_IGNORE` | `claude code`, `codex cli`, ... | Titles that name the agent instead of its work, compared case-insensitively against the whole title. A match is refused and the tab is named after the program. The agent's own kind, that kind plus `code`, the pane's directory, and a bare number are refused without being listed. |
+| `TITLE_IGNORE` | `claude code`, `codex cli`, ... | Titles that name the agent instead of its work, compared against the whole title, ignoring the case of ASCII letters. A match is refused and the tab is named after the program. The agent's own kind, that kind plus `code`, the pane's directory, and a bare number are refused without being listed. |
 | `SHELL_NAME` | `$SHELL` basename | Label shown at an idle prompt when no program is running (e.g. `zsh`). |
 | `HIDE_SHELL` | `0` | `1` gives a shell tab no name at all, so herdr's own tab number shows there instead of `zsh`. Covers the login shell (`SHELL_NAME`), not just the fixed `SHELLS` list. |
 | `SHELLS` | `zsh bash sh fish dash ksh` | Programs counted as "a shell prompt" and shown by their own name. |

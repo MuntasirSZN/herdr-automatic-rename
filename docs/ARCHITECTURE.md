@@ -88,6 +88,12 @@ well under a second) and report that they are waiting rather than handing the jo
 to a pass that knows nothing about it. Exiting there is what used to make a reset
 pressed during a burst of events do nothing, and say nothing either.
 
+A reset's force is spent by the pass that consumes it. The holder can loop its
+reconcile when events land while it runs, and a tab still forced on a later loop
+is a tab whose opt-out check is still bypassed: rename it by hand inside that
+window and the loop would take the name back, which is the one promise this
+plugin makes.
+
 ## The shell hooks find their own engine
 
 herdr installs a github plugin to a content-hashed directory, so the hooks

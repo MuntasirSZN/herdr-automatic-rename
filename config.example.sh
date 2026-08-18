@@ -63,8 +63,8 @@
 # narrow tab bar narrows titles with it.
 # MAX_TITLE_LEN=28
 
-# Titles that name the agent instead of the work it is doing, matched
-# case-insensitively against the whole title. An agent sets one of these before
+# Titles that name the agent instead of the work it is doing, matched against the
+# whole title, ignoring the case of ASCII letters. An agent sets one of these before
 # it has a task (at startup, or once a session is cleared), and "Claude Code"
 # says less than "claude" does. The agent's own kind, that kind followed by
 # "code", the directory the pane sits in, and a bare number are refused without
