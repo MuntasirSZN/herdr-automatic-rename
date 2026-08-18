@@ -46,6 +46,13 @@ herdr exposes no per-tab metadata and no auto/manual flag, so the manual-rename
 opt-out is tracked in a small JSON state file keyed by `tab_id`: the last base
 the plugin set, and whether auto-naming is still enabled for that tab.
 
+That recorded base is the plugin's only evidence of what it named a tab, so it
+is written for a name the tab actually **carries** — the label already matches,
+or the `rename` reported success. A base recorded for a rename that never landed
+is indistinguishable, one pass later, from a name typed by hand: the label does
+not match what state claims, so the tab opts out of naming and only the `reset`
+action brings it back.
+
 ## Locking
 
 A `mkdir` lock (atomic, ownership-token stamped, 30-second steal window) plus a
@@ -144,11 +151,32 @@ on whatever event arrives next, which in an active session is usually seconds aw
 collapse can still jump by the old numbering. Upstream support, either an event or
 a `collapsed` field on `WorkspaceInfo`, is what would close that window.
 
+## Which pane names a tab
+
+A tab's name comes from one pane's foreground process, so the pass has to pick
+that pane. The snapshot's `layouts` array answers directly: one entry per tab,
+each carrying the `focused_pane_id` of that tab's own focus. It holds for tabs
+nobody is looking at, which the pane list cannot report — no pane of a
+background tab carries `.focused` — and it is per-tab, so it never picks up the
+globally focused pane, which belongs to whichever client moved focus last and
+may sit in another tab entirely (herdr supports several clients and remote
+attach).
+
+That is per-tab data, so it travels with the tab: the reshape that slices the
+snapshot joins it onto each tab row as `_layout_pane`, and the tab loop reads it
+off the row it already has. `ar_resolve_pane` holds only the inference for rows
+where that column is empty, which costs the loop nothing on either path.
+
+Older herdr, and the per-list fallback path, ship no layouts. There the pass
+keeps the original rule: the sole pane of a single-pane tab, else the tab's own
+focused pane, else nothing. A background multi-pane tab resolves no pane on that
+path and keeps whatever name it has.
+
 ## The placeholder rule
 
 herdr labels a fresh tab with a small integer. When naming is on but the tab's
-foreground program cannot be read yet (a background multi-pane tab exposes no
-active pane), the pass counts the tab's position but defers its rename, so no
+foreground program cannot be read yet (no pane resolves, or `process-info`
+answers nothing), the pass counts the tab's position but defers its rename, so no
 throwaway `[3] 3` flashes before the real name arrives. When naming is off, the
 integer is numbered as-is, since nothing else will ever name it.
 

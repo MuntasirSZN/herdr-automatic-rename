@@ -49,7 +49,13 @@ case "$group" in
         while [ $# -gt 0 ]; do case "$1" in --workspace) w="$2"; shift 2 ;; *) shift ;; esac; done
         serve "tabs_$w.json" '{"result":{"tabs":[]}}' ;;
       get)    serve "tab_$1.json" '{}' ;;
-      rename) printf 'tab rename %s %s\n' "$1" "$2" >>"$log" ;;
+      # $HERDR_MOCK_FAIL_RENAME=1 stands in for a herdr that REJECTS the rename
+      # (an invalid label, a socket blip): the attempt is still logged, so a test
+      # can assert it was issued, and the command then fails so the engine sees a
+      # non-zero status. Unset (the default) always succeeds, as a real rename
+      # normally does.
+      rename) printf 'tab rename %s %s\n' "$1" "$2" >>"$log"
+              [ "${HERDR_MOCK_FAIL_RENAME:-0}" = "1" ] && exit 1 ;;
     esac ;;
   pane)
     case "$action" in

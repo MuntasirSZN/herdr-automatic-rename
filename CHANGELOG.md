@@ -6,6 +6,45 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Fixed
+
+- A tab whose rename herdr rejected stopped being named at all. Ownership was
+  recorded before the rename was issued, so a failed one left state claiming a
+  base the tab did not carry; the next pass compared the two, read the mismatch
+  as a name typed by hand, and opted the tab out of auto-naming for good --
+  recoverable only through the `reset` action. Ownership is now recorded for a
+  name the tab actually carries: the label already matches, or the rename
+  reported success. The shell-hook fast path has always ordered it this way.
+
+- A background tab with more than one pane kept the name it had when it last had
+  a single pane, so a split that started an agent still read `nvim`. Naming had
+  no pane to read: none of a background tab's panes carries `.focused`, and the
+  pane list is all the pass looked at. It now takes the tab's own
+  `focused_pane_id` from the snapshot's `layouts`, which answers for every tab.
+  Older herdr, whose snapshot has no layouts, keeps the previous behavior.
+
+- The focused tab was named from the GLOBALLY focused pane, which belongs to
+  whichever client moved focus last. With a second client attached, or a remote
+  attach, that pane can sit in a different tab. Per-tab layouts remove the
+  guess.
+
+- Where herdr named no foreground process group at all but still reported
+  processes, no name was computed. Some Linux container and sandbox setups
+  cannot expose a foreground group, which is what left tab naming doing nothing
+  there. Such a pane is now named after the oldest process reported: a group
+  leader is created before the processes it leads, so the pick lands on the
+  leader wherever one is reported, and unlike array position it holds still
+  across passes -- herdr does not order that list, and an unstable pick would
+  rename the tab on every pass. A group herdr DID name whose process is absent
+  from the list is a group racing its own exit, and still computes no name; so
+  does a pane herdr reports no process for.
+
+- A label carrying a control character reached herdr verbatim: `argv` can hold a
+  newline or a tab, so `SHOW_PROGRAM_ARGS=1` could put one in the tab bar.
+  Control characters are now scrubbed, runs of whitespace collapsed, and the ends
+  trimmed, before truncation. A clean label -- nearly all of them -- costs no
+  extra process.
+
 ## [0.6.1] - 2026-08-14
 
 ### Fixed

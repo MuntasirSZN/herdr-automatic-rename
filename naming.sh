@@ -182,6 +182,23 @@ ar_format() {
       esac
     fi
   fi
+  # Scrub what a command line can carry into a label: control characters (argv
+  # can hold a newline or a tab, and SHOW_PROGRAM_ARGS=1 puts argv in the label)
+  # and runs of whitespace. herdr takes the string verbatim, so an unscrubbed one
+  # reaches the tab bar as it is.
+  #
+  # One tr both translates and squeezes, and only for a label that needs it: the
+  # case guard keeps the fork off a clean label, which is nearly all of them and
+  # all of the ones on the shell-hook path. Squeezing FIRST is what makes the
+  # single-character trims below enough. A UTF-8 label survives either tr: a
+  # bytewise one never matches a continuation byte (every one is >= 0x80, outside
+  # the class), and a locale-aware one consumes whole characters.
+  case $name in
+  *[[:cntrl:]]* | *"  "*) name=$(printf '%s' "$name" | tr -s '[:cntrl:] ' ' ') ;;
+  esac
+  name=${name# }
+  name=${name% }
+
   # Truncate by Unicode codepoint, not byte. bash's ${#name} / ${name:0:$max}
   # count bytes under a C/POSIX locale (herdr may launch plugins with no LC_*),
   # which would slice a multibyte char in half and emit mojibake. jq (already a

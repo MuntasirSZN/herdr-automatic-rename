@@ -26,6 +26,7 @@ setup() {
   export HERDR_SOCKET_PATH="$SB/herdr.sock"   # keeps herdr state reads (session.json) in the sandbox
   export SHELL_NAME=zsh
   unset HERDR_MOCK_VERSION HERDR_MOCK_NO_VERSION   # per-scenario opt-in; mock default is current herdr
+  unset HERDR_MOCK_FAIL_RENAME                     # per-scenario opt-in; renames succeed by default
   unset HIDE_SHELL                                 # per-scenario opt-in; default is off
   unset AUTO_INDEX_WORKSPACES AUTO_INDEX_TABS AUTO_INDEX_AGENTS   # per-kind opt-in; inherit AUTO_INDEX
 }
@@ -38,8 +39,11 @@ teardown() { rm -rf "$SB" 2>/dev/null || true; }
 # Scenario 1: both features on. Grouped agent sort.
 #   - two singleton workspaces -> [1]/[2]
 #   - tab t1 at a zsh prompt, t2 running nvim -> named + numbered in one rename
-#   - a background multi-pane tab (no resolvable pane) with a placeholder label
-#     -> DEFERRED (no throwaway "[N] 3" flash)
+#   - a background multi-pane tab with a placeholder label -> DEFERRED (no
+#     throwaway "[N] 3" flash). This is also the no-layouts FALLBACK in
+#     ar_resolve_pane: the per-list path carries no layout to ask, so none of the
+#     tab's panes is .focused and no pane resolves at all. Scenario 20 pins the
+#     same tab naming itself once a snapshot supplies its layout.
 #   - one agent -> [1], on the last herdr that accepts a bracketed agent name
 # ======================================================================
 setup
@@ -726,6 +730,156 @@ check_contains "an ordinary node program is untouched" "$out" "tab rename w1:t2 
 check_contains "a self-reporting agent is unchanged"   "$out" "tab rename w1:t3 [3] claude"
 check_contains "a session ref alone never names"       "$out" "tab rename w1:t4 [4] node"
 check_absent   "no rename from the stale session ref"  "$out" "[4] claude"
+teardown
+
+# ======================================================================
+# Scenario 20: the snapshot's per-tab layouts decide which pane a tab is named
+#   after. herdr publishes one layout per tab, and its .focused_pane_id is where
+#   focus sits (or returns to) INSIDE that tab, which the pane list alone cannot
+#   say -- so both tabs here were unnameable or misnamed before.
+#   t1 is the case that was simply unreachable: a BACKGROUND multi-pane tab, whose
+#   panes carry no .focused at all, so it kept whatever name it had from when it
+#   last held a single pane (scenario 1 pins that fallback).
+#   t2 pins the preference: it is the focused tab, but the global .focused flag
+#   sits on p1 -- a pane of ANOTHER tab, which is what a second client or a remote
+#   attach leaves behind. The old rule read that flag and would have named t2
+#   "git" after a pane it does not own; its own layout says p4.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+fixture snapshot.json <<'JSON'
+{"result":{"snapshot":{
+  "workspaces":[{"workspace_id":"w1","label":"api"}],
+  "tabs":[
+    {"tab_id":"w1:t1","label":"1","pane_count":2,"focused":false,"workspace_id":"w1"},
+    {"tab_id":"w1:t2","label":"2","pane_count":2,"focused":true,"workspace_id":"w1"}
+  ],
+  "panes":[
+    {"pane_id":"p1","tab_id":"w1:t1","focused":true},
+    {"pane_id":"p2","tab_id":"w1:t1","focused":false},
+    {"pane_id":"p3","tab_id":"w1:t2","focused":false},
+    {"pane_id":"p4","tab_id":"w1:t2","focused":false}
+  ],
+  "layouts":[
+    {"tab_id":"w1:t1","focused_pane_id":"p2"},
+    {"tab_id":"w1:t2","focused_pane_id":"p4"}
+  ],
+  "agents":[]
+}}}
+JSON
+# p1 is reachable only through the stale global focus flag, so its program is the
+# name a regression would produce.
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"git","cmdline":"git status"}]}}}
+JSON
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+fixture procinfo_p4.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":400,
+  "foreground_processes":[{"pid":400,"argv0":"htop","cmdline":"htop -d 5"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "background multi-pane tab named from its layout" "$out" "tab rename w1:t1 nvim"
+check_contains "focused tab named from its layout"               "$out" "tab rename w1:t2 htop"
+check_absent   "another tab's focused pane never names a tab"    "$out" "git"
+teardown
+
+# ======================================================================
+# Scenario 21: process-info with no foreground group to match against. herdr
+#   reports a null group where it cannot read one at all (some Linux container
+#   and sandbox setups) while still listing processes, and naming the tab
+#   approximately beats leaving it on herdr's "1". t1 pins the pick: the OLDEST
+#   pid, not the first array entry -- herdr does not order this list (a live
+#   0.8.0 lists a `caffeinate` child ahead of the `claude` leader it belongs to),
+#   and an unstable pick would rename the tab on every pass.
+#   The other two shapes keep the no-guess contract. t2: a group herdr DID name
+#   whose process is absent from the list is a group racing its own exit, so the
+#   name the tab already has stays. t3: an empty list is no process to fall back
+#   to (same outcome as the process-info blip in scenario 4).
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[
+  {"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true},
+  {"tab_id":"w1:t2","label":"2","pane_count":1,"focused":false},
+  {"tab_id":"w1:t3","label":"3","pane_count":1,"focused":false}
+]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t1","focused":true},
+  {"pane_id":"p2","tab_id":"w1:t2","focused":false},
+  {"pane_id":"p3","tab_id":"w1:t3","focused":false}
+]}}
+JSON
+# No group named at all. `git` is listed FIRST and `nvim` is the older pid, so a
+# name of "nvim" can only have come from the pid rule.
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":null,
+  "foreground_processes":[
+    {"pid":4243,"argv0":"git","cmdline":"git status"},
+    {"pid":4242,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":999,
+  "foreground_processes":[{"pid":4242,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+fixture procinfo_p3.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":null,
+  "foreground_processes":[]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "no group named -> oldest pid names the tab" "$out" "tab rename w1:t1 nvim"
+check_absent   "the first listed process is not the name"   "$out" "git"
+check_absent   "a named group with no process names nothing" "$out" "tab rename w1:t2"
+check_absent   "an empty process list still names nothing"   "$out" "tab rename w1:t3"
+teardown
+
+# ======================================================================
+# Scenario 22: ownership follows the rename, not the intent.
+#   Pass 1 issues the rename and herdr REJECTS it. Recording ownership anyway
+#   left state claiming a base the tab does not carry, and pass 2 read that
+#   mismatch as a hand rename: the tab was opted out of auto-naming for good
+#   (state {"auto":"","enabled":false}, recoverable only through `reset`) and
+#   never renamed again. So pass 1 must leave no claim, and pass 2 -- same
+#   fixtures, label still herdr's "1", healthy herdr -- must retry and adopt it.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=1
+export HERDR_MOCK_FAIL_RENAME=1
+STATE="$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+run_event tab.focused
+check_contains "rejected rename is still attempted" "$(log)" "tab rename w1:t1 [1] nvim"
+check "a rejected rename claims nothing" "" "$(jq -rc '."w1:t1" // empty' "$STATE" 2>/dev/null)"
+# Pass 2 against a herdr that accepts it.
+unset HERDR_MOCK_FAIL_RENAME
+: >"$HERDR_MOCK_LOG"
+run_event tab.focused
+check_contains "the next pass retries the rename" "$(log)" "tab rename w1:t1 [1] nvim"
+check "a landed rename is recorded as ours" "nvim true" \
+  "$(jq -r '."w1:t1" | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
 teardown
 
 t_summary

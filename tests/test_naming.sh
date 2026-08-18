@@ -48,6 +48,34 @@ PROGRAM_ALIASES=()
 check "poetry shell -> poetry" "poetry" "$(ar_format 'poetry' 'poetry shell')"
 check "ipython3 collapse" "ipython3" "$(ar_format 'ipython3' '/usr/bin/ipython3')"
 
+# ---- control characters and whitespace in a label ----
+# argv can hold anything, and with SHOW_PROGRAM_ARGS=1 the command line IS the
+# label. herdr sets the string verbatim, so a raw tab or newline out of a cmdline
+# would land in the tab bar; worse, a label herdr normalized on the way in reads
+# back as a string this plugin never set, and ar_name_eligible cannot tell that
+# from a hand rename -- it would opt the tab out of naming for good. The control
+# characters are written as printf escapes on purpose: a literal tab here is
+# invisible to review and an editor or a copy-paste eats it silently.
+check "tab in cmdline becomes a space" "htop -d 5" \
+  "$(SHOW_PROGRAM_ARGS=1 ar_format 'htop' "$(printf 'htop\t-d 5')")"
+check "newline in cmdline becomes a space" "htop -d 5" \
+  "$(SHOW_PROGRAM_ARGS=1 ar_format 'htop' "$(printf 'htop\n-d 5')")"
+check "BEL and ESC go the same way" "htop -d 5" \
+  "$(SHOW_PROGRAM_ARGS=1 ar_format 'htop' "$(printf 'htop \x07-d\x1b 5')")"
+check "runs of spaces collapse to one" "htop -d 5" \
+  "$(SHOW_PROGRAM_ARGS=1 ar_format 'htop' 'htop   -d    5')"
+check "leading and trailing space trimmed" "htop -d 5" \
+  "$(SHOW_PROGRAM_ARGS=1 ar_format 'htop' '  htop -d 5  ')"
+# A label with nothing to scrub must come through byte for byte -- the scrub sits
+# on the path every name takes, so a label it rewrites is a label it broke.
+check "ordinary label unchanged by the scrub" "htop -d 5" \
+  "$(SHOW_PROGRAM_ARGS=1 ar_format 'htop' 'htop -d 5')"
+# Control characters are ASCII-range bytes and a UTF-8 continuation byte is not,
+# so scrubbing cannot cut a multibyte character in half on its way to the
+# codepoint truncation below.
+check "multibyte survives the scrub" "ünïcödé arg" \
+  "$(SHOW_PROGRAM_ARGS=1 ar_format 'x' "$(printf 'ünïcödé\targ')")"
+
 # ---- truncation (MAX_NAME_LEN), counted by codepoint ----
 check "truncates to MAX_NAME_LEN" "12345678901234567890" \
   "$(MAX_NAME_LEN=20 ar_format 'x' '123456789012345678901234567890')"

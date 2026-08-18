@@ -293,14 +293,32 @@ ar_state_prune() { # <keep tab_ids...> - drop entries for tabs that no longer ex
   fi
 }
 
+# ar_state_claim <tab_id> <name> <named 0|1> - record that we own <tab_id> at
+# <name>, unless nothing has changed. State already saying exactly this is the
+# steady state -- every named tab, on every pass -- and ar_state_set rewrites the
+# whole file, so the guard keeps a quiet session from rewriting it per tab per
+# event. Reads what ar_name_eligible published for this same tab.
+ar_state_claim() {
+  [ "$3" = "1" ] || return 0
+  [ "${AR_STATE_ENABLED:-}" = "true" ] && [ "${AR_STATE_AUTO:-}" = "$2" ] && return 0
+  ar_state_set "$1" "$2" true
+}
+
 # ar_name_eligible <tab_id> <base label, prefix already stripped>
 # The manual-rename exclusion state machine. Returns 0 (eligible for auto-naming)
 # or 1 (leave the base alone). May write opt-out state as a side effect. Needs no
 # computed name, so an opted-out tab costs no process-info call.
+#
+# The two fields it reads are published as AR_STATE_ENABLED / AR_STATE_AUTO for
+# the tab just examined, so a caller about to record ownership can tell an
+# unchanged claim (the steady state, every pass, for every named tab) from one
+# worth writing -- ar_state_set rewrites the whole state file.
 ar_name_eligible() {
   local tab=$1 slabel=$2 enabled auto
   enabled=$(ar_state_get "$tab" enabled)
   auto=$(ar_state_get "$tab" auto)
+  AR_STATE_ENABLED=$enabled
+  AR_STATE_AUTO=$auto
   if [ -n "${AR_FORCE_TAB:-}" ] && [ "$tab" = "$AR_FORCE_TAB" ]; then
     return 0                                    # reset forces re-adoption
   elif [ -z "$enabled" ]; then
@@ -333,18 +351,29 @@ ar_name_eligible() {
 # tab-name computation (herdr-touching; feeds ar_format from naming.sh)
 # ======================================================================
 
-# ar_resolve_pane <tab_id> <pane_count> <focused> -> the active pane_id or "".
-# The sole pane of a single-pane tab, else the globally focused pane for the
-# focused tab. A background multi-pane tab exposes no active pane over the socket
-# and returns "" (its name is left as-is until it is next focused). Reads the
-# cached $AR_PANES_JSON.
+# ar_resolve_pane <tab_id> <pane_count> <focused> <layout_pane> -> the active
+# pane_id, or "" when this tab has none to name from.
+#
+# <layout_pane> is the tab's own .focused_pane_id, carried on the tab row by the
+# snapshot reshape in ar_reconcile (which is why this costs no herdr call and no
+# jq of its own). herdr publishes one layout per tab, so it answers for every
+# tab, and it is why a background multi-pane tab can be named at all. See "Which
+# pane names a tab" in docs/ARCHITECTURE.md.
+#
+# Everything below is the fallback for a herdr whose snapshot carries no layouts
+# and for the per-list path, which has none: the sole pane of a single-pane tab,
+# else the tab's OWN focused pane, else "". Reads the cached $AR_PANES_JSON.
 ar_resolve_pane() {
-  local tid=$1 pc=$2 foc=$3
+  local tid=$1 pc=$2 foc=$3 lp=${4:-}
+  if [ -n "$lp" ]; then
+    printf '%s' "$lp"
+    return 0
+  fi
   printf '%s' "$AR_PANES_JSON" | jq -r --arg t "$tid" --arg pc "$pc" --arg foc "$foc" '
     (.result.panes // .panes // []) as $p
     | ($p | map(select(.tab_id == $t))) as $tp
     | (if $pc == "1" then $tp[0]
-       elif $foc == "true" then (($p | map(select(.focused)) | .[0]) // $tp[0])
+       elif $foc == "true" then (($tp | map(select(.focused)) | .[0]) // $tp[0])
        else null end)
     | if . == null then "" else (.pane_id // "") end
   ' 2>/dev/null
@@ -386,7 +415,21 @@ ar_pane_program() {
     (.result.process_info // .process_info) as $pi
     | ($pi.foreground_process_group_id) as $g
     | ($pi.foreground_processes // []) as $fp
-    | ($fp | map(select(.pid == $g)) | first) as $p
+    # Where herdr names NO foreground group (some Linux container and sandbox
+    # setups: it cannot read one, so this field is null) but still reports
+    # processes, naming the tab approximately beats not naming it at all. The
+    # oldest pid is the pick: a group leader is created before the processes it
+    # leads, so it degenerates to the leader wherever one is reported, and unlike
+    # array position it is stable across passes -- herdr does not order this list
+    # (a live 0.8.0 lists a `caffeinate` child ahead of the `claude` leader), and
+    # an unstable pick would flap the name and re-rename the tab every pass.
+    # A named group whose process is absent stays a no-answer: that is a group
+    # racing its own exit, where the name the tab already has is the better
+    # guess. An
+    # EMPTY list yields ["", ""] either way, so "no data" keeps its no-guess
+    # contract.
+    | (if $g == null then ($fp | min_by(.pid))
+       else ($fp | map(select(.pid == $g)) | first) end) as $p
     | if ($p == null) then
         ["", ""]
       else
@@ -397,13 +440,13 @@ ar_pane_program() {
   ' 2>/dev/null
 }
 
-# ar_tab_name <tab_id> <pane_count> <focused> -> computed base name on stdout.
+# ar_tab_name <tab_id> <pane_count> <focused> <layout_pane> -> base name on stdout.
 # Returns 1 when the name can't be computed (no resolvable pane, process-info
 # failure); a successful HIDE_SHELL computation returns 0 with EMPTY output, so
 # the caller must read the status, not the string, to tell the two apart.
 ar_tab_name() {
   local pane info prog="" cmd="" kind=""
-  pane=$(ar_resolve_pane "$1" "$2" "$3")
+  pane=$(ar_resolve_pane "$1" "$2" "$3" "${4:-}")
   [ -n "$pane" ] || return 1
   # process-info can fail transiently (pane closing, socket hiccup) or resolve no
   # foreground process; both leave prog empty. Fail so the caller keeps the tab's
@@ -542,7 +585,8 @@ ar_reconcile_tabs() {
     [ -n "$w" ] || continue
     if [ "${AR_HAVE_SNAPSHOT:-0}" = "1" ]; then
       # Slice this workspace's tabs out of the cached snapshot, preserving array
-      # order (what cmd+N numbers by). Same shape as `tab list --workspace`.
+      # order (what cmd+N numbers by). Same shape as `tab list --workspace`, plus
+      # the _layout_pane the reshape joined on (see ar_resolve_pane).
       tjson=$(printf '%s' "$AR_SNAP_TABS_JSON" | jq -c --arg w "$w" \
         '{result:{tabs:[(.result.tabs // [])[]|select(.workspace_id==$w)]}}' 2>/dev/null)
     else
@@ -551,10 +595,11 @@ ar_reconcile_tabs() {
     [ -n "$tjson" ] || continue
     rows=$(printf '%s' "$tjson" | jq -r '
       (.result.tabs // .tabs // [])[]
-      | [ .tab_id, (.label // ""), (.pane_count // 0), (.focused // false) ] | @tsv' 2>/dev/null)
+      | [ .tab_id, (.label // ""), (.pane_count // 0), (.focused // false),
+          (._layout_pane // "") ] | @tsv' 2>/dev/null)
     [ -n "$rows" ] || continue
     i=0
-    while IFS=$'\t' read -r tid label pcount foc; do
+    while IFS=$'\t' read -r tid label pcount foc lpane; do
       [ -n "$tid" ] || continue
       i=$(( i + 1 ))
       AR_SEEN_TABS="$AR_SEEN_TABS $tid"
@@ -566,11 +611,10 @@ ar_reconcile_tabs() {
         # the knob off it is not, because a config can erase a name it did compute
         # (MAX_NAME_LEN=0, a SUBSTITUTE_SETS rule that matches everything) and
         # blanking a tab over that was never the deal. The fast path declines it too.
-        if ar_name_eligible "$tid" "$base0" && name=$(ar_tab_name "$tid" "$pcount" "$foc") \
+        if ar_name_eligible "$tid" "$base0" && name=$(ar_tab_name "$tid" "$pcount" "$foc" "$lpane") \
            && { [ -n "$name" ] || [ "${HIDE_SHELL:-0}" = "1" ]; }; then
           base=$name
           named=1
-          ar_state_set "$tid" "$name" true     # record ownership even if no rename
         fi
       fi
       # herdr has not labeled this tab yet and we computed no name, so there is no
@@ -596,8 +640,15 @@ ar_reconcile_tabs() {
         continue
       fi
       want=$(ar_desired tabs "$i" "$base")
-      [ "$want" = "$label" ] && continue
-      "$HERDR" tab rename "$tid" "$want" >/dev/null 2>&1 || true
+      # Ownership is recorded for a name the tab actually CARRIES: the label is
+      # already right, or the rename reported success. Recording it for a rename
+      # that failed (herdr rejected the label, the socket blipped) left state
+      # claiming a base the tab does not have, and the next pass read that
+      # mismatch as a hand rename and opted the tab out of naming for good --
+      # recoverable only through the reset action. Same order as ar_fast_once.
+      if [ "$want" = "$label" ] || "$HERDR" tab rename "$tid" "$want" >/dev/null 2>&1; then
+        ar_state_claim "$tid" "$name" "$named"
+      fi
     done <<< "$rows"
   done <<< "$(printf '%s' "$wsjson" | jq -r '(.result.workspaces // .workspaces // [])[].workspace_id' 2>/dev/null)"
 }
@@ -858,8 +909,15 @@ ar_reconcile() {
     AR_HAVE_SNAPSHOT=1
     wsjson=$(printf '%s' "$snap" | jq -c \
       '{result:{workspaces:((.result.snapshot // .snapshot).workspaces // [])}}' 2>/dev/null)
+    # Each tab carries the .focused_pane_id of its own layout as _layout_pane:
+    # that is the pane naming reads (see ar_resolve_pane), it is per-tab data, and
+    # joining it here means the tab loop never asks for it again. A herdr with no
+    # layouts leaves it empty and naming falls back to the pane list.
     AR_SNAP_TABS_JSON=$(printf '%s' "$snap" | jq -c \
-      '{result:{tabs:((.result.snapshot // .snapshot).tabs // [])}}' 2>/dev/null)
+      '(.result.snapshot // .snapshot) as $s
+       | ($s.layouts // []) as $lay
+       | {result:{tabs:[ $s.tabs[]? | .tab_id as $t
+           | . + {_layout_pane: (($lay | map(select(.tab_id == $t)) | .[0].focused_pane_id) // "")} ]}}' 2>/dev/null)
     AR_SNAP_AGENTS_JSON=$(printf '%s' "$snap" | jq -c \
       '{result:{agents:((.result.snapshot // .snapshot).agents // [])}}' 2>/dev/null)
     if [ "$CLEAR" != "1" ] && [ "$NAME_TABS" = "1" ]; then
@@ -936,7 +994,7 @@ ar_fast_once() {
   if [ "$want" != "$label" ]; then
     "$HERDR" tab rename "$tab" "$want" >/dev/null 2>&1 || return 0
   fi
-  ar_state_set "$tab" "$name" true
+  ar_state_claim "$tab" "$name" 1
 }
 
 # Coalesce bursts: only the lock holder works; contenders raise the rerun flag
