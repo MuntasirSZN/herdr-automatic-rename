@@ -1128,7 +1128,9 @@ teardown
 #   that -- the agent's own terminal title is the only thing that tells them
 #   apart, and herdr publishes it on the pane, so it costs no call. This drives
 #   the whole engine because the title arrives through ar_pane_facts, which is
-#   where the pane's fields (and the directory it sits in) come from.
+#   where the pane's fields (and the directory it sits in) come from. That is one
+#   of the engine's two title lifts -- this scenario ships no snapshot, so it takes
+#   the per-list one; scenario 32 makes the same claims through the other.
 #   t1 is the ordinary case, spinner glyph included: herdr's stripped copy is
 #   ANSI-free but the glyph is text, and an agent changes it as its status
 #   changes, so the tab would rename itself for no reason.
@@ -1387,6 +1389,86 @@ out=$(log)
 check_contains "with naming off it says why" "$out" \
   "notification show Nothing to reset --body Tab naming is off (NAME_TABS=0)."
 check_absent   "and re-adopts nothing"       "$out" "Tab re-adopted"
+teardown
+
+# ======================================================================
+# Scenario 32: the same titles, lifted the OTHER way. There are two
+#   implementations of the lift -- the reshape in ar_reconcile, which puts each
+#   tab's pane facts on its row from the snapshot, and ar_pane_facts, which reads
+#   the pane list back per tab where no snapshot is available. Scenario 28 drives
+#   the second (it ships no snapshot.json); scenario 30 ships one but carries no
+#   titles at all, so until this scenario a break in the reshape's lift renamed
+#   every agent tab in a live session and no test noticed.
+#   t1 is the ordinary case, spinner glyph included.
+#   t2 is the load-bearing one: the tab is a split whose FOCUSED pane is a shell
+#   and whose other pane holds a working agent. Scenario 30 pins that the reshape
+#   picks that agent's pane; this pins that it lifts the facts of the pane it
+#   picked, not of the pane focus sits in. The shell half carries a title of its
+#   own, so lifting from the wrong pane is visible either way -- as that title, or
+#   as the "zsh" a pane with no agent falls back to.
+#   t3 is the directory refusal, which the reshape computes from its own pane's
+#   cwd, and the fold that goes with it ("API" against "api").
+#   t4 reads herdr's unstripped title and its plain cwd, the fields an older herdr
+#   may be the only one to fill.
+#   No procinfo fixture exists for the panes named from a title (p1, p3, p5), so
+#   those names can only have come from the reshape.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+# The spinner is written as its JSON escape (jq decodes it), so the fixture stays
+# readable and no editor or copy-paste can eat the character.
+fixture snapshot.json <<'JSON'
+{"result":{"snapshot":{
+  "workspaces":[{"workspace_id":"w1","label":"api"}],
+  "tabs":[
+    {"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true,"workspace_id":"w1"},
+    {"tab_id":"w1:t2","label":"2","pane_count":2,"focused":false,"workspace_id":"w1"},
+    {"tab_id":"w1:t3","label":"3","pane_count":1,"focused":false,"workspace_id":"w1"},
+    {"tab_id":"w1:t4","label":"4","pane_count":1,"focused":false,"workspace_id":"w1"}
+  ],
+  "panes":[
+    {"pane_id":"p1","tab_id":"w1:t1","focused":true,"agent":"claude","agent_status":"working",
+     "terminal_title_stripped":"\u2733 Squash merge command","foreground_cwd":"/home/u/dev/api"},
+    {"pane_id":"p2","tab_id":"w1:t2","focused":true,
+     "terminal_title_stripped":"Downloading the internet","foreground_cwd":"/home/u/dev/api"},
+    {"pane_id":"p3","tab_id":"w1:t2","focused":false,"agent":"codex","agent_status":"working",
+     "terminal_title_stripped":"Draft the changelog","foreground_cwd":"/home/u/dev/api"},
+    {"pane_id":"p4","tab_id":"w1:t3","focused":false,"agent":"claude","agent_status":"working",
+     "terminal_title_stripped":"API","foreground_cwd":"/home/u/dev/api"},
+    {"pane_id":"p5","tab_id":"w1:t4","focused":false,"agent":"amp","agent_status":"working",
+     "terminal_title":"Rename the tabs","cwd":"/home/u/dev/api"}
+  ],
+  "layouts":[
+    {"tab_id":"w1:t1","focused_pane_id":"p1"},
+    {"tab_id":"w1:t2","focused_pane_id":"p2"},
+    {"tab_id":"w1:t3","focused_pane_id":"p4"},
+    {"tab_id":"w1:t4","focused_pane_id":"p5"}
+  ],
+  "agents":[]
+}}}
+JSON
+# The shell half of t2, so a lift off the wrong pane produces a real "zsh" rename
+# to assert the absence of rather than no rename at all.
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"-zsh","cmdline":"-zsh"}]}}}
+JSON
+# t3's fallback: its title is refused, so this is the name it must land on.
+fixture procinfo_p4.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":400,
+  "foreground_processes":[{"pid":400,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+spinner=$(printf '\xe2\x9c\xb3')
+check_contains "the snapshot names a tab after its task"  "$out" "tab rename w1:t1 Squash merge command"
+check_absent   "no spinner reaches a snapshot label"      "$out" "$spinner"
+check_contains "the PICKED pane's task names a split tab" "$out" "tab rename w1:t2 Draft the changelog"
+check_absent   "the focused half's title is not lifted"   "$out" "Downloading the internet"
+check_absent   "nor is the focused half named instead"    "$out" "tab rename w1:t2 zsh"
+check_contains "a snapshot title that is just the cwd is refused" "$out" "tab rename w1:t3 claude"
+check_absent   "the directory is never the label"         "$out" "tab rename w1:t3 API"
+check_contains "the unstripped title is lifted too"       "$out" "tab rename w1:t4 Rename the tabs"
 teardown
 
 t_summary

@@ -41,13 +41,16 @@ unset _ar_icons_dir
 : "${AGENT_TITLES:=1}"
 
 # Truncate a title to this many characters, at a word boundary where one is close
-# enough. Titles are sentences, not command names, so they need more room than
-# MAX_NAME_LEN gives -- with numbering on, the "[N] " prefix eats four more.
-: "${MAX_TITLE_LEN:=28}"
+# enough. Titles are sentences, not command names, so they get more room than a
+# command name -- but derived from MAX_NAME_LEN, so narrowing that for a narrow
+# tab bar narrows titles with it instead of leaving them at a fixed 28.
+: "${MAX_TITLE_LEN:=$(( ${MAX_NAME_LEN:-20} + 8 ))}"
 
-# Field separator for the one jq call in ar_title_clean, matching the engine's
-# (which sets it before sourcing this file). A tab or a newline would not do: bash
-# counts both as IFS whitespace and `read` collapses them, losing an empty field.
+# Field separator for the rows this module reads, matching AR_ROW_SEP in
+# automatic-rename.sh, which sets it before sourcing this file (the fallback here
+# is what lets the module and its tests stand alone). A tab or a newline would not
+# do: bash counts both as IFS whitespace and `read` collapses them, losing an
+# empty field. Change one and change the other.
 : "${AR_ROW_SEP:=$'\037'}"
 
 # Name shown at a bare prompt (no foreground program), and while an
@@ -148,40 +151,47 @@ ar_subst() {
   printf '%s' "$s"
 }
 
-# ar_title_clean <title> <agent kind> <pane directory> -> the task the title
-# describes, or "" when it describes no task and the program name is the better
-# label.
+# ar_title_clean <title> <title lowercased> <pane directory lowercased> <agent kind>
+#   -> the task the title describes, or "" when it describes no task and the
+#      program name is the better label.
 #
-# The leading run of non-alphanumerics goes first: an agent parks a spinner glyph
-# there while it works (claude cycles four of them), and herdr reports the title
-# with the glyph still on it, so a tab would flip between "Task" and "<glyph> Task"
-# on every status change. jq does that strip because its character classes know
-# Unicode -- a byte-wise one would eat the first letter of "Uberprufung" written
-# properly. The same call lowercases both sides of the comparisons below, which is
-# what keeps this to one process.
+# The title arrives with its leading run of non-alphanumerics already gone: an
+# agent parks a spinner glyph there while it works, and herdr reports the title
+# with the glyph still on, so a tab would flip between "Task" and "<glyph> Task"
+# on every status change. That strip and the lowercasing happen in the jq that
+# lifts the title off the pane (see AR_JQ_CLEAN), because jq knows Unicode where a
+# byte-wise strip in bash would eat the first letter of "Überprüfung" and a
+# byte-wise fold would not touch it. Everything left here is a comparison, so this
+# function costs nothing.
 ar_title_clean() {
-  local t=$1 kind=$2 dir=$3 out stripped lower dirlower entry
+  local t=$1 lower=$2 dirlc=$3 kind=$4
   [ -n "$t" ] || return 0
-  out=$(printf '%s' "$t" | jq -Rr --arg dir "$dir" '
-    (sub("^[^[:alnum:]]+"; "")) as $s
-    | [ $s, ($s | ascii_downcase), ($dir | ascii_downcase) ]
-    | join([31] | implode)' 2>/dev/null) || return 0
-  IFS=$AR_ROW_SEP read -r stripped lower dirlower <<< "$out"
-  [ -n "$stripped" ] || return 0
   # A bare number is herdr's own tab label handed back, not a task.
-  case $lower in
-  ''|*[!0-9]*) : ;;
-  *) return 0 ;;
-  esac
-  # The agent naming itself: "claude", "Claude Code", or the directory it is in,
-  # which is what claude titles a session it has nothing to say about yet.
-  [ "$lower" = "$kind" ] && return 0
-  [ "$lower" = "$kind code" ] && return 0
-  [ -n "$dirlower" ] && [ "$lower" = "$dirlower" ] && return 0
-  for entry in "${TITLE_IGNORE[@]}"; do
-    [ "$lower" = "$entry" ] && return 0
-  done
-  printf '%s' "$stripped"
+  case $t in *[!0-9]*) : ;; *) return 0 ;; esac
+  # Everything that names the agent instead of its work: the kind on its own, the
+  # kind with "code" after it, the directory the pane sits in, and the titles an
+  # agent shows before there is a task. $dirlc may be empty and $lower never is,
+  # so an unknown directory refuses nothing.
+  ar_title_ignore_fold
+  ar_in_list "$lower" "$kind" "$kind code" "$dirlc" "${_ar_title_ignore_lc[@]}" && return 0
+  printf '%s' "$t"
+}
+
+# ar_title_ignore_fold - lowercase TITLE_IGNORE once per run, into
+# $_ar_title_ignore_lc. The comparison above is against a lowercased title, and a
+# user writing "New Session" should not silently get nothing, so the list is
+# folded rather than documented as case-sensitive. Folded on first use, not at
+# load: the shell hooks source this file on every prompt and never name a tab
+# after a title.
+ar_title_ignore_fold() {
+  [ -n "${_ar_title_ignore_done:-}" ] && return 0
+  _ar_title_ignore_done=1
+  _ar_title_ignore_lc=()
+  [ "${#TITLE_IGNORE[@]}" -gt 0 ] || return 0
+  local entry
+  while IFS= read -r entry; do
+    [ -n "$entry" ] && _ar_title_ignore_lc+=("$entry")
+  done <<< "$(printf '%s\n' "${TITLE_IGNORE[@]}" | tr 'A-Z' 'a-z')"
 }
 
 # ---- helpers ----
@@ -189,9 +199,10 @@ ar_title_clean() {
 # ar_format <program|""> <cmdline> [title] -> final tab label
 #   program == "" means a bare prompt (name by the shell).
 ar_format() {
-  local prog=$1 cmdline=$2 title=${3:-} name="" ic aliased is_shell=0 max
-  max=${MAX_NAME_LEN:-20}
-  aliased=$(ar_alias "$prog")
+  local prog=$1 cmdline=$2 title=${3:-} name="" ic aliased="" is_shell=0 max=${MAX_NAME_LEN:-20}
+  # Only the program-name chain below consults an alias, so a title (or a bare
+  # prompt) does not pay for the lookup.
+  [ -n "$prog" ] && [ -z "$title" ] && aliased=$(ar_alias "$prog")
   if [ -n "$title" ]; then
     # A task title from ar_title_clean. It replaces the program name outright,
     # alias and all: AGENT_TITLES is the switch for wanting the task instead, and
@@ -291,10 +302,12 @@ ar_format() {
     # but only when that leaves most of the budget, since "Investigate" tells you
     # more than "I" does.
     if [ -n "$title" ]; then
+      # ${name% *} is the whole string when there is no space in it, so a single
+      # long word is left cut where it was. The half-budget floor is what stops
+      # "Investigate" from becoming "I". Counting bytes is deliberate here: the
+      # floor is a heuristic, not the cut.
       local short=${name% *}
-      case $name in
-      *' '*) [ "${#short}" -ge $(( max / 2 )) ] && name=$short ;;
-      esac
+      [ "${#short}" -ge $(( max / 2 )) ] && name=$short
     fi
   fi
   printf '%s' "$name"

@@ -39,7 +39,7 @@ herdr publishes the title on the pane object it already sends, so the label cost
 
 A title has to say something to be used. One that names the agent rather than the work (`Claude Code`, the agent's own kind, anything in `TITLE_IGNORE`), one that is just the pane's directory, and a bare number are all refused, and the tab falls back to the program name, `PROGRAM_ALIASES` included. The spinner glyph an agent parks in front of its title while it works is stripped off, or the label would flip on every status change. `AGENT_TITLES=0` turns the whole thing off and names agent tabs after their program, as before.
 
-For a tab with more than one pane, the name comes from the pane that matters: the tab's own focused pane when an agent is running in it, else an agent that is working or blocked anywhere in the tab, else the focused pane. So an agent-plus-shell split still reads as the agent while you type in the shell half, and an idle agent does not take the name away from what you are looking at. The shell hook is per-pane, so a command you start in that shell half does name the tab after the command while it runs; the next herdr event applies the rule above again.
+For a tab with more than one pane, the name comes from the pane that matters: the tab's own focused pane when an agent is running in it, else an agent that is working or blocked anywhere in the tab, else the focused pane. So an agent-plus-shell split still reads as the agent while you type in the shell half, and an idle agent does not take the name away from what you are looking at. The shell hook is per-pane, so a command you start in that shell half names the tab after it the instant it starts. That holds until the next herdr event, which applies the rule above again: with an agent at work beside you, the tab goes back to reading as the agent, usually within a second.
 
 Workspaces get numbered, never renamed, so only the prefix is new:
 
@@ -154,7 +154,7 @@ Override the path with `HERDR_AUTOMATIC_RENAME_CONFIG`.
 | `SHOW_PROGRAM_ARGS` | `0` | `0` shows just the program name (`git`), `1` shows its full command line (`git log --oneline`). |
 | `MAX_NAME_LEN` | `20` | Cut the finished label off after this many characters. |
 | `AGENT_TITLES` | `1` | Name a tab running a coding agent after the task in the agent's terminal title (`Squash merge command`) rather than after the program (`claude`). `0` names every agent tab after its program. |
-| `MAX_TITLE_LEN` | `28` | Cut a title label off after this many characters, at a word boundary where one is close enough. Titles are sentences, so they get more room than `MAX_NAME_LEN` gives a command name. |
+| `MAX_TITLE_LEN` | `MAX_NAME_LEN` + 8 | Cut a title label off after this many characters, at a word boundary where one is close enough. Titles are sentences, so they get more room than a command name, and narrowing `MAX_NAME_LEN` for a narrow tab bar narrows titles with it. |
 | `TITLE_IGNORE` | `claude code`, `codex cli`, ... | Titles that name the agent instead of its work, compared case-insensitively against the whole title. A match is refused and the tab is named after the program. The agent's own kind, that kind plus `code`, the pane's directory, and a bare number are refused without being listed. |
 | `SHELL_NAME` | `$SHELL` basename | Label shown at an idle prompt when no program is running (e.g. `zsh`). |
 | `HIDE_SHELL` | `0` | `1` gives a shell tab no name at all, so herdr's own tab number shows there instead of `zsh`. Covers the login shell (`SHELL_NAME`), not just the fixed `SHELLS` list. |

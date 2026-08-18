@@ -184,7 +184,9 @@ the detection result, so `ar_pane_facts` lifts the agent, the title, and the
 pane's directory out of the `AR_PANES_JSON` the reconcile already fetched: one jq
 over cached JSON, no herdr call on any version. A title that lands also ends the
 computation, so such a tab skips the `pane process-info` call the program path
-needs, which leaves an agent-heavy session making fewer calls than before.
+needs, which leaves an agent-heavy session making fewer herdr round-trips than
+before. The local cost is a wash rather than a saving: the reply that used to be
+parsed is simply not fetched, and the values come off the tab row instead.
 Refreshes ride `pane.agent_status_changed`, an event the plugin already
 subscribes to for agent numbering, so the label follows the work with nothing
 polling.

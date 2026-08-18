@@ -8,6 +8,12 @@ here=$(cd "$(dirname "$0")" && pwd)
 # Pin the shell name so bare-prompt cases are deterministic regardless of $SHELL.
 SHELL_NAME=zsh
 . "$here/../naming.sh"
+# The engine too, for AR_JQ_CLEAN alone: the spinner strip a title gets before
+# ar_title_clean ever sees it is a jq definition there now, and it is still worth
+# pinning one seam over rather than only end to end (see the title section below).
+# Sourcing the engine defines its functions and constants and runs nothing (the
+# ar_main guard), which is what tests/test_prefix.sh relies on as well.
+. "$here/../automatic-rename.sh"
 
 # ---- bare prompt / shells ----
 check "bare prompt -> shell name" "zsh" "$(ar_format '' '')"
@@ -266,59 +272,87 @@ check "empty IGNORED_PROGRAMS override survives" "ls -la" "$got"
 spinner=$(printf '\xe2\x9c\xb3')                       # U+2733, one of claude's four
 uber=$(printf '\xc3\x9cberpr\xc3\xbcfung der Anfrage') # "Überprüfung der Anfrage"
 
-check "a task title is the answer" "Squash merge command" \
-  "$(ar_title_clean 'Squash merge command' claude api)"
-# The spinner an agent parks on the front of the title changes with its status,
-# so a title carried through with the glyph still on it would flip the tab name
-# on every change. Only the LEADING run of non-alphanumerics goes: punctuation
-# inside the sentence is the agent's own wording and stays.
+# The strip and the lowercasing both happen in the jq that lifts a title off a
+# pane, so ar_title_clean receives the title already stripped and already folded,
+# plus the pane's directory folded the same way. This helper stands in for that jq
+# -- tr matches jq's ascii_downcase, which leaves a non-ASCII letter alone -- so
+# each check below stays one readable line and the argument order the engine
+# passes (see ar_tab_name) is written down once.
+_clean() {
+  ar_title_clean "$1" "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" \
+    "$(printf '%s' "${3:-}" | tr 'A-Z' 'a-z')" "${2:-}"
+}
+# And the strip itself, one seam over, through the definition the engine shares
+# between its two title lifts (def task in AR_JQ_CLEAN). The spinner an agent parks
+# on the front of its title changes with its status, so a title carried through
+# with the glyph still on it would rename the tab on every change. The strip lives
+# in jq because jq's character classes know Unicode, where a byte-wise strip in
+# bash would read the first byte of "Ü" as non-alphanumeric and eat the letter.
+# tests/test_reconcile.sh scenarios 28 and 32 assert the same thing end to end, on
+# each of the two paths that lift a title off a pane.
+_task() { printf '%s' "$1" | jq -Rr "$AR_JQ_CLEAN"'task'; }
+
 check "leading spinner is stripped" "Squash merge command" \
-  "$(ar_title_clean "$spinner Squash merge command" claude api)"
+  "$(_task "$spinner Squash merge command")"
+# Only the LEADING run of non-alphanumerics goes: punctuation inside the sentence
+# is the agent's own wording and stays.
 check "punctuation inside a title survives" "Fix: the parser, again" \
-  "$(ar_title_clean 'Fix: the parser, again' claude api)"
+  "$(_task 'Fix: the parser, again')"
+# A title that is nothing but a spinner strips away to nothing, which is what
+# leaves the empty-title refusal below to cover that case whole.
+check "a title that is only a spinner strips to nothing" "" "$(_task "$spinner ")"
+# Titles are prose in whatever language the user works in, so a non-ASCII letter
+# must survive the strip intact -- both behind a spinner and as the first thing in
+# the title, which is the byte the naive strip ate.
+check "a multibyte title survives the spinner strip" "$uber" "$(_task "$spinner$uber")"
+check "a multibyte first letter is not eaten" "$uber" "$(_task "$uber")"
+
+check "a task title is the answer" "Squash merge command" \
+  "$(_clean 'Squash merge command' claude api)"
 
 # The refusals. Each returns "" so naming falls back to the program name.
-check "an empty title says nothing" "" "$(ar_title_clean '' claude api)"
-check "a title that is only a spinner says nothing" "" \
-  "$(ar_title_clean "$spinner " claude api)"
+check "an empty title says nothing" "" "$(_clean '' claude api)"
 # A bare number is herdr's own tab label read back off the pane, not a task.
-check "a bare number is refused" "" "$(ar_title_clean '3' claude api)"
+check "a bare number is refused" "" "$(_clean '3' claude api)"
 # ... but a number is only a refusal when it is the WHOLE title: "3 files
 # changed" is a task, and a prefix test would have thrown it away.
 check "a title that merely starts with a digit is kept" "3 files changed" \
-  "$(ar_title_clean '3 files changed' claude api)"
+  "$(_clean '3 files changed' claude api)"
 # The agent naming itself, in the three shapes it does that. Every comparison is
 # case-insensitive because the agent chooses the capitalization, not the user.
-check "the agent kind is refused" "" "$(ar_title_clean 'claude' claude api)"
-check "the agent kind, any case" "" "$(ar_title_clean 'Claude' claude api)"
+check "the agent kind is refused" "" "$(_clean 'claude' claude api)"
+check "the agent kind, any case" "" "$(_clean 'Claude' claude api)"
 # "<kind> code" is refused without being listed, which is what covers an agent
 # whose startup title TITLE_IGNORE has never heard of. droid is deliberately not
 # in the default list, so this pins the rule rather than the list.
-check "the kind followed by code is refused" "" "$(ar_title_clean 'Droid Code' droid api)"
+check "the kind followed by code is refused" "" "$(_clean 'Droid Code' droid api)"
 check "the pane directory repeated back is refused" "" \
-  "$(ar_title_clean 'api' claude api)"
-check "the pane directory, any case" "" "$(ar_title_clean 'API' claude api)"
+  "$(_clean 'api' claude api)"
+check "the pane directory, any case" "" "$(_clean 'API' claude api)"
 # A pane herdr reports no directory for must not turn an empty comparison into a
 # refusal: every title would match it and no agent tab would ever get a name.
 check "no pane directory refuses nothing" "Squash merge command" \
-  "$(ar_title_clean 'Squash merge command' claude '')"
+  "$(_clean 'Squash merge command' claude '')"
 # TITLE_IGNORE catches the rest, including titles that name an agent other than
 # the one in the pane (an agent launched from a claude pane leaves one behind).
-check "a TITLE_IGNORE entry is refused" "" "$(ar_title_clean 'New Session' claude api)"
-check "a TITLE_IGNORE entry, any case" "" "$(ar_title_clean 'UNTITLED' claude api)"
-check "another agent's name is still refused" "" "$(ar_title_clean 'opencode' claude api)"
-# TITLE_IGNORE is guarded with `declare -p` like every other list here, so a
-# config that empties it deliberately keeps it empty (see IGNORED_PROGRAMS above).
-got=$(bash -c 'SHELL_NAME=zsh; TITLE_IGNORE=(); . "$1"; ar_title_clean "New Session" claude api' _ "$here/../naming.sh")
-check "empty TITLE_IGNORE override survives" "New Session" "$got"
+check "a TITLE_IGNORE entry is refused" "" "$(_clean 'New Session' claude api)"
+check "a TITLE_IGNORE entry, any case" "" "$(_clean 'UNTITLED' claude api)"
+check "another agent's name is still refused" "" "$(_clean 'opencode' claude api)"
+# A non-ASCII title must not accidentally MATCH a refusal either: the fold is
+# ASCII-only on both sides, exactly as jq's ascii_downcase is.
+check "a multibyte title survives" "$uber" "$(_clean "$uber" claude api)"
 
-# Titles are prose in whatever language the user works in, so a non-ASCII letter
-# must survive intact. The second check is the load-bearing one: the strip runs
-# through jq because its character classes know Unicode, where a byte-wise strip
-# would read the first byte of "Ü" as non-alphanumeric and eat the letter.
-check "a multibyte title survives" "$uber" "$(ar_title_clean "$uber" claude api)"
-check "a multibyte title survives the spinner strip" "$uber" \
-  "$(ar_title_clean "$spinner$uber" claude api)"
+# TITLE_IGNORE is compared against a title that is already lowercase, so the list
+# is lowercased too rather than documented as case-sensitive: README and
+# config.example.sh have always promised case-insensitive matching, and before the
+# fold an entry a user wrote the way it reads matched nothing at all. Both checks
+# need a fresh shell -- the list is guarded with `declare -p` (see
+# IGNORED_PROGRAMS above) and folded once per run, so an assignment here would
+# come too late for either.
+got=$(bash -c 'SHELL_NAME=zsh; TITLE_IGNORE=(); . "$1"; ar_title_clean "New Session" "new session" api claude' _ "$here/../naming.sh")
+check "empty TITLE_IGNORE override survives" "New Session" "$got"
+got=$(bash -c 'SHELL_NAME=zsh; TITLE_IGNORE=("Ready To Code"); . "$1"; ar_title_clean "Ready to code" "ready to code" api claude' _ "$here/../naming.sh")
+check "a mixed-case TITLE_IGNORE entry is folded" "" "$got"
 
 # ---- ar_format with a title: the task IS the label ----
 check "a title becomes the label" "Squash merge command" \
@@ -362,9 +396,6 @@ check "a word boundary that leaves too little is not used" "Fix aaaaaaaaaaaaaaaa
 # cut ever escapes the title path.
 check "a command line is still cut mid-word" "psql -c aaaaaaaaaaaaaaaaa bb" \
   "$(MAX_NAME_LEN=28 SHOW_PROGRAM_ARGS=1 ar_format 'psql' 'psql -c aaaaaaaaaaaaaaaaa bbbbbbbbbbbb')"
-# Cut by codepoint, never mid-byte, exactly as the program labels above are.
-check "multibyte title truncation is clean" "ünïcödé" \
-  "$(MAX_TITLE_LEN=7 ar_format 'claude' '' 'ünïcödéxxxxxxx')"
 
 # The knob and the budget both default on/28 in naming.sh, so a user who has
 # never heard of either gets task-named agent tabs. AGENT_TITLES is read by the
@@ -375,5 +406,13 @@ got=$(bash -c '. "$1"; printf %s "$AGENT_TITLES"' _ "$here/../naming.sh")
 check "AGENT_TITLES defaults to on" "1" "$got"
 got=$(bash -c '. "$1"; printf %s "$MAX_TITLE_LEN"' _ "$here/../naming.sh")
 check "MAX_TITLE_LEN defaults to 28" "28" "$got"
+# ... and that 28 is MAX_NAME_LEN + 8, not a number of its own: somebody who
+# narrows the label budget for a narrow tab bar means the titles too, and a fixed
+# default would have left them at 28 while command names shrank to 12.
+got=$(bash -c 'MAX_NAME_LEN=12; . "$1"; printf %s "$MAX_TITLE_LEN"' _ "$here/../naming.sh")
+check "MAX_TITLE_LEN follows MAX_NAME_LEN" "20" "$got"
+# The derivation is only the DEFAULT, so a config that sets both still gets both.
+got=$(bash -c 'MAX_NAME_LEN=12; MAX_TITLE_LEN=40; . "$1"; printf %s "$MAX_TITLE_LEN"' _ "$here/../naming.sh")
+check "an explicit MAX_TITLE_LEN still wins" "40" "$got"
 
 t_summary

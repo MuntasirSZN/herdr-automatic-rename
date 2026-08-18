@@ -59,7 +59,8 @@
 # Truncate a title to this many characters, at a word boundary when that leaves
 # most of the budget. A title is a sentence rather than a command name, so it
 # needs more room than MAX_NAME_LEN gives -- and with numbering on the "[N] "
-# prefix eats four more.
+# prefix eats four more. Defaults to MAX_NAME_LEN plus 8, so narrowing that for a
+# narrow tab bar narrows titles with it.
 # MAX_TITLE_LEN=28
 
 # Titles that name the agent instead of the work it is doing, matched
