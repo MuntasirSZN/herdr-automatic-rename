@@ -1018,4 +1018,49 @@ out=$(log)
 check_contains "a newline in argv0 does not split the value" "$out" "tab rename w1:t1 ps ql"
 teardown
 
+# ======================================================================
+# Scenario 26: a label survives the round trip through jq unchanged.
+#   Rows used to come back through @tsv, which escapes rather than removes what
+#   would break a row -- and its escapes are visible. w1:t1 is a tab named by
+#   hand, so only numbering touches it: through @tsv its backslash came back
+#   doubled and numbering wrote "C:\\temp" over the name the user chose.
+#   w1:t2 is the ownership side. Its state says this plugin last set the base
+#   "a b", and its label carries the raw control character an older fast path
+#   could leave there. Escaped to "a\tb" it matched nothing, so the tab read as
+#   renamed by hand and opted out of naming for good; cleaned to "a b" it is
+#   still ours and gets named.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=1
+STATE="$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"w1:t2":{"auto":"a b","enabled":true}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[
+  {"tab_id":"w1:t1","label":"C:\\temp","pane_count":1,"focused":false},
+  {"tab_id":"w1:t2","label":"[2] a\tb","pane_count":1,"focused":true}
+]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t1","focused":false},
+  {"pane_id":"p2","tab_id":"w1:t2","focused":true}
+]}}
+JSON
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "numbering leaves a backslash alone" "$out" 'tab rename w1:t1 [1] C:\temp'
+check_absent   "and does not double it"             "$out" 'C:\\temp'
+check_contains "a control character in the label does not lose the tab" "$out" "tab rename w1:t2 [2] nvim"
+check "the tab is still ours" "nvim true" \
+  "$(jq -r '."w1:t2" | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
+teardown
+
 t_summary

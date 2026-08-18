@@ -31,6 +31,19 @@ testable in isolation. The icon knobs, glyph map, and lookup live in `icons.sh`
 logic. The engine calls `ar_format` across that seam. Every function in these
 files uses the `ar_` prefix.
 
+## Rows carry values, not escapes
+
+Every `jq` that hands a herdr string to a shell variable runs it through the one
+`clean` definition (`AR_JQ_CLEAN`) and joins its row on a literal tab. `@tsv`
+would keep the row parseable by escaping what breaks it, and those escapes are
+the bug: a tab out of `argv` arrives as the two printable characters `\t`, which
+nothing downstream can distinguish from typed text, and every backslash in the
+value is doubled, so numbering a tab called `C:\temp` used to rewrite it as
+`C:\\temp`. Dropping the control characters instead makes the row unambiguous
+and leaves everything a user can see untouched. `ar_pane_program` goes one
+further and returns its two values one per line, which is sound for the same
+reason.
+
 ## Why config and state sit at fixed paths
 
 State (`~/.local/state/herdr-automatic-rename/`) and config

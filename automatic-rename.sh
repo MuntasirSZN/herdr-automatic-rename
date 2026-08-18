@@ -67,6 +67,16 @@ LOCK_DIR="$STATE_DIR/lock"
 RERUN_FLAG="$STATE_DIR/rerun"
 CONFIG_FILE="${HERDR_AUTOMATIC_RENAME_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr-automatic-rename/config.sh}"
 
+# Every jq below that hands a herdr-supplied string to a shell variable runs it
+# through this first, and joins its rows on a literal tab rather than using @tsv.
+# @tsv keeps a row parseable by ESCAPING what would break it, and those escapes
+# are the problem: a tab out of argv arrives as the two printable characters \t,
+# which no scrub can tell from text somebody typed, and every backslash in the
+# value is doubled on the way past -- numbering a tab called "C:\temp" rewrote it
+# to "C:\\temp". Removing the control characters instead makes the row
+# unambiguous without touching anything the user can see.
+AR_JQ_CLEAN='def clean: (. // "") | tostring | gsub("[[:cntrl:]]"; " ");'
+
 # The prerequisite checks, config + naming load, toggle defaults, mode parse, and
 # dispatch all live in ar_main (bottom of file) so that sourcing this file for
 # unit tests loads ONLY the function definitions and touches nothing at runtime.
@@ -428,14 +438,9 @@ ar_split_program() {
 ar_pane_program() {
   local out
   out=$("$HERDR" pane process-info --pane "$1" 2>/dev/null) || return 1
-  printf '%s' "$out" | jq -r '
-    # Control characters go here, at the edge, not later in the naming rules:
-    # argv can hold a tab or a newline, and @tsv would hand those on as the
-    # printable two-character sequences \t and \n, which no scrub downstream can
-    # tell from text somebody typed. So each value is emitted on its own LINE
-    # instead, which is only safe because this filter has already removed the
-    # newlines -- and it spares the label the doubled backslash @tsv adds too.
-    def clean: (. // "") | tostring | gsub("[[:cntrl:]]"; " ");
+  # Each value on its own LINE, which is only safe because clean has taken the
+  # newlines out (see AR_JQ_CLEAN).
+  printf '%s' "$out" | jq -r "$AR_JQ_CLEAN"'
     (.result.process_info // .process_info) as $pi
     | ($pi.foreground_process_group_id) as $g
     | ($pi.foreground_processes // []) as $fp
@@ -557,7 +562,7 @@ ar_collapsed_spaces() {
 # No herdr calls and no file reads: both inputs are passed in, so this is directly
 # testable (see tests/test_ws_order.sh).
 ar_workspace_positions() {
-  printf '%s' "$1" | jq -r --argjson collapsed "$2" '
+  printf '%s' "$1" | jq -r --argjson collapsed "$2" "$AR_JQ_CLEAN"'
     [ (.result.workspaces // .workspaces // []) | to_entries[]
       | .value + { _i: .key,
                    _k: (.value.worktree.repo_key // ""),
@@ -579,8 +584,9 @@ ar_workspace_positions() {
                    else $mem[1:][] end )
             end ] ) as $order
     | $rows[] | ._i as $i | ($order | index($i)) as $pos
-    | [ .workspace_id, (.label // ""), (if $pos == null then 0 else $pos + 1 end) ]
-    | @tsv' 2>/dev/null
+    | [ .workspace_id, (.label | clean),
+        ((if $pos == null then 0 else $pos + 1 end) | tostring) ]
+    | join("\t")' 2>/dev/null
 }
 
 # Workspaces: number them by herdr's visible sidebar order. Arg 1 is a cached
@@ -621,10 +627,11 @@ ar_reconcile_tabs() {
       tjson=$("$HERDR" tab list --workspace "$w" 2>/dev/null) || continue
     fi
     [ -n "$tjson" ] || continue
-    rows=$(printf '%s' "$tjson" | jq -r '
+    rows=$(printf '%s' "$tjson" | jq -r "$AR_JQ_CLEAN"'
       (.result.tabs // .tabs // [])[]
-      | [ .tab_id, (.label // ""), (.pane_count // 0), (.focused // false),
-          (._layout_pane // "") ] | @tsv' 2>/dev/null)
+      | [ .tab_id, (.label | clean), ((.pane_count // 0) | tostring),
+          ((.focused // false) | tostring), (._layout_pane // "") ]
+      | join("\t")' 2>/dev/null)
     [ -n "$rows" ] || continue
     i=0
     while IFS=$'\t' read -r tid label pcount foc lpane; do
@@ -820,9 +827,11 @@ ar_renumber_agents() {
     json=$("$HERDR" agent list 2>/dev/null) || return 0
   fi
   [ -n "$json" ] || return 0
-  rows=$(printf '%s' "$json" | jq -r '
+  rows=$(printf '%s' "$json" | jq -r "$AR_JQ_CLEAN"'
     (.result.agents // .agents // [])[]
-    | [ (.pane_id // .terminal_id // ""), (.name // .agent // ""), (.agent_session.agent // .agent // "") ] | @tsv' 2>/dev/null)
+    | [ (.pane_id // .terminal_id // "" | clean), (.name // .agent // "" | clean),
+        (.agent_session.agent // .agent // "" | clean) ]
+      | join("\t")' 2>/dev/null)
   [ -n "$rows" ] || return 0
 
   # Revert to detection (strip our "[N]") on uninstall, with agent numbering
@@ -1009,7 +1018,7 @@ ar_fast_once() {
   raw=$("$HERDR" tab get "$tab" 2>/dev/null) || return 0
   [ -n "$raw" ] || return 0
   printf '%s' "$raw" | jq -e '(.result.tab // .tab) | has("label")' >/dev/null 2>&1 || return 0
-  label=$(printf '%s' "$raw" | jq -r '(.result.tab // .tab).label // ""' 2>/dev/null)
+  label=$(printf '%s' "$raw" | jq -r "$AR_JQ_CLEAN"'(.result.tab // .tab).label | clean' 2>/dev/null)
 
   if ar_index_on tabs; then prefix=$(ar_index_prefix "$label"); else prefix=""; fi
   slabel=$(ar_strip_prefix "$label")

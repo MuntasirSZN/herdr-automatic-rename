@@ -53,6 +53,14 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   scrub downstream can tell from text somebody typed, and it doubled every
   backslash in a command line on the way past.
 
+- Numbering a tab whose name holds a backslash rewrote that name. Every row the
+  reconcile reads came back through `@tsv`, which doubles a backslash, so a tab
+  called `C:\temp` was renamed to `C:\\temp` (workspace and agent rows read the
+  same way). Rows now carry their values unescaped and drop control characters
+  instead, which is what keeps them parseable. The same change lets a tab whose
+  label carries a control character stay owned: escaped, it matched nothing this
+  plugin had recorded and the tab read as renamed by hand.
+
 ## [0.6.1] - 2026-08-14
 
 ### Fixed
