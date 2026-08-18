@@ -510,8 +510,13 @@ ar_tab_name() {
   local pane info prog="" cmd="" title=""
   pane=$(ar_resolve_pane "$1" "$2" "$3" "${4:-}")
   [ -n "$pane" ] || return 1
-  # AR_PANE_HAVE says the caller already holds this pane's facts, off the tab row.
-  [ "${AR_PANE_HAVE:-0}" = "1" ] || ar_pane_facts "$pane"
+  # The caller may already hold this pane's facts, lifted onto the tab row -- but
+  # only for the pane the reshape PICKED, which is <layout_pane>. Where that came
+  # back empty (a snapshot carrying no layouts, or no layout for this tab) the pane
+  # above was resolved from the pane list instead, and its facts are still unread:
+  # trusting the row there cost the tab its title AND the wrapper unwrap, so a
+  # node-fronted codex read "node" again.
+  [ -n "${4:-}" ] && [ "$pane" = "$4" ] || ar_pane_facts "$pane"
   # An agent tab is named after the work the agent reports, when it reports any:
   # five claude tabs all read "claude" otherwise, which is the one thing naming
   # them by program cannot fix. This answer also needs no process lookup, so an
@@ -688,11 +693,6 @@ ar_reconcile_tabs() {
       base0=$(ar_strip_prefix "$label")
       base=$base0
       named=0
-      # The reshape lifted this tab's pane facts onto its row, so ar_tab_name need
-      # not read the whole pane list back per tab. Only the snapshot path can do
-      # that; the per-list fallback leaves the fields empty and ar_pane_facts
-      # fills them in there.
-      AR_PANE_HAVE=$AR_HAVE_SNAPSHOT
       if [ "$CLEAR" != "1" ] && [ "$NAME_TABS" = "1" ]; then
         # Status, not emptiness: under HIDE_SHELL an empty name IS the name. With
         # the knob off it is not, because a config can erase a name it did compute
@@ -988,7 +988,11 @@ ar_notify() {
 ar_reconcile() {
   local wsjson snap
   # A reset deletes the target tab's state once (under the lock) so it re-adopts.
+  # Whether there was anything to re-adopt is read BEFORE the delete, because that
+  # is what the action reports back and `del` on a key that was never there
+  # succeeds quietly: a stale tab id would otherwise be told it was re-adopted.
   if [ -n "${AR_FORCE_TAB:-}" ] && [ -z "${AR_FORCE_DONE:-}" ]; then
+    [ "$(ar_state_get "$AR_FORCE_TAB" enabled)" = "false" ] && AR_FORCE_WAS_OUT=1
     ar_state_del "$AR_FORCE_TAB"
     AR_FORCE_DONE=1
   fi
@@ -1216,14 +1220,16 @@ ar_main() {
       fi
       [ -n "$tab" ] && [ "$NAME_TABS" = "1" ] && AR_FORCE_TAB="$tab"
       ar_run full
-      # AR_FORCE_DONE is set inside the reconcile, once the state entry is
-      # actually gone, so this reports the pass rather than the intention: a tab id
-      # that no longer exists, or a run that lost the lock and did nothing, is not
-      # told it was re-adopted.
-      if [ -n "${AR_FORCE_DONE:-}" ]; then
+      # Only a tab that had opted OUT of naming has anything to re-adopt, and the
+      # reconcile reports that through AR_FORCE_WAS_OUT, so what comes back is what
+      # happened: a stale tab id, a tab that was never renamed by hand, and a run
+      # that lost the lock and did nothing are all told there was nothing to do.
+      if [ -n "${AR_FORCE_WAS_OUT:-}" ]; then
         ar_notify "Tab re-adopted" "Automatic naming is on for this tab again."
       elif [ "$NAME_TABS" != "1" ]; then
         ar_notify "Nothing to reset" "Tab naming is off (NAME_TABS=0)."
+      elif [ -n "${AR_FORCE_TAB:-}" ]; then
+        ar_notify "Nothing to reset" "That tab had not opted out of naming."
       else
         ar_notify "Nothing to reset" "No tab to re-adopt."
       fi

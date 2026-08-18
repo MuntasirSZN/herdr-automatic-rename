@@ -67,7 +67,10 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   Both are built for a keybinding, where the only feedback was the tab bar
   redrawing. A `reset` that found no tab to re-adopt, or that ran under
   `NAME_TABS=0`, looked exactly like one that worked, and `clear` on an already
-  clean session looked like nothing at all. Each outcome now names itself. Best
+  clean session looked like nothing at all. Each outcome now names itself, and
+  `reset` reads whether the tab had actually opted out before it clears the
+  state, so a stale tab id is told there was nothing to do rather than that it
+  was re-adopted. Best
   effort, so a herdr without `notification show` declines it and the action
   still does its work; the uninstall path (`--clear`) notifies through the same
   helper.

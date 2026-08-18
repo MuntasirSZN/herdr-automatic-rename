@@ -249,10 +249,16 @@ you have moved on to, and naming that tab after it would take the label away fro
 the pane you are reading.
 
 That is per-tab data, so it travels with the tab: the reshape that slices the
-snapshot joins the pane it picked onto each tab row as `_name_pane`, and the tab
-loop reads it off the row it already has. `ar_resolve_pane` holds only the
-inference for rows where that column is empty, which costs the loop nothing on
-either path.
+snapshot joins the pane it picked onto each tab row as `_name_pane`, along with
+that pane's agent, task title and directory, and the tab loop reads all of it off
+the row it already has. `ar_resolve_pane` holds only the inference for rows where
+the column is empty, which costs the loop nothing on either path.
+
+Those lifted facts describe **the pane the reshape picked**, and nothing else, so
+naming uses them only when the pane it resolved is that pane. Where the column
+came back empty the pane came from the pane list instead, and its facts have still
+to be read: taking the row's empty fields for that pane cost such a tab both its
+title and the runtime unwrap, so a `node`-fronted agent read `node` again.
 
 Older herdr, and the per-list fallback path, ship no layouts. There the pass
 keeps the original rule: the sole pane of a single-pane tab, else the tab's own

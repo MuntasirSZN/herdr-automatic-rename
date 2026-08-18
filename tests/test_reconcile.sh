@@ -1471,4 +1471,161 @@ check_absent   "the directory is never the label"         "$out" "tab rename w1:
 check_contains "the unstripped title is lifted too"       "$out" "tab rename w1:t4 Rename the tabs"
 teardown
 
+# ======================================================================
+# Scenario 33: a snapshot with NO layouts, whose tab rows are about no pane at
+#   all. The reshape lifts the facts of the pane it PICKED, and with no layouts to
+#   ask (a herdr that does not publish them) it picks nothing for a tab whose only
+#   agent is idle -- so the row's agent, title and cwd fields come out EMPTY.
+#   ar_resolve_pane still answers, off the pane list, and reading the row as that
+#   pane's facts erased both of the things the facts are for: the tab lost its task
+#   title, and an agent behind a runtime lost the WRAPPER_PROGRAMS unwrap that
+#   shipped in 0.6.1. So the row may only be read for the pane it describes.
+#   t1 is the title half: an idle claude reporting a task, whose program is
+#     "claude" -- the name the empty row produced.
+#   t2 is the unwrap half: an idle codex behind npx, where the process reports the
+#     runtime and "node" is the whole regression.
+#   Both tabs are single-pane, which is the arm the pane-list fallback answers
+#   with, and neither carries a layout to make the row trustworthy.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+# No "layouts" key at all. The tabs carry workspace_id or the per-workspace slice
+# in ar_reconcile_tabs drops them and nothing is named.
+fixture snapshot.json <<'JSON'
+{"result":{"snapshot":{
+  "workspaces":[{"workspace_id":"w1","label":"api"}],
+  "tabs":[
+    {"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true,"workspace_id":"w1"},
+    {"tab_id":"w1:t2","label":"2","pane_count":1,"focused":false,"workspace_id":"w1"}
+  ],
+  "panes":[
+    {"pane_id":"p1","tab_id":"w1:t1","focused":true,"agent":"claude","agent_status":"idle",
+     "terminal_title_stripped":"Squash merge command","foreground_cwd":"/home/u/dev/api"},
+    {"pane_id":"p2","tab_id":"w1:t2","focused":false,"agent":"codex","agent_status":"idle",
+     "agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"019f"},
+     "foreground_cwd":"/home/u/dev/api"}
+  ],
+  "agents":[]
+}}}
+JSON
+# p1 runs the agent under its own name, so the program path has a name to land on.
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+# p2: codex through npx -- argv0 absent, argv[0] is the runtime (as in scenario 19).
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv":["node","/home/u/.npm/_npx/x/node_modules/.bin/codex"],
+  "name":"MainThread","cmdline":"node /home/u/.npm/_npx/x/node_modules/.bin/codex"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "no layouts: the pane's own title still names the tab" "$out" \
+  "tab rename w1:t1 Squash merge command"
+check_absent   "an empty row never names it by program"  "$out" "tab rename w1:t1 claude"
+check_contains "no layouts: the runtime is still unwrapped" "$out" "tab rename w1:t2 codex"
+check_absent   "the runtime never reaches the tab bar"   "$out" "node"
+teardown
+
+# ======================================================================
+# Scenario 34: layouts that cover SOME of the tabs -- the same fault as scenario
+#   33, decided per TAB rather than per snapshot. One snapshot can carry a layout
+#   for one tab and none for the next (a tab herdr has not laid out yet), so
+#   "a snapshot was used" is not what makes a row's pane facts usable: the row
+#   describes the pane the reshape picked, and nothing else.
+#   t1 is covered by a layout, so its pane IS the picked pane and its lifted title
+#     names it. No procinfo fixture for that pane, so the name can only have come
+#     from the row -- the control that the cheap path still works.
+#   t2 has no layout, so the pane comes from the pane list and its facts have to be
+#     read there. Its program is "claude", the name the empty row produced.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+fixture snapshot.json <<'JSON'
+{"result":{"snapshot":{
+  "workspaces":[{"workspace_id":"w1","label":"api"}],
+  "tabs":[
+    {"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true,"workspace_id":"w1"},
+    {"tab_id":"w1:t2","label":"2","pane_count":1,"focused":false,"workspace_id":"w1"}
+  ],
+  "panes":[
+    {"pane_id":"p1","tab_id":"w1:t1","focused":true,"agent":"claude","agent_status":"idle",
+     "terminal_title_stripped":"Draft the changelog","foreground_cwd":"/home/u/dev/api"},
+    {"pane_id":"p2","tab_id":"w1:t2","focused":false,"agent":"claude","agent_status":"idle",
+     "terminal_title_stripped":"Reticulating splines","foreground_cwd":"/home/u/dev/api"}
+  ],
+  "layouts":[
+    {"tab_id":"w1:t1","focused_pane_id":"p1"}
+  ],
+  "agents":[]
+}}}
+JSON
+# NOTE: no procinfo_p1.json on purpose -- the covered tab must be named from its row.
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "a covered tab is named from its row"      "$out" "tab rename w1:t1 Draft the changelog"
+check_contains "an uncovered tab reads its own pane"      "$out" "tab rename w1:t2 Reticulating splines"
+check_absent   "and is not named by program instead"      "$out" "tab rename w1:t2 claude"
+teardown
+
+# ======================================================================
+# Scenario 35: reset on a tab that had NOT opted out. `state del` on a key that
+#   was never there succeeds quietly, so a reset that got as far as the reconcile
+#   used to report a re-adoption for ANY resolvable tab id -- and whether the tab
+#   is back under naming is the one thing this keybinding exists to say. So the
+#   opt-out is read BEFORE the delete and only `enabled: false` is a re-adoption.
+#   Scenario 31 pins the arm where the tab HAD opted out (plus no tab at all and
+#   naming off); these are the three ways a resolvable tab had not.
+#   Pass 1: a fresh tab with no state entry at all.
+#   Pass 2: the same tab right after, now owned by the plugin at the name it
+#     computed (enabled true) -- the steady state of every named tab, and what
+#     most resets are aimed at.
+#   Pass 3: a tab id no fixture describes, which is what a stale id from a closed
+#     tab looks like: nothing to rename and nothing to re-adopt.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+STATE="$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+HERDR_TAB_ID=w1:t1 run_event reset
+out=$(log)
+check_contains "reset still names the tab it was aimed at" "$out" "tab rename w1:t1 nvim"
+check_contains "a tab with no opt-out is told there was nothing" "$out" \
+  "notification show Nothing to reset --body That tab had not opted out of naming."
+check_absent   "and no re-adoption is claimed"            "$out" "Tab re-adopted"
+# Pass 2: the same tab, now a name this plugin owns and has NOT been opted out of.
+: >"$HERDR_MOCK_LOG"
+check "pass 1 left the tab owned and enabled" "nvim true" \
+  "$(jq -r '."w1:t1" | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
+HERDR_TAB_ID=w1:t1 run_event reset
+out=$(log)
+check_contains "an owned tab is no re-adoption either" "$out" \
+  "notification show Nothing to reset --body That tab had not opted out of naming."
+check_absent   "still no re-adoption claimed"          "$out" "Tab re-adopted"
+# Pass 3: an id that resolves to no tab at all.
+: >"$HERDR_MOCK_LOG"
+HERDR_TAB_ID=w9:t9 run_event reset
+out=$(log)
+check_contains "a stale tab id re-adopts nothing" "$out" \
+  "notification show Nothing to reset --body That tab had not opted out of naming."
+check_absent   "and says so without claiming one" "$out" "Tab re-adopted"
+teardown
+
 t_summary
