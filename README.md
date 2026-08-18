@@ -2,13 +2,22 @@
 
 [![tests](https://github.com/qu8n/herdr-automatic-rename/actions/workflows/ci.yml/badge.svg)](https://github.com/qu8n/herdr-automatic-rename/actions/workflows/ci.yml)
 
-Two things herdr does not do on its own.
+This plugin makes it easier to navigate your herdr surfaces:
 
-**Name each tab after what it is running.** Inspired by [tmux](https://github.com/tmux/tmux)'s `automatic-rename`. A tab shows its foreground process (`nvim`, `claude`), or the shell at a bare prompt (`zsh`). A tab running a coding agent shows the task instead, read from the terminal title the agent keeps current, so five `claude` tabs read `Squash merge command` and `Check PR 2169 relevance` rather than `claude` five times.
+**Name each tab after what it is running.**
 
-**Prefix workspaces and tabs with their jump number.** An `[N]` matching the `1-9` binding for that slot, so you can glance at the tab bar or sidebar and jump by number. Agents get one too on herdr `< 0.7.5`, the last release whose name rule allows it.
+- Inspired by [tmux](https://github.com/tmux/tmux)'s `automatic-rename`, a tab shows its foreground process (`nvim`, `claude`) or the shell (`zsh`) instead of simply `1`, `2`, `3`, etc.
+- Even better, tabs running a coding agent automatically show the active tasks, with helpful names like `Squash merge command` and `Check PR 2169 relevance`.
 
-Each feature toggles independently. A manual rename always wins.
+**Prefix workspaces and tabs with their jump number.**
+
+- An `[N]` matching the `1-9` binding for that slot, so you can glance at the tab bar or sidebar and use a keyboard shortcut to quickly jump there.
+- Agents get one too on herdr `< 0.7.5` when the name rule allowed it.
+
+Each of these features can be toggled independently:
+
+- `NAME_TABS=0` turns off naming, and every tab keeps the name herdr gave it.
+- `AUTO_INDEX=0` turns off numbering, and nothing gets an `[N]`.
 
 <img width="3216" height="2088" alt="readme-demo-screenshot" src="https://github.com/user-attachments/assets/43f620c0-d667-4fa9-b76c-dbafde41b7ec" />
 
@@ -31,8 +40,6 @@ with the plugin  │ [1] zsh │ [2] nvim │ [3] zsh │ [4] notes │
 | `claude`, nothing asked of it yet | `2` | `[2] claude` |
 
 Workspaces are numbered, never renamed. `dotfiles` becomes `[1] dotfiles`. Agent rows keep their detected names on current herdr (see [Notes](#notes)).
-
-Turn one feature off and you keep the other half: `AUTO_INDEX=0` names without the prefix (`zsh`, `nvim`), and `NAME_TABS=0` leaves every base name alone and adds only the `[N]`.
 
 ### Agent tabs
 
