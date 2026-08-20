@@ -4,6 +4,12 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Fixed
+
+- An oh-my-pi tab showed the agent's spinner glyph and renamed itself on every status change. Most agents park a status glyph in front of the task and the existing strip takes it off; oh-my-pi puts its own brand there first and the glyph second -- `Ï â  Fix the parser` while it works, `Ï > Fix the parser` when the turn is yours, `Ï ! ...` when it wants you, `Ï: ...` with its title state off. The strip only takes a leading run of non-alphanumerics and jq reads the brand as a letter, so it stopped on character one and each of those states reached the tab as a different label ([#12](https://github.com/qu8n/herdr-automatic-rename/issues/12)).
+
+  `TITLE_BRANDS` names a brand per herdr agent kind (`pi` and `omp` by default, both the same program) and it comes off before the strip runs, at the very front only and only with a non-alphanumeric behind it, so `Ïcalc rewrite` keeps its first letter. Every one of those states now reduces to the same label, so nothing renames on a status change. The reported case gets more than the glyph back: with no session title yet oh-my-pi labels itself after the directory it sits in, which the directory refusal already knew to hand to the program name -- it just could not see it behind the brand.
+
 ## [0.7.1] - 2026-08-19
 
 ### Fixed

@@ -72,6 +72,17 @@
 # only those built-in refusals.
 # TITLE_IGNORE=("claude code" "codex cli" "gemini cli" "opencode" "amp code" "cursor agent" "new session" "untitled")
 
+# Agents that stamp their own brand on the FRONT of every terminal title, as
+# "<herdr agent kind>=<brand>" pairs. Most agents put their status glyph first and
+# the plugin takes it off; oh-my-pi puts the brand first and the glyph second
+# ("Ï â  Fix the parser" while it works, "Ï > ..." at your turn, "Ï ! ..." when it
+# wants you), so without the brand named here the glyph reached the tab and the
+# label changed on every status change. The brand is removed only at the very
+# front and only when a non-alphanumeric follows it, so a title that merely starts
+# with the same letter keeps it, and the case of ASCII letters is ignored.
+# Assigning the array replaces the default.
+# TITLE_BRANDS=("pi=Ï" "omp=Ï")
+
 # Name shown at a bare prompt. Defaults to your $SHELL's basename.
 # SHELL_NAME=zsh
 

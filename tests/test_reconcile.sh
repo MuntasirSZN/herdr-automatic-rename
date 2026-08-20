@@ -1144,6 +1144,13 @@ teardown
 #   t5 reads herdr's unstripped title, the only field an older herdr may fill.
 #   t6 is the gate: a pane with no detected agent has a title too (a shell, an
 #   editor, anything that writes one), and it is not a task report.
+#   t7 and t8 are the agent that brands its own titles: oh-my-pi writes
+#   "<brand> <spinner> <label>", brand first, so nothing the leading strip does
+#   reaches the glyph and every status change renamed the tab (issue #12). t7 keeps
+#   its label and loses both, and it ships no procinfo fixture, so that label can
+#   only have come from the title. t8 is the reported case whole: with no session
+#   title yet the label IS the pane's directory, and the brand has to come off
+#   before the directory refusal can see it and hand the tab to the program name.
 # ======================================================================
 setup
 export NAME_TABS=1 AUTO_INDEX=0
@@ -1157,7 +1164,9 @@ fixture tabs_w1.json <<'JSON'
   {"tab_id":"w1:t3","label":"3","pane_count":1,"focused":false},
   {"tab_id":"w1:t4","label":"4","pane_count":1,"focused":false},
   {"tab_id":"w1:t5","label":"5","pane_count":1,"focused":false},
-  {"tab_id":"w1:t6","label":"6","pane_count":1,"focused":false}
+  {"tab_id":"w1:t6","label":"6","pane_count":1,"focused":false},
+  {"tab_id":"w1:t7","label":"7","pane_count":1,"focused":false},
+  {"tab_id":"w1:t8","label":"8","pane_count":1,"focused":false}
 ]}}
 JSON
 # ✳ is the spinner glyph claude parks on the front of its title (jq decodes
@@ -1175,7 +1184,11 @@ fixture panes.json <<'JSON'
   {"pane_id":"p5","tab_id":"w1:t5","focused":false,"agent":"codex","agent_status":"working",
    "terminal_title":"Draft the changelog","cwd":"/home/u/dev/api"},
   {"pane_id":"p6","tab_id":"w1:t6","focused":false,
-   "terminal_title_stripped":"Downloading the internet","cwd":"/home/u/dev/api"}
+   "terminal_title_stripped":"Downloading the internet","cwd":"/home/u/dev/api"},
+  {"pane_id":"p7","tab_id":"w1:t7","focused":false,"agent":"omp","agent_status":"working",
+   "terminal_title_stripped":"\u03c0 \u280b Squash the fixups","foreground_cwd":"/home/u/dev/api"},
+  {"pane_id":"p8","tab_id":"w1:t8","focused":false,"agent":"omp","agent_status":"working",
+   "terminal_title_stripped":"\u03c0 \u280b api","foreground_cwd":"/home/u/dev/api"}
 ]}}
 JSON
 fixture procinfo_p1.json <<'JSON'
@@ -1195,6 +1208,13 @@ fixture procinfo_p6.json <<'JSON'
 {"result":{"process_info":{"foreground_process_group_id":600,
   "foreground_processes":[{"pid":600,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
 JSON
+# NOTE: no procinfo_p7.json either -- t7 must be named from its branded title alone.
+# t8's fallback: its title is refused once the brand is off, so this is the name it
+# has to land on.
+fixture procinfo_p8.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":800,
+  "foreground_processes":[{"pid":800,"argv0":"omp","cmdline":"omp"}]}}}
+JSON
 run_event tab.focused
 out=$(log)
 # The glyph is built from its UTF-8 bytes rather than pasted, as in
@@ -1212,6 +1232,15 @@ check_absent   "the directory is never the label"      "$out" "tab rename w1:t4 
 check_contains "the unstripped title is read too"      "$out" "tab rename w1:t5 Draft the changelog"
 check_contains "a pane with no agent is named by program" "$out" "tab rename w1:t6 nvim"
 check_absent   "a non-agent title never names a tab"   "$out" "Downloading the internet"
+# The branded agent. Both glyphs are built from their bytes rather than pasted, for
+# the reason the spinner above is, and the fixture writes them as JSON escapes.
+pibrand=$(printf '\317\200')
+braille=$(printf '\342\240\213')
+check_contains "a branded title still names its tab"   "$out" "tab rename w1:t7 Squash the fixups"
+check_absent   "the brand never reaches a label"       "$out" "$pibrand"
+check_absent   "nor does the working spinner"          "$out" "$braille"
+check_contains "a branded cwd title is refused"        "$out" "tab rename w1:t8 omp"
+check_absent   "the directory is never the label"      "$out" "tab rename w1:t8 api"
 teardown
 
 # ======================================================================
@@ -1410,6 +1439,10 @@ teardown
 #   cwd, and the fold that goes with it ("API" against "api").
 #   t4 reads herdr's unstripped title and its plain cwd, the fields an older herdr
 #   may be the only one to fill.
+#   t5 is the branded agent (issue #12), the same claim scenario 28 makes for the
+#   other lift: oh-my-pi puts its brand in front of its status glyph, and with no
+#   session title yet its label is the directory it sits in, so the brand has to
+#   come off here too for the refusal behind it to fire.
 #   No procinfo fixture exists for the panes named from a title (p1, p3, p5), so
 #   those names can only have come from the reshape.
 # ======================================================================
@@ -1424,7 +1457,8 @@ fixture snapshot.json <<'JSON'
     {"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true,"workspace_id":"w1"},
     {"tab_id":"w1:t2","label":"2","pane_count":2,"focused":false,"workspace_id":"w1"},
     {"tab_id":"w1:t3","label":"3","pane_count":1,"focused":false,"workspace_id":"w1"},
-    {"tab_id":"w1:t4","label":"4","pane_count":1,"focused":false,"workspace_id":"w1"}
+    {"tab_id":"w1:t4","label":"4","pane_count":1,"focused":false,"workspace_id":"w1"},
+    {"tab_id":"w1:t5","label":"5","pane_count":1,"focused":false,"workspace_id":"w1"}
   ],
   "panes":[
     {"pane_id":"p1","tab_id":"w1:t1","focused":true,"agent":"claude","agent_status":"working",
@@ -1436,13 +1470,16 @@ fixture snapshot.json <<'JSON'
     {"pane_id":"p4","tab_id":"w1:t3","focused":false,"agent":"claude","agent_status":"working",
      "terminal_title_stripped":"API","foreground_cwd":"/home/u/dev/api"},
     {"pane_id":"p5","tab_id":"w1:t4","focused":false,"agent":"amp","agent_status":"working",
-     "terminal_title":"Rename the tabs","cwd":"/home/u/dev/api"}
+     "terminal_title":"Rename the tabs","cwd":"/home/u/dev/api"},
+    {"pane_id":"p6","tab_id":"w1:t5","focused":false,"agent":"omp","agent_status":"working",
+     "terminal_title_stripped":"\u03c0 \u280b api","foreground_cwd":"/home/u/dev/api"}
   ],
   "layouts":[
     {"tab_id":"w1:t1","focused_pane_id":"p1"},
     {"tab_id":"w1:t2","focused_pane_id":"p2"},
     {"tab_id":"w1:t3","focused_pane_id":"p4"},
-    {"tab_id":"w1:t4","focused_pane_id":"p5"}
+    {"tab_id":"w1:t4","focused_pane_id":"p5"},
+    {"tab_id":"w1:t5","focused_pane_id":"p6"}
   ],
   "agents":[]
 }}}
@@ -1458,6 +1495,11 @@ fixture procinfo_p4.json <<'JSON'
 {"result":{"process_info":{"foreground_process_group_id":400,
   "foreground_processes":[{"pid":400,"argv0":"claude","cmdline":"claude"}]}}}
 JSON
+# t5's fallback, for the same reason, once its brand is off.
+fixture procinfo_p6.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":600,
+  "foreground_processes":[{"pid":600,"argv0":"omp","cmdline":"omp"}]}}}
+JSON
 run_event tab.focused
 out=$(log)
 spinner=$(printf '\xe2\x9c\xb3')
@@ -1469,6 +1511,12 @@ check_absent   "nor is the focused half named instead"    "$out" "tab rename w1:
 check_contains "a snapshot title that is just the cwd is refused" "$out" "tab rename w1:t3 claude"
 check_absent   "the directory is never the label"         "$out" "tab rename w1:t3 API"
 check_contains "the unstripped title is lifted too"       "$out" "tab rename w1:t4 Rename the tabs"
+pibrand=$(printf '\317\200')
+braille=$(printf '\342\240\213')
+check_contains "a branded snapshot title is refused too" "$out" "tab rename w1:t5 omp"
+check_absent   "no brand reaches a snapshot label"       "$out" "$pibrand"
+check_absent   "nor a working spinner"                   "$out" "$braille"
+check_absent   "nor the directory behind them"           "$out" "tab rename w1:t5 api"
 teardown
 
 # ======================================================================

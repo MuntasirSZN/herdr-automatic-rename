@@ -112,6 +112,27 @@ declare -p SUBSTITUTE_SETS >/dev/null 2>&1 || SUBSTITUTE_SETS=(
 declare -p TITLE_IGNORE >/dev/null 2>&1 || TITLE_IGNORE=("claude code" "codex cli" "gemini cli"
   "opencode" "amp code" "cursor agent" "new session" "untitled")
 
+# Agents that stamp their own brand on the FRONT of every title, as
+# "<herdr agent kind>=<brand>" pairs. oh-my-pi titles a session
+# "<brand> <spinner> Fix the parser" while it works, "<brand> > ..." when the turn
+# is yours, "<brand> ! ..." when it wants you, and "<brand>: ..." with its title
+# state off, so its brand arrives in front of the status glyph rather than behind
+# it. The spinner strip only takes a LEADING run of non-alphanumerics and jq reads
+# the brand as a letter, so the strip stopped on it and each of those states
+# reached the tab as a different label: the glyph on show, and a rename on every
+# status change (issue #12). Naming the brand takes it off and leaves the separator
+# to the strip that was already there -- so a title of nothing but brand and glyph
+# empties out and the tab falls back to the program name, which is the answer an
+# agent with no task wants.
+#
+# Only at the very front, and only with a non-alphanumeric behind it, so a title
+# that merely starts with the same letter keeps it. Matched ignoring the case of
+# ASCII letters, like every other title compare. The brand is written as its bytes
+# for the reason icons.sh writes its glyphs that way: a literal one is what an
+# editor eats without saying so. "pi" and "omp" are both canonical herdr agent
+# kinds (src/detect/mod.rs, herdr 0.8.2) and both are the same program's brand.
+declare -p TITLE_BRANDS >/dev/null 2>&1 || TITLE_BRANDS=("pi="$'\317\200' "omp="$'\317\200')
+
 # Exact program-name renames: "<program>=<label>" pairs. A matching foreground
 # program is shown as <label> regardless of its category (e.g. "clx=hn" makes a
 # clx tab read "hn"). Takes priority over every rule except the bare-prompt shell

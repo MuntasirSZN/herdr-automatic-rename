@@ -292,7 +292,15 @@ _clean() {
 # bash would read the first byte of "Ü" as non-alphanumeric and eat the letter.
 # tests/test_reconcile.sh scenarios 28 and 32 assert the same thing end to end, on
 # each of the two paths that lift a title off a pane.
-_task() { printf '%s' "$1" | jq -Rr "$AR_JQ_CLEAN"'task'; }
+# The optional second argument is the brand the agent in the pane stamps on the
+# front of its titles, which the engine looks up per pane (see _brand); "" is every
+# agent that stamps none, which is what every check written before this one passes.
+_task() { printf '%s' "$1" | jq -Rr --arg b "${2:-}" "$AR_JQ_CLEAN"'task($b)'; }
+# And the lookup, over the real TITLE_BRANDS: the engine joins the array with
+# newlines and hands it to each lift as one argument, so a map that comes out
+# empty is a strip that never runs.
+_brand() { printf '%s\n' "${TITLE_BRANDS[@]}" \
+  | jq -Rrs --arg a "$1" "$AR_JQ_CLEAN"'brandmap[$a | ascii_downcase] // ""'; }
 
 check "leading spinner is stripped" "Squash merge command" \
   "$(_task "$spinner Squash merge command")"
@@ -308,6 +316,68 @@ check "a title that is only a spinner strips to nothing" "" "$(_task "$spinner "
 # the title, which is the byte the naive strip ate.
 check "a multibyte title survives the spinner strip" "$uber" "$(_task "$spinner$uber")"
 check "a multibyte first letter is not eaten" "$uber" "$(_task "$uber")"
+
+# ---- the brand an agent stamps on its own titles ----
+
+# oh-my-pi puts its brand FIRST and the status glyph second: "PI SP <spinner> SP
+# label" while it works, "PI SP > SP label" when the turn is yours, "PI SP ! SP
+# label" when it wants you, and "PI: SP label" with its title state off
+# (buildTerminalTitleWithState in oh-my-pi's title-generator.ts). The strip above
+# only takes a LEADING run of non-alphanumerics, and jq reads the brand as a
+# letter, so it stopped on character one and every one of those states reached the
+# tab as a different label -- a rename on each status change, spinner and all
+# (issue #12). Naming the brand takes it off and leaves the separator to the strip
+# that was already there. Built from its UTF-8 bytes for the same reason the
+# spinner is: a literal glyph is what an editor eats without saying so.
+pi=$(printf '\317\200')             # the brand, U+03C0
+braille=$(printf '\342\240\213')   # one of its ten working frames, U+280B
+
+check "the brand and the spinner both go" "Fix the parser bug" \
+  "$(_task "$pi $braille Fix the parser bug" "$pi")"
+# Every other status has to reduce to the SAME label, because that is the rename
+# the tab would otherwise do on each of them.
+check "another spinner frame reads the same" "Fix the parser bug" \
+  "$(_task "$pi $(printf '\342\240\271') Fix the parser bug" "$pi")"
+check "the your-turn separator reads the same" "Fix the parser bug" \
+  "$(_task "$pi > Fix the parser bug" "$pi")"
+check "the needs-you separator reads the same" "Fix the parser bug" \
+  "$(_task "$pi ! Fix the parser bug" "$pi")"
+# With the title state off the separator is a colon against the brand, no space.
+check "the title-state-off form reads the same" "Fix the parser bug" \
+  "$(_task "$pi: Fix the parser bug" "$pi")"
+# A brand with no label behind it is an agent with nothing to report, and it has
+# to stay empty so the refusals below hand the tab back to the program name.
+check "a brand and separator alone strip to nothing" "" "$(_task "$pi >" "$pi")"
+check "a brand alone strips to nothing" "" "$(_task "$pi" "$pi")"
+# The brand comes off the FRONT of a title, not out of a word that starts with it.
+check "a word starting with the brand is kept" "${pi}calc rewrite" \
+  "$(_task "${pi}calc rewrite" "$pi")"
+# The brand belongs to the agent that stamps it: the same title from an agent with
+# no brand configured is that agent's own wording and stays whole.
+check "an unbranded agent keeps the title" "$pi $braille oxc" \
+  "$(_task "$pi $braille oxc" "")"
+# A label in any language must survive the brand strip as it survives the spinner.
+check "a multibyte label survives the brand" "$uber" \
+  "$(_task "$pi $braille $uber" "$pi")"
+# The brand can sit behind a spinner too (the strip runs on both sides of it), and
+# an ASCII brand is matched ignoring case, as every other title compare is.
+check "a brand behind a spinner also goes" "oxc" "$(_task "$braille $pi oxc" "$pi")"
+check "an ASCII brand folds case" "x" "$(_task 'PI > x' 'pi')"
+
+# The lookup that picks the brand: keyed by herdr's agent kind, which is "pi" for
+# pi and "omp" for oh-my-pi (both are canonical kinds in herdr's src/detect/mod.rs).
+check "pi's brand is configured"        "$pi" "$(_brand pi)"
+check "oh-my-pi's kind maps to it too"  "$pi" "$(_brand omp)"
+check "the kind is folded like the rest" "$pi" "$(_brand OMP)"
+check "an agent with no brand gets none" "" "$(_brand claude)"
+
+# End to end over the seam: the reported case. oh-my-pi with no session title yet
+# labels itself after the directory it sits in, so once the brand is off, what is
+# left is the pane's own cwd -- which the refusals below already knew to hand back
+# to the program name. Before the brand strip this reached the tab as
+# "PI <spinner> oxc" and no refusal could see it.
+check "brand plus spinner plus cwd is refused" "" \
+  "$(_clean "$(_task "$pi $braille oxc" "$pi")" omp oxc)"
 
 check "a task title is the answer" "Squash merge command" \
   "$(_clean 'Squash merge command' claude api)"
