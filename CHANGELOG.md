@@ -19,6 +19,15 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
   front of the task (`✳`, `◐`), which the existing strip takes off, and the
   no-task title `Qwen Code` is already refused as the agent kind plus `code`.
 
+### Documentation
+
+- The README covers herdr `0.8.2`'s `ui.window_title`, which is on by default at
+  `{hostname}: {workspace}` and so already carries a workspace's `[N]` prefix.
+  Adding `{tab}` puts the generated tab name in the outer terminal's title, a
+  surface the plugin cannot write itself.
+- The README notes that herdr `0.8.2` searches renamed single-tab labels, so the
+  Session Navigator finds a tab by the name this plugin wrote.
+
 ## [0.7.0] - 2026-08-18
 
 Names a tab running a coding agent after the task the agent reports -- `Squash

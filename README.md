@@ -82,6 +82,18 @@ cp "$(dirname "$(herdr plugin list --json | jq -r '.result.plugins[]|select(.plu
 
 Override that path with `HERDR_AUTOMATIC_RENAME_CONFIG`. [config.example.sh](config.example.sh) documents every knob with examples. It covers numbering per row kind, agent titles, label length, the program lists (shells, ignored commands, custom labels), and Nerd Font icons.
 
+## Window title
+
+herdr `>= 0.8.2` writes the outer terminal's window title, `{hostname}: {workspace}` by default, so a workspace's `[N]` prefix already shows up there. Add `{tab}` to get the tab name too, the agent's task included:
+
+```toml
+# ~/.config/herdr/config.toml
+[ui]
+window_title = "{hostname}: {workspace} · {tab}"
+```
+
+herdr's `{terminal_title}` token holds the focused pane's raw title instead. `{tab}` is that same title after the plugin has truncated it and swapped the useless ones back to the program name.
+
 ## Actions
 
 - `reset` re-adopts a tab you renamed by hand.
@@ -114,6 +126,7 @@ herdr plugin uninstall herdr-automatic-rename
 ## Good to know
 
 - **Manual renames win.** Rename a tab yourself and naming leaves it alone, though numbering still applies. Run `reset` to hand it back.
+- **Search finds the generated names.** herdr `>= 0.8.2` searches renamed single-tab labels, so the Session Navigator matches the name this plugin wrote.
 - **Numbering stops at 9.** No binding reaches a 10th row, so the rest stay bare.
 - **Naming needs a foreground process.** Some Linux container and sandbox setups leave herdr unable to see one, which stops tab naming (numbering is unaffected). On herdr `>= 0.8.0`, set `HERDR_PROCESS_DETECTION=child-groups` in its environment.
 
