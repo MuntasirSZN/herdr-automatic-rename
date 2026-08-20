@@ -124,13 +124,15 @@ check "ar_icon codex" "$g_agent" "$(ar_icon codex)"
 # htop used to be the "unknown program" sentinel; the upstream map knows it.
 check "ar_icon htop" "$g_htop" "$(ar_icon htop)"
 
-# Every agent herdr detects gets the robot glyph, not just the original three.
-# The arms are split across several case patterns, so walk the whole set: a
-# dropped or mistyped entry then fails here instead of silently losing its icon.
-for _agent in aider pi gemini cursor cursor-agent devin cline agy antigravity \
-  omp mastracode opencode copilot kimi droid amp kiro kiro-cli \
-  grok hermes kilo qodercli qwen maki; do
-  check "ar_icon $_agent" "$g_agent" "$(ar_icon "$_agent")"
+# Every program the engine names by itself has a glyph of its own. The roster is
+# read out of NAME_ONLY_PROGRAMS rather than typed again here, which is the whole
+# point: a hand-copied list only catches a typo in a name somebody already
+# remembered to add in both files, and maki spent two herdr releases drawing the
+# "?" fallback for exactly that reason. The robot glyph's bytes stay pinned by
+# the claude and codex checks above.
+for _prog in "${NAME_ONLY_PROGRAMS[@]}"; do
+  check "ar_icon $_prog is mapped" "mapped" \
+    "$([ -n "$(ICON_FALLBACK='' ar_icon "$_prog")" ] && echo mapped || echo unmapped)"
 done
 
 # A program missing from the map gets the fallback glyph by default; an empty

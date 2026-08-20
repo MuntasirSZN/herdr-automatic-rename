@@ -9,9 +9,9 @@
 #   https://raw.githubusercontent.com/joshmedeski/tmux-nerd-font-window-name/main/bin/defaults.yml
 # (fetched 2026-08-03), plus the aliases this plugin always shipped that the
 # upstream file does not list: gvim/view (vim), bun/npx/pnpm (node),
-# ipython/ipython3 (python). The last arms give the robot glyph to every agent
-# herdr detects (the executable names in NAME_ONLY_PROGRAMS, herdr 0.8.0's
-# detect set plus aider).
+# ipython/ipython3 (python). One arm gives the robot glyph to every agent herdr
+# detects, the executable names naming.sh keeps in NAME_ONLY_PROGRAMS, which is
+# where that roster records which herdr release it was copied from.
 #
 # The glyphs below are literal Private Use Area characters and render as blank
 # boxes without a Nerd Font installed. They also went missing once: every arm
@@ -54,12 +54,10 @@ ar_icon() {
   case "$n" in
   Python | ipython | ipython3 | pip | pip3 | python | python3) printf '\356\234\274' ;; # U+E73C
   R) printf '\357\263\222' ;;                                                           # U+FCD2
-  aider | claude | codex | pi | gemini) printf '\363\260\232\251' ;;                    # U+F06A9
-  cursor | cursor-agent | devin | cline) printf '\363\260\232\251' ;;                   # U+F06A9
-  agy | antigravity | omp | mastracode) printf '\363\260\232\251' ;;                    # U+F06A9
-  opencode | copilot | kimi | droid | amp) printf '\363\260\232\251' ;;                 # U+F06A9
-  kiro | kiro-cli | grok | hermes | kilo) printf '\363\260\232\251' ;;                  # U+F06A9
-  qodercli | qwen | maki) printf '\363\260\232\251' ;;                                  # U+F06A9
+  aider | claude | codex | pi | gemini | cursor | cursor-agent | devin | cline | \
+    agy | antigravity | omp | mastracode | opencode | copilot | kimi | droid | amp | \
+    kiro | kiro-cli | grok | hermes | kilo | qodercli | qwen | maki) \
+    printf '\363\260\232\251' ;;                                                        # U+F06A9
   alacritty | gnome-terminal | iterm2) printf '\357\204\240' ;;                         # U+F120
   ansible) printf '\357\227\247' ;;                                                     # U+F5E7
   ant) printf '\356\235\240' ;;                                                         # U+E760
