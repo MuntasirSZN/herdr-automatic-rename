@@ -45,3 +45,18 @@ jobs:
 
       - name: Run tests
         run: ./tests/run.sh
+
+  markdown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Prose here is never hard-wrapped, which the custom no-hard-wrap rule in
+      # .github/markdownlint-rules enforces. Release notes are copied out of
+      # CHANGELOG.md, so a wrap in the source ships as a wrap on GitHub.
+      - name: Lint markdown
+        run: npx --yes markdownlint-cli2@0.23.2

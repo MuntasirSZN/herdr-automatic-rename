@@ -20,6 +20,7 @@ Please add or update a test with any behavior change. The suite covers the namin
 - **Keep `naming.sh` pure.** It takes strings and returns strings, with no herdr or filesystem calls, so it stays unit-testable. Anything that talks to herdr belongs in `automatic-rename.sh` (the `ar_` prefix).
 - **Depend only on `jq` and the herdr CLI.** No other runtime dependencies.
 - **No em dashes in comments or docs.**
+- **Never hard-wrap prose in markdown.** One paragraph per line: release notes are copied out of `CHANGELOG.md` and GitHub soft-wraps prose itself, so a wrapped source ships its line breaks. CI enforces this with a custom markdownlint rule (`.github/markdownlint-rules/no-hard-wrap.js`); run it locally with `make lint-md`.
 
 ## Submitting
 
