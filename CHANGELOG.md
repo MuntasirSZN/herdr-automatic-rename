@@ -6,18 +6,26 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
-### Added
+## [0.7.1] - 2026-08-19
 
-- Qwen Code and `maki` join the agent lists. herdr `0.8.2` detects `qwen` as an
-  agent kind, and Qwen Code installs from npm, so its pane fronts as `node` and
-  takes the `WRAPPER_PROGRAMS` path that names a tab from herdr's detection.
-  Naming needed nothing. The two lists keyed by program name did: with
-  `ICONS_ENABLED=1` a `qwen` tab drew the `?` fallback instead of the agent
-  glyph, and with `SHOW_PROGRAM_ARGS=1` a natively installed `qwen` showed its
-  whole command line. `maki`, a kind herdr added in `0.8.0`, was missing from
-  both the same way. Qwen's title needs no new rule: it parks a status glyph in
-  front of the task (`✳`, `◐`), which the existing strip takes off, and the
-  no-task title `Qwen Code` is already refused as the agent kind plus `code`.
+### Fixed
+
+- A Qwen Code or `maki` tab was missing from the lists keyed by program name.
+  herdr `0.8.2` detects `qwen` as an agent kind, and Qwen Code installs from
+  npm, so its pane fronts as `node` and takes the `WRAPPER_PROGRAMS` path that
+  names a tab from herdr's detection: naming needed nothing. The two program
+  lists did. With `ICONS_ENABLED=1` a `qwen` tab drew the `?` fallback instead
+  of the agent glyph, and with `SHOW_PROGRAM_ARGS=1` a natively installed `qwen`
+  showed its whole command line. `maki`, a kind herdr added in `0.8.0`, was
+  missing from both the same way. Qwen's title needs no new rule: it parks a
+  status glyph in front of the task (`✳`, `◐`), which the existing strip takes
+  off, and the no-task title `Qwen Code` is already refused as the agent kind
+  plus `code`.
+
+  The icon test reads its roster out of `NAME_ONLY_PROGRAMS` now rather than
+  repeating it, so the next agent added to one list and not the other fails the
+  suite instead of shipping. That is how `maki` went two herdr releases with the
+  fallback on its tab.
 
 ### Documentation
 
@@ -462,7 +470,8 @@ First public release.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers,
   the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.5.0...v0.6.0
