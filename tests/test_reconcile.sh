@@ -13,6 +13,15 @@ ENGINE="$here/../automatic-rename.sh"
 MOCK="$here/mocks/herdr"
 chmod +x "$MOCK" 2>/dev/null || true
 
+# The glyphs an agent puts in its terminal title, built from their UTF-8 bytes
+# rather than pasted: a literal one is what an editor or a copy-paste eats without
+# saying so, and these are the needles of check_absent assertions -- a needle that
+# cannot appear is a check that cannot fail. Defined once here because a second
+# copy is a second chance to mistype one into a silently green check.
+SPINNER=$(printf '\342\234\263')   # U+2733, claude's working glyph
+PI_BRAND=$(printf '\317\200')       # U+03C0, the brand oh-my-pi leads with
+PI_SPINNER=$(printf '\342\240\213') # U+280B, one of its ten working frames
+
 # A fresh sandbox per scenario: isolated fixtures, rename log, state, and config.
 setup() {
   SB=$(mktemp -d "${TMPDIR:-/tmp}/hal-test.XXXXXX")
@@ -1217,12 +1226,8 @@ fixture procinfo_p8.json <<'JSON'
 JSON
 run_event tab.focused
 out=$(log)
-# The glyph is built from its UTF-8 bytes rather than pasted, as in
-# tests/test_naming.sh: a literal one is what an editor eats silently, and a
-# needle that cannot appear is a check that cannot fail.
-spinner=$(printf '\xe2\x9c\xb3')
 check_contains "an agent tab is named after its task"  "$out" "tab rename w1:t1 Squash merge command"
-check_absent   "the spinner never reaches the label"   "$out" "$spinner"
+check_absent   "the spinner never reaches the label"   "$out" "$SPINNER"
 check_absent   "and the program name is not used"      "$out" "tab rename w1:t1 claude"
 check_contains "a refused title falls back to program" "$out" "tab rename w1:t2 claude"
 check_absent   "the refused title is never a label"    "$out" "Claude Code"
@@ -1232,15 +1237,12 @@ check_absent   "the directory is never the label"      "$out" "tab rename w1:t4 
 check_contains "the unstripped title is read too"      "$out" "tab rename w1:t5 Draft the changelog"
 check_contains "a pane with no agent is named by program" "$out" "tab rename w1:t6 nvim"
 check_absent   "a non-agent title never names a tab"   "$out" "Downloading the internet"
-# The branded agent. Both glyphs are built from their bytes rather than pasted, for
-# the reason the spinner above is, and the fixture writes them as JSON escapes.
-pibrand=$(printf '\317\200')
-braille=$(printf '\342\240\213')
+# The branded agent (the fixture writes both glyphs as JSON escapes; jq decodes them).
 check_contains "a branded title still names its tab"   "$out" "tab rename w1:t7 Squash the fixups"
-check_absent   "the brand never reaches a label"       "$out" "$pibrand"
-check_absent   "nor does the working spinner"          "$out" "$braille"
+check_absent   "the brand never reaches a label"       "$out" "$PI_BRAND"
+check_absent   "nor does the working spinner"          "$out" "$PI_SPINNER"
 check_contains "a branded cwd title is refused"        "$out" "tab rename w1:t8 omp"
-check_absent   "the directory is never the label"      "$out" "tab rename w1:t8 api"
+check_absent   "nor the directory behind the brand"    "$out" "tab rename w1:t8 api"
 teardown
 
 # ======================================================================
@@ -1502,20 +1504,17 @@ fixture procinfo_p6.json <<'JSON'
 JSON
 run_event tab.focused
 out=$(log)
-spinner=$(printf '\xe2\x9c\xb3')
 check_contains "the snapshot names a tab after its task"  "$out" "tab rename w1:t1 Squash merge command"
-check_absent   "no spinner reaches a snapshot label"      "$out" "$spinner"
+check_absent   "no spinner reaches a snapshot label"      "$out" "$SPINNER"
 check_contains "the PICKED pane's task names a split tab" "$out" "tab rename w1:t2 Draft the changelog"
 check_absent   "the focused half's title is not lifted"   "$out" "Downloading the internet"
 check_absent   "nor is the focused half named instead"    "$out" "tab rename w1:t2 zsh"
 check_contains "a snapshot title that is just the cwd is refused" "$out" "tab rename w1:t3 claude"
 check_absent   "the directory is never the label"         "$out" "tab rename w1:t3 API"
 check_contains "the unstripped title is lifted too"       "$out" "tab rename w1:t4 Rename the tabs"
-pibrand=$(printf '\317\200')
-braille=$(printf '\342\240\213')
 check_contains "a branded snapshot title is refused too" "$out" "tab rename w1:t5 omp"
-check_absent   "no brand reaches a snapshot label"       "$out" "$pibrand"
-check_absent   "nor a working spinner"                   "$out" "$braille"
+check_absent   "no brand reaches a snapshot label"       "$out" "$PI_BRAND"
+check_absent   "nor a working spinner"                   "$out" "$PI_SPINNER"
 check_absent   "nor the directory behind them"           "$out" "tab rename w1:t5 api"
 teardown
 

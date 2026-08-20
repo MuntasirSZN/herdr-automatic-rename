@@ -76,11 +76,20 @@ CONFIG_FILE="${HERDR_AUTOMATIC_RENAME_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/
 #
 # The brand is the argument, because it belongs to the agent in the pane and each
 # lift knows which one that is. `brandmap` turns $AR_TITLE_BRANDS (TITLE_BRANDS,
-# newline-joined) into the table it is looked up in, and `debrand` takes the brand
-# off only at the very front and only when a non-alphanumeric follows it, so a
-# title that merely starts with it keeps it. The strip runs on both sides of it: the
-# brand may sit behind a spinner glyph, and it is always in front of one (see
-# TITLE_BRANDS in naming.sh, and issue #12).
+# newline-joined) into the table `taskof` looks it up in, and `debrand` takes the
+# brand off only at the very front and only when a non-alphanumeric follows it, so a
+# title that merely starts with it keeps it. `lead` runs on BOTH sides of the
+# debrand: a title arrives with anything in front of the brand -- a control
+# character clean turned into a space, herdr's own leading whitespace, a glyph an
+# agent parked there -- and the compare is against the front of the string, so the
+# brand has to be at the front by then (see TITLE_BRANDS in naming.sh, issue #12).
+# Only a pane whose agent HAS a brand pays for either, which is why the pair sits
+# behind one length test: for everything else the second strip could never match.
+#
+# These four live in their own string because only the two title lifts call them,
+# and $AR_JQ_CLEAN is prefixed onto five other jq programs that would compile them
+# for nothing. Concatenate it AFTER $AR_JQ_CLEAN, which is where `clean` and `lc`
+# come from.
 #
 # Every jq below that hands a herdr-supplied string to a shell variable runs it
 # through clean first, and joins its rows on a literal tab rather than using @tsv.
@@ -91,17 +100,17 @@ CONFIG_FILE="${HERDR_AUTOMATIC_RENAME_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/
 # to "C:\\temp". Removing the control characters instead makes the row
 # unambiguous without touching anything the user can see.
 AR_JQ_CLEAN='def clean: (. // "") | tostring | gsub("[[:cntrl:]]"; " ");
-def lead: sub("^[^[:alnum:]]+"; "");
-def brandmap: reduce (split("\n")[]) as $e ({};
-  ($e | split("=")) as $kv
-  | if ($kv | length) < 2 or ($kv[0] | length) == 0 then .
-    else . + { ($kv[0] | ascii_downcase): ($kv[1:] | join("=")) } end);
-def debrand($b): ($b | length) as $n
-  | if $n > 0 and (.[:$n] | ascii_downcase) == ($b | ascii_downcase)
-       and (.[$n:] | test("^([^[:alnum:]]|$)")) then .[$n:] else . end;
-def task($b): clean | lead | debrand($b) | lead
-  | sub("[[:space:]]+$"; "") | gsub("[[:space:]]+"; " ");
 def lc: clean | ascii_downcase;'
+AR_JQ_TASK='def lead: sub("^[^[:alnum:]]+"; "");
+def brandmap: [ split("\n")[] | capture("^(?<k>[^=]+)=(?<v>.*)$")
+  | { key: (.k | ascii_downcase), value: .v } ] | from_entries;
+def debrand($b): ($b | length) as $n
+  | if (.[:$n] | ascii_downcase) == ($b | ascii_downcase)
+       and (.[$n:] | test("^([^[:alnum:]]|$)")) then .[$n:] else . end;
+def task($b): clean | lead
+  | (if ($b | length) > 0 then debrand($b) | lead else . end)
+  | sub("[[:space:]]+$"; "") | gsub("[[:space:]]+"; " ");
+def taskof($brands; $agent): task($brands[$agent | lc] // "");'
 
 # Those rows are split on the ASCII unit separator rather than a tab, because
 # bash counts a tab as IFS WHITESPACE: `read` collapses a run of them, so one
@@ -471,7 +480,7 @@ ar_pane_facts() {
   local out
   AR_PANE_AGENT=""; AR_PANE_TITLE=""; AR_PANE_TITLE_LC=""; AR_PANE_DIR_LC=""
   out=$(printf '%s' "$AR_PANES_JSON" | jq -r --arg p "$1" \
-    --arg brands "${AR_TITLE_BRANDS:-}" "$AR_JQ_CLEAN"'
+    --arg brands "${AR_TITLE_BRANDS:-}" "$AR_JQ_CLEAN$AR_JQ_TASK"'
     ($brands | brandmap) as $brand
     | (.result.panes // .panes // []) | map(select(.pane_id == $p)) | .[0] as $pane
     # ascii_downcase folds ASCII only, so a title and a directory that differ just
@@ -479,7 +488,7 @@ ar_pane_facts() {
     # refusals it feeds are about product names and directory names, and a
     # Unicode-aware compare would have to move back into jq per tab.
     | ($pane.terminal_title_stripped // $pane.terminal_title
-       | task($brand[$pane.agent | lc] // "")) as $t
+       | taskof($brand; $pane.agent)) as $t
     | [ ($pane.agent | clean), $t, ($t | ascii_downcase),
         ((($pane.foreground_cwd // $pane.cwd | clean) | split("/") | last) // "" | ascii_downcase) ]
     | join([31] | implode)' 2>/dev/null)
@@ -1078,7 +1087,7 @@ ar_reconcile() {
     # inference in ar_resolve_pane. Deliberate -- the rule needs no layout, and a
     # split with an agent working in it is the case the rule exists for.
     AR_SNAP_TABS_JSON=$(printf '%s' "$snap" | jq -c \
-      --arg brands "${AR_TITLE_BRANDS:-}" "$AR_JQ_CLEAN"'
+      --arg brands "${AR_TITLE_BRANDS:-}" "$AR_JQ_CLEAN$AR_JQ_TASK"'
       ($brands | brandmap) as $brand
        | (.result.snapshot // .snapshot) as $s
        | ($s.layouts // []) as $lay
@@ -1095,7 +1104,7 @@ ar_reconcile() {
              // $lp ) as $pick
            | ($pan | map(select(.pane_id == $pick)) | .[0]) as $p
            | ($p.terminal_title_stripped // $p.terminal_title
-              | task($brand[$p.agent | lc] // "")) as $ti
+              | taskof($brand; $p.agent)) as $ti
            | . + { _name_pane: $pick,
                    _name_agent: ($p.agent | clean),
                    _name_title: $ti,
@@ -1247,9 +1256,11 @@ ar_main() {
   # TITLE_BRANDS as one argument for the two title lifts, joined here so neither
   # pays for it per pane. Both look a brand up by the pane's agent kind, and the
   # snapshot lift reshapes every tab in one jq, so the lookup cannot be done out
-  # here. An empty list joins to "" and strips nothing.
-  AR_TITLE_BRANDS=""
-  [ "${#TITLE_BRANDS[@]}" -gt 0 ] && AR_TITLE_BRANDS=$(printf '%s\n' "${TITLE_BRANDS[@]}")
+  # here. printf -v rather than a command substitution because this runs on every
+  # event and every shell hook, and the fast path never lifts a title at all: a
+  # fork for a value it throws away is the one cost the hook path cannot amortize.
+  # An empty list leaves a lone newline, which brandmap reads as no entries.
+  printf -v AR_TITLE_BRANDS '%s\n' "${TITLE_BRANDS[@]}"
 
   # Naming toggle (default on). A config value of 0 wins because := only fills
   # an unset/empty var. Numbering needs nothing here: AUTO_INDEX, the per-kind

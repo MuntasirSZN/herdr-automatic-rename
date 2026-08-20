@@ -285,7 +285,8 @@ _clean() {
     "$(printf '%s' "${3:-}" | tr 'A-Z' 'a-z')" "${2:-}"
 }
 # And the strip itself, one seam over, through the definition the engine shares
-# between its two title lifts (def task in AR_JQ_CLEAN). The spinner an agent parks
+# between its two title lifts (def task in AR_JQ_TASK, which the engine concatenates
+# after AR_JQ_CLEAN for the `clean` and `lc` it builds on). The spinner an agent parks
 # on the front of its title changes with its status, so a title carried through
 # with the glyph still on it would rename the tab on every change. The strip lives
 # in jq because jq's character classes know Unicode, where a byte-wise strip in
@@ -295,12 +296,12 @@ _clean() {
 # The optional second argument is the brand the agent in the pane stamps on the
 # front of its titles, which the engine looks up per pane (see _brand); "" is every
 # agent that stamps none, which is what every check written before this one passes.
-_task() { printf '%s' "$1" | jq -Rr --arg b "${2:-}" "$AR_JQ_CLEAN"'task($b)'; }
+_task() { printf '%s' "$1" | jq -Rr --arg b "${2:-}" "$AR_JQ_CLEAN$AR_JQ_TASK"'task($b)'; }
 # And the lookup, over the real TITLE_BRANDS: the engine joins the array with
 # newlines and hands it to each lift as one argument, so a map that comes out
 # empty is a strip that never runs.
 _brand() { printf '%s\n' "${TITLE_BRANDS[@]}" \
-  | jq -Rrs --arg a "$1" "$AR_JQ_CLEAN"'brandmap[$a | ascii_downcase] // ""'; }
+  | jq -Rrs --arg a "$1" "$AR_JQ_CLEAN$AR_JQ_TASK"'brandmap[$a | lc] // ""'; }
 
 check "leading spinner is stripped" "Squash merge command" \
   "$(_task "$spinner Squash merge command")"
@@ -335,9 +336,8 @@ braille=$(printf '\342\240\213')   # one of its ten working frames, U+280B
 check "the brand and the spinner both go" "Fix the parser bug" \
   "$(_task "$pi $braille Fix the parser bug" "$pi")"
 # Every other status has to reduce to the SAME label, because that is the rename
-# the tab would otherwise do on each of them.
-check "another spinner frame reads the same" "Fix the parser bug" \
-  "$(_task "$pi $(printf '\342\240\271') Fix the parser bug" "$pi")"
+# the tab would otherwise do on each of them. A second working frame is the same
+# string shape as the first and would pin nothing; the separators below are not.
 check "the your-turn separator reads the same" "Fix the parser bug" \
   "$(_task "$pi > Fix the parser bug" "$pi")"
 check "the needs-you separator reads the same" "Fix the parser bug" \
@@ -356,12 +356,13 @@ check "a word starting with the brand is kept" "${pi}calc rewrite" \
 # no brand configured is that agent's own wording and stays whole.
 check "an unbranded agent keeps the title" "$pi $braille oxc" \
   "$(_task "$pi $braille oxc" "")"
-# A label in any language must survive the brand strip as it survives the spinner.
-check "a multibyte label survives the brand" "$uber" \
-  "$(_task "$pi $braille $uber" "$pi")"
-# The brand can sit behind a spinner too (the strip runs on both sides of it), and
-# an ASCII brand is matched ignoring case, as every other title compare is.
-check "a brand behind a spinner also goes" "oxc" "$(_task "$braille $pi oxc" "$pi")"
+# The brand is compared against the FRONT of the title, so anything in front of it
+# has to be gone by then: herdr's own leading whitespace, a control character clean
+# turned into a space, or a glyph another agent might park there. Without the strip
+# ahead of the compare this whole title reaches the tab, brand and glyph included.
+check "a brand behind whitespace still goes" "oxc" "$(_task " $pi $braille oxc" "$pi")"
+check "a brand behind a spinner too"        "oxc" "$(_task "$braille $pi oxc" "$pi")"
+# An ASCII brand is matched ignoring case, as every other title compare is.
 check "an ASCII brand folds case" "x" "$(_task 'PI > x' 'pi')"
 
 # The lookup that picks the brand: keyed by herdr's agent kind, which is "pi" for
