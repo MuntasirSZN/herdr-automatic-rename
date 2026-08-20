@@ -129,7 +129,7 @@ check "ar_icon htop" "$g_htop" "$(ar_icon htop)"
 # dropped or mistyped entry then fails here instead of silently losing its icon.
 for _agent in aider pi gemini cursor cursor-agent devin cline agy antigravity \
   omp mastracode opencode copilot kimi droid amp kiro kiro-cli \
-  grok hermes kilo qodercli; do
+  grok hermes kilo qodercli qwen maki; do
   check "ar_icon $_agent" "$g_agent" "$(ar_icon "$_agent")"
 done
 

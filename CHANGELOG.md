@@ -6,6 +6,19 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- Qwen Code and `maki` join the agent lists. herdr `0.8.2` detects `qwen` as an
+  agent kind, and Qwen Code installs from npm, so its pane fronts as `node` and
+  takes the `WRAPPER_PROGRAMS` path that names a tab from herdr's detection.
+  Naming needed nothing. The two lists keyed by program name did: with
+  `ICONS_ENABLED=1` a `qwen` tab drew the `?` fallback instead of the agent
+  glyph, and with `SHOW_PROGRAM_ARGS=1` a natively installed `qwen` showed its
+  whole command line. `maki`, a kind herdr added in `0.8.0`, was missing from
+  both the same way. Qwen's title needs no new rule: it parks a status glyph in
+  front of the task (`✳`, `◐`), which the existing strip takes off, and the
+  no-task title `Qwen Code` is already refused as the agent kind plus `code`.
+
 ## [0.7.0] - 2026-08-18
 
 Names a tab running a coding agent after the task the agent reports -- `Squash

@@ -74,12 +74,12 @@ declare -p SHELLS >/dev/null 2>&1 || SHELLS=(zsh bash sh fish dash ksh)
 # included so an agent tab reads as "claude" rather than its full invocation.
 #
 # The agent entries are the executable names herdr itself detects as interactive
-# agents (src/detect/mod.rs, herdr 0.8.0). Two differ from herdr's --kind id and
+# agents (src/detect/mod.rs, herdr 0.8.2). Two differ from herdr's --kind id and
 # both spellings are listed: cursor-agent (kind "cursor") and kiro-cli (kind
 # "kiro"). aider is not a herdr agent kind but is a real agent, so it stays.
 declare -p NAME_ONLY_PROGRAMS >/dev/null 2>&1 || NAME_ONLY_PROGRAMS=(nvim vim vi view gvim git lazygit gitui lazydocker
   claude codex aider pi gemini cursor cursor-agent devin agy antigravity cline omp mastracode opencode
-  copilot kimi kiro kiro-cli droid amp grok hermes kilo qodercli)
+  copilot kimi kiro kiro-cli droid amp grok hermes kilo qodercli qwen maki)
 
 # Quick tools that should not take over the tab name: while one runs the tab
 # keeps showing the shell (SHELL_NAME) so it does not flicker.

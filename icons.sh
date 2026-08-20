@@ -59,7 +59,7 @@ ar_icon() {
   agy | antigravity | omp | mastracode) printf '\363\260\232\251' ;;                    # U+F06A9
   opencode | copilot | kimi | droid | amp) printf '\363\260\232\251' ;;                 # U+F06A9
   kiro | kiro-cli | grok | hermes | kilo) printf '\363\260\232\251' ;;                  # U+F06A9
-  qodercli) printf '\363\260\232\251' ;;                                                # U+F06A9
+  qodercli | qwen | maki) printf '\363\260\232\251' ;;                                  # U+F06A9
   alacritty | gnome-terminal | iterm2) printf '\357\204\240' ;;                         # U+F120
   ansible) printf '\357\227\247' ;;                                                     # U+F5E7
   ant) printf '\356\235\240' ;;                                                         # U+E760
