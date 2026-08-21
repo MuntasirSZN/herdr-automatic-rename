@@ -4,6 +4,8 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-08-20
+
 ### Fixed
 
 - An oh-my-pi tab showed the agent's spinner glyph and renamed itself on every status change. Most agents park a status glyph in front of the task and the existing strip takes it off; oh-my-pi puts its own brand there first and the glyph second -- `π ⠋ Fix the parser` while it works, `π > Fix the parser` when the turn is yours, `π ! ...` when it wants you, `π: ...` with its title state off. The strip only takes a leading run of non-alphanumerics and jq reads the brand as a letter, so it stopped on character one and each of those states reached the tab as a different label ([#12](https://github.com/qu8n/herdr-automatic-rename/issues/12)).
@@ -190,7 +192,8 @@ First public release.
 - Configuration via `~/.config/herdr-automatic-rename/config.sh` (or `$HERDR_AUTOMATIC_RENAME_CONFIG`), with a documented `config.example.sh`.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers, the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.6.0...v0.6.1
