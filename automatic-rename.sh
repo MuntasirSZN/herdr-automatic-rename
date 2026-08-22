@@ -754,7 +754,9 @@ ar_tab_name() {
   # above was resolved from the pane list instead, and its facts are still unread:
   # trusting the row there cost the tab its title AND the wrapper unwrap, so a
   # node-fronted codex read "node" again.
-  [ -n "${4:-}" ] && [ "$pane" = "$4" ] || ar_pane_facts "$pane"
+  if [ -z "${4:-}" ] || [ "$pane" != "$4" ]; then
+    ar_pane_facts "$pane"
+  fi
   # An agent tab is named after the work the agent reports, when it reports any:
   # five claude tabs all read "claude" otherwise, which is the one thing naming
   # them by program cannot fix. This answer also needs no process lookup, so an
