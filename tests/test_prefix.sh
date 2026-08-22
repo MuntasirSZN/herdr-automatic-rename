@@ -4,7 +4,9 @@
 # helpers can be exercised directly.
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib.sh
 . "$here/lib.sh"
+# shellcheck source=automatic-rename.sh
 . "$here/../automatic-rename.sh"
 
 # ---- ar_strip_prefix: inverse of ar_index_prefix; only strips "[digits] " ----

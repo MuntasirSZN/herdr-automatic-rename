@@ -5,6 +5,7 @@
 # to itself rather than at any hard-coded path.
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib.sh
 . "$here/lib.sh"
 REPO=$(cd "$here/.." && pwd)
 
@@ -26,9 +27,15 @@ export HERDR_SOCKET_PATH="$HOOKS_SB/herdr.sock"
 export HERDR_TAB_ID="sandbox:t0"
 
 # ---- bash ----
+# The quoted program runs in the SPAWNED shell, so its $variables are that
+# shell's to expand, not this one's.
+# shellcheck disable=SC2016
 got=$(HERDR_PANE_ID=x HAL_HOOK="$REPO/shell/hook.bash" /usr/bin/env bash -c 'source "$HAL_HOOK"; echo "$_har_bin"')
 check "bash: self-locates engine next to hook" "$REPO/automatic-rename.sh" "$got"
 
+# The quoted program runs in the SPAWNED shell, so its $variables are that
+# shell's to expand, not this one's.
+# shellcheck disable=SC2016
 got=$(HERDR_PANE_ID=x HAL_HOOK="$REPO/shell/hook.bash" /usr/bin/env bash -c \
   'source "$HAL_HOOK"; source "$HAL_HOOK"; printf "%s\n" "$PROMPT_COMMAND" | grep -c _har_precmd_wrap')
 check "bash: double-source adds PROMPT_COMMAND once" "1" "$got"
@@ -46,10 +53,16 @@ got=$(printf 'true\nexit\n' | HERDR_PANE_ID=x /usr/bin/env bash --rcfile "$_rc" 
 rm -f "$_rc"
 check_contains "bash: never clobbers a pre-existing DEBUG trap" "$got" "KEEP_FIRED"
 
+# The quoted program runs in the SPAWNED shell, so its $variables are that
+# shell's to expand, not this one's.
+# shellcheck disable=SC2016
 got=$(HERDR_PANE_ID=x HAL_HOOK="$REPO/shell/hook.bash" /usr/bin/env bash -c \
   'preexec_functions=(); source "$HAL_HOOK"; printf "%s " "${preexec_functions[@]}"')
 check_contains "bash: cooperates with a preexec framework" "$got" "_har_preexec"
 
+# The quoted program runs in the SPAWNED shell, so its $variables are that
+# shell's to expand, not this one's.
+# shellcheck disable=SC2016
 got=$(HAL_HOOK="$REPO/shell/hook.bash" /usr/bin/env bash -c 'unset HERDR_PANE_ID; source "$HAL_HOOK"; echo "${_har_installed:-unset}"')
 check "bash: no-ops outside a herdr pane" "unset" "$got"
 
@@ -75,6 +88,9 @@ clswait() { # poll until the log has 2 lines (or ~1s passes)
 }
 
 clsbox hook.bash
+# The quoted program runs in the SPAWNED shell, so its $variables are that
+# shell's to expand, not this one's.
+# shellcheck disable=SC2016
 HERDR_PANE_ID=x HAL_HOOK="$CLS_SB/shell/hook.bash" /usr/bin/env bash -c \
   'source "$HAL_HOOK"; l() { :; }; _har_preexec "l"; _har_preexec "ls -a"; wait' 2>/dev/null
 got=$(clswait)
@@ -102,6 +118,9 @@ fi
 # portable across NixOS (no /bin) and standard Linux.
 if command -v fish >/dev/null 2>&1; then
   clsbox hook.fish
+  # The quoted program runs in the SPAWNED shell, so its $variables are that
+  # shell's to expand, not this one's.
+  # shellcheck disable=SC2016
   HERDR_PANE_ID=x HAL_HOOK="$CLS_SB/shell/hook.fish" fish -c \
     'source "$HAL_HOOK"; function l; end; _har_preexec "l"; _har_preexec "/usr/bin/env -a"' 2>/dev/null
   got=$(clswait)

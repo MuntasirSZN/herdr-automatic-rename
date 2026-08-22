@@ -3,16 +3,19 @@
 # String in / string out, so every rule is testable without a live herdr.
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib.sh
 . "$here/lib.sh"
 
 # Pin the shell name so bare-prompt cases are deterministic regardless of $SHELL.
 SHELL_NAME=zsh
+# shellcheck source=naming.sh
 . "$here/../naming.sh"
 # The engine too, for AR_JQ_CLEAN alone: the spinner strip a title gets before
 # ar_title_clean ever sees it is a jq definition there now, and it is still worth
 # pinning one seam over rather than only end to end (see the title section below).
 # Sourcing the engine defines its functions and constants and runs nothing (the
 # ar_main guard), which is what tests/test_prefix.sh relies on as well.
+# shellcheck source=automatic-rename.sh
 . "$here/../automatic-rename.sh"
 
 # ---- bare prompt / shells ----
@@ -280,6 +283,8 @@ uber=$(printf '\xc3\x9cberpr\xc3\xbcfung der Anfrage') # "Überprüfung der Anfr
 # -- tr matches jq's ascii_downcase, which leaves a non-ASCII letter alone -- so
 # each check below stays one readable line and the argument order the engine
 # passes (see ar_tab_name) is written down once.
+# The fold here mirrors the engine's, ASCII only, for the same reason it gives.
+# shellcheck disable=SC2018,SC2019
 _clean() {
   ar_title_clean "$1" "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" \
     "$(printf '%s' "${3:-}" | tr 'A-Z' 'a-z')" "${2:-}"
@@ -408,7 +413,13 @@ check "the pane directory, any case" "" "$(_clean 'API' claude api)"
 # refusals catches the bare directory name; these catch the path it ends. The last
 # case is the one that has to survive: a task description is allowed a slash.
 check "an absolute path title is refused"  "" "$(_clean "/home/u/dev/api" claude api)"
+# The tilde is DATA here: this is the title an agent set, and expanding it would
+# throw away the case under test.
+# shellcheck disable=SC2088
 check "a tilde path title is refused"      "" "$(_clean "~/dev/api" claude api)"
+# The tilde is DATA here: this is the title an agent set, and expanding it would
+# throw away the case under test.
+# shellcheck disable=SC2088
 check "a dot directory title is refused"   "" "$(_clean "~/.config" claude .config)"
 check "a task with a slash is kept"        "Fix CI/CD pipeline" \
   "$(_clean "Fix CI/CD pipeline" claude myproj)"
@@ -417,12 +428,21 @@ check "a task with a slash is kept"        "Fix CI/CD pipeline" \
 # guard exists for.
 check "a description ending in the dir is kept" "Fix build for services/payments" \
   "$(_clean "Fix build for services/payments" claude payments)"
+# The tilde is DATA here: this is the title an agent set, and expanding it would
+# throw away the case under test.
+# shellcheck disable=SC2088
 check "a bare path with no slash left is refused" "" "$(_clean "~/.config" claude .config)"
 # A trailing slash names the same directory, and the tail of a string that ends in
 # one is empty -- which matches no directory and would walk the whole path past
 # every refusal above.
 check "a trailing slash does not walk a path past it" "" "$(_clean "/home/u/dev/api/" claude api)"
+# The tilde is DATA here: this is the title an agent set, and expanding it would
+# throw away the case under test.
+# shellcheck disable=SC2088
 check "nor does one on a tilde path"                  "" "$(_clean "~/dev/api/" claude api)"
+# The tilde is DATA here: this is the title an agent set, and expanding it would
+# throw away the case under test.
+# shellcheck disable=SC2088
 check "nor on a dot directory"                        "" "$(_clean "~/.config/" claude .config)"
 # The guard trims ONE trailing slash, so a description is still read as a sentence.
 check "a task ending in a slash is still kept" "Fix CI/CD pipeline/" \

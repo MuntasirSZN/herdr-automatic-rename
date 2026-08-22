@@ -7,6 +7,7 @@
 
 set -o pipefail
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib.sh
 . "$here/lib.sh"
 
 ENGINE="$here/../automatic-rename.sh"
@@ -1886,6 +1887,91 @@ check_contains "no layouts: an agent at work still names its tab" "$out" \
   "tab rename w1:t1 Squash merge command"
 check_absent   "and never after the shell beside it"     "$out" "tab rename w1:t1 zsh"
 check_absent   "an idle agent picks no pane without a layout" "$out" "tab rename w1:t2"
+teardown
+
+# ======================================================================
+# Scenario 41: a state file jq cannot read does not end tab naming.
+#   Every writer starts from the file already on disk, so an unparseable one used
+#   to fail every write forever. The tab lost its ownership record, read as
+#   hand-renamed on the next pass, opted out, and the reset action could not bring
+#   it back either: re-adopting a tab is another write. Naming was dead for the
+#   session, silently, and the only fix was deleting a file nothing mentions.
+#   The third check is the one that matters. The rename and the healed file can
+#   both look right while naming is still dead one event later, which is exactly
+#   what the old code did.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+STATE="$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"w1:t1": {"auto": "nvim", "enab' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"nvim","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"lazygit","cmdline":"lazygit"}]}}}
+JSON
+HERDR_TAB_ID=w1:t1 run_event reset
+out=$(log)
+check_contains "reset renames past a broken state file" "$out" "tab rename w1:t1 lazygit"
+check "and the tab is owned again" "lazygit true" \
+  "$(jq -r '."w1:t1" | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
+: >"$HERDR_MOCK_LOG"
+# herdr now reports the label the reset just wrote, which is what makes the tab
+# recognizably ours on the next pass rather than hand-renamed (see scenario 38).
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"lazygit","pane_count":1,"focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+run_event tab.focused
+check_contains "a later event still follows the program" "$(log)" "tab rename w1:t1 nvim"
+teardown
+
+# ======================================================================
+# Scenario 42: healing a broken state file does not hand a tab its name back.
+#   The pass that heals the file also opts an already-named tab out, and that is
+#   the intended answer rather than a gap. A tab whose record went with the file
+#   has a label matching nothing state knows, which is exactly what a name typed
+#   by hand looks like, and re-adopting on "the label happens to equal what we
+#   would have computed" is the one thing the opt-out exists to refuse. What the
+#   heal buys is that the opt-out is RECORDED, so the reset action works again
+#   (scenario 41); before it, the write failed and nothing was recorded at all.
+#   Pinned on an ordinary event, not on reset, because reset bypasses the opt-out
+#   check by design and so cannot show this.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+STATE="$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"w1:t1": {"auto": "nvim", "enab' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"nvim","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+run_event tab.focused
+check_absent "an ordinary event renames nothing" "$(log)" "tab rename"
+check "the opt-out is recorded, not lost" " false" \
+  "$(jq -r '."w1:t1" | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
+check "and the file parses again"          "object" "$(jq -r 'type' "$STATE" 2>/dev/null)"
 teardown
 
 t_summary

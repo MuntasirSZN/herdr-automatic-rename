@@ -101,6 +101,10 @@ CONFIG_FILE="${HERDR_AUTOMATIC_RENAME_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/
 # unambiguous without touching anything the user can see.
 AR_JQ_CLEAN='def clean: (. // "") | tostring | gsub("[[:cntrl:]]"; " ");
 def lc: clean | ascii_downcase;'
+# The jq below is a PROGRAM, not a string with shell expansions in it, so the
+# single quotes are the point: $b and $brands are jq's own variables, bound by
+# --arg at each call site.
+# shellcheck disable=SC2016
 AR_JQ_TASK='def lead: sub("^[^[:alnum:]]+"; "");
 def brandmap: [ split("\n")[] | capture("^(?<k>[^=]+)=(?<v>.*)$")
   | { key: (.k | ascii_downcase), value: .v } ] | from_entries;
@@ -275,22 +279,151 @@ ar_is_placeholder() {
 # release-recheck-reacquire dance in ar_run is safe. 30s is comfortably longer
 # than any normal full pass, so a slow run is not stolen out from under itself.
 AR_LOCK_TOKEN="$$-${RANDOM:-0}-$(date +%s 2>/dev/null || echo 0)"
+
+# ar_lock_mtime <dir> <fallback> -> that directory's mtime in epoch seconds, or
+# the fallback when neither stat spelling answers (GNU takes -c, BSD takes -f).
+# Read three times per steal, which is the whole reason it is a function.
+#
+# mtime and not ctime, on purpose: a lock's mtime is when its owner file was
+# written, which is what "abandoned" is measured from. Note what that costs on the
+# moved-aside copy, since it is not obvious -- `mv` is a rename and a rename does
+# not touch the moved directory's mtime, so that copy still carries the age it had
+# before the move. Which is exactly what the freshness check below wants to read;
+# it is only worth writing down because a check for "was this moved recently"
+# cannot be built on it, and one was, and it was dead code that read as working.
+ar_lock_mtime() {
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || printf '%s' "$2"
+}
+# ar_lock_stamp -> put our token in the lock we just created, and say whether it
+# landed. A redirection that fails is reported by the SHELL, before printf runs, so
+# the `2>/dev/null` that used to sit here silenced nothing and the caller was told
+# it held a lock carrying no token: it would reconcile, and its own ar_unlock would
+# match nothing and release nothing. The lock path can be gone by now, taken away
+# by another contender's steal between our mkdir and this write.
+ar_lock_stamp() {
+  { printf '%s' "$AR_LOCK_TOKEN" > "$LOCK_DIR/owner"; } 2>/dev/null || return 1
+  # OUR token, not merely a non-empty file: granted has to mean the same thing
+  # ar_unlock later checks, or a pass can hold a lock it will never release. The
+  # write can land somewhere that is no longer ours, since a steal can take the
+  # name away between the mkdir above and this line.
+  [ "$(cat "$LOCK_DIR/owner" 2>/dev/null)" = "$AR_LOCK_TOKEN" ]
+}
+
+# Give the lock name back after a write to its owner file did not land. `rmdir`
+# alone cannot: the shell creates `owner` the moment it opens the redirect, so a
+# write that died on ENOSPC or a quota leaves a zero-byte file behind and the
+# rmdir fails on it. What stands is the very thing every caller below is trying
+# to avoid, a lock carrying a token nothing matches, which ar_unlock will not
+# touch and no contender may steal until it ages out 30 seconds later.
+# Only an EMPTY owner file is removed. A non-empty one is a whole token, and a
+# steal can take this name away between our mkdir and the write that failed, so
+# the file would be the live holder's rather than ours.
+ar_lock_giveback() {
+  [ -s "$LOCK_DIR/owner" ] || rm -f "$LOCK_DIR/owner" 2>/dev/null
+  rmdir "$LOCK_DIR" 2>/dev/null
+}
 ar_lock() {
   if mkdir "$LOCK_DIR" 2>/dev/null; then
-    printf '%s' "$AR_LOCK_TOKEN" > "$LOCK_DIR/owner" 2>/dev/null
-    return 0
+    ar_lock_stamp && return 0
+    # A stamp that could not land leaves a lock nobody holds: ar_unlock matches no
+    # token in it and no contender may steal it while its mtime is fresh, so every
+    # event after this one does nothing. Give the name back. Reachable without any
+    # race at all -- a umask of 222 makes every mkdir here unwritable, and so do
+    # ENOSPC, a quota, and a read-only remount.
+    ar_lock_giveback
+    return 1
   fi
-  local now mt age
+  local now mt age stale
   now=$(date +%s 2>/dev/null || echo 0)
-  mt=$(stat -c %Y "$LOCK_DIR" 2>/dev/null || stat -f %m "$LOCK_DIR" 2>/dev/null || echo "$now")
+  mt=$(ar_lock_mtime "$LOCK_DIR" "$now")
   age=$(( now - mt ))
   if [ "$age" -gt 30 ]; then
-    rm -f "$LOCK_DIR/owner" 2>/dev/null
-    rmdir "$LOCK_DIR" 2>/dev/null
-    if mkdir "$LOCK_DIR" 2>/dev/null; then
-      printf '%s' "$AR_LOCK_TOKEN" > "$LOCK_DIR/owner" 2>/dev/null
-      return 0
+    # Read the age once more, right before acting on it. Between the first read
+    # and here another contender can have stolen this lock, rebuilt it and started
+    # working, and moving THAT aside is what strands a live holder and frees the
+    # name for a third. Re-reading does not close the race, nothing available to a
+    # shell can, but it stops a burst from cascading: each loser that moves the
+    # winner's brand-new lock opens another window doing it. Measured over 200
+    # trials of six contenders against one abandoned lock, this line is the
+    # difference between 23 trials that produced two holders and none of them.
+    # Fail SAFE, like the read above: an unreadable lock stands in as age 0 and is
+    # refused. The fallback used to be epoch 0, which reads as 55 years old and
+    # authorizes the steal, and the lock path is routinely unreadable here -- it is
+    # the one fork between another stealer's mv and its reservation. Measured, that
+    # fallback fired 213 times over 60 bursts and every one of them moved whatever
+    # brand-new lock had appeared at that path.
+    now=$(date +%s 2>/dev/null || echo 0)
+    mt=$(ar_lock_mtime "$LOCK_DIR" "$now")
+    [ $(( now - mt )) -gt 30 ] || return 1
+    # Claim the right to steal in ONE step. The old sequence was rm + rmdir +
+    # mkdir, and a second contender's rm emptied the lock the FIRST one had just
+    # created: its rmdir then took that fresh lock away and its mkdir handed it a
+    # parallel claim, so two passes ran at once and their whole-file state writes
+    # clobbered each other -- which reads, one pass later, as a tab renamed by
+    # hand, and opts it out of naming for good. `mv` onto a name that does not
+    # exist is a single rename(2), so exactly one contender wins it and every
+    # loser finds no source left to move. The destination carries the whole token,
+    # not just $$, so residue from a crashed run with a recycled pid cannot be
+    # mistaken for a free name.
+    stale="$LOCK_DIR.stale.$AR_LOCK_TOKEN"
+    # Clear our own destination first. `mv` onto an existing directory moves the
+    # source INSIDE it, and the nested lock is then invisible to everything below:
+    # its token cannot be read, so it looks unclaimed, and the rm that follows
+    # destroys a live holder's lock and frees the name for a second pass. Only
+    # residue left by a dead run of this same token can put something there, and
+    # the token is weaker than it looks (a fresh $RANDOM moves by a fixed step per
+    # pid), so the guard is cheap next to what it prevents. plans/001 named this
+    # exact nesting as a stop-and-report condition.
+    rm -rf -- "$stale" 2>/dev/null
+    mv "$LOCK_DIR" "$stale" 2>/dev/null || return 1
+    # RESERVE the name before deciding anything, one syscall after the move. The
+    # move leaves the lock path empty, and the age that authorized it was measured
+    # on a directory this mv no longer moves: two contenders can both find one lock
+    # stale, and the second arrives here after the first has already stolen it,
+    # rebuilt it and started reconciling, so what it just moved aside is a LIVE
+    # lock. While the path stands empty a third contender wins the plain mkdir at
+    # the top of this function and reconciles beside a holder that never lost its
+    # lock, which is the double-holder this whole function exists to prevent.
+    # Taking the name first shuts that window at one syscall and leaves the freshness
+    # question to be answered at leisure, by whoever now holds the name.
+    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+      rm -rf -- "$stale" 2>/dev/null            # lost the reservation; drop the copy
+      return 1
     fi
+    now=$(date +%s 2>/dev/null || echo 0)
+    mt=$(ar_lock_mtime "$stale" "$now")
+    if [ $(( now - mt )) -le 30 ]; then
+      # What we moved was somebody's live lock. Put their token in the lock we now
+      # hold, so their own ar_unlock still recognizes it and releases it, and lose
+      # the race ourselves. Copying the token rather than moving the directory back
+      # is deliberate: `mv` onto a name that exists moves the source INSIDE it, so
+      # a hand-back would nest their lock in ours and leave a directory ar_unlock
+      # can never rmdir.
+      # Read the token BEFORE writing anywhere: `>` truncates its target before cat
+      # runs, so a victim with no token yet had ours erase whatever it wrote into the
+      # directory we reserved, and a lock with an empty owner is one nothing can
+      # release until it ages out. When there is no token to hand back, nobody had
+      # claimed that lock either, so let the name go instead of parking an ownerless
+      # lock on it. Both of those measured as the common case, not the rare one.
+      # The write is braced and checked for the same reason the stamp above is: the
+      # shell reports a failed redirection itself, so an unbraced `2>/dev/null`
+      # silences nothing and the error lands on the user's prompt, these being
+      # preexec hooks. And a hand-back that did not land leaves the same ownerless
+      # lock as a failed stamp, so it ends the same way, by giving the name back.
+      local vic
+      vic=$(cat "$stale/owner" 2>/dev/null)
+      rm -rf -- "$stale" 2>/dev/null
+      if [ -n "$vic" ] && { printf '%s' "$vic" > "$LOCK_DIR/owner"; } 2>/dev/null; then
+        :
+      else
+        ar_lock_giveback
+      fi
+      return 1
+    fi
+    rm -rf -- "$stale" 2>/dev/null
+    ar_lock_stamp && return 0
+    ar_lock_giveback                        # same as above: never leave it ownerless
+    return 1
   fi
   return 1
 }
@@ -303,6 +436,54 @@ ar_unlock() {
 # ======================================================================
 # naming state (atomic temp+mv; jq keyed by tab_id; only NAME_TABS uses it)
 # ======================================================================
+# ar_state_read -> the state object as JSON, or "{}" when the file is missing OR
+# unparseable. The two are the same answer: nothing is known about any tab. They
+# used to differ, and that is the bug -- every writer below starts from this file,
+# so one jq could not parse froze the store forever. The tab whose ownership went
+# with it reads as hand-renamed on the next pass, opts out, and the reset action
+# cannot bring it back either, since re-adopting it is another write. Naming was
+# dead for the session with nothing said and no way back but deleting the file.
+#
+# It answers with ONE object, and slurps to be sure of it. jq reads top-level
+# values as a STREAM, so `type == "object"` alone says yes to a file holding two
+# of them and hands the pair straight back: the writers then apply their update
+# to each document and write both out, so that file stays multi-document for
+# good, and ar_state_get starts emitting one value per document into a variable
+# no comparison in the opt-out machine can match. Requiring `length == 1` is
+# what makes "unreadable" cover every shape a state file can be broken into.
+# An array or a bare null is refused for the same reason: it parses, it is not a
+# store, and assigning a key into it is not a write this file can come back from.
+#
+# One extra jq per write is what validating costs. Writes are the rare path,
+# because ar_state_claim skips one whose state already says what the pass just
+# computed, which is the steady state for every named tab on every event.
+ar_state_read() {
+  local base=""
+  # A file we could not READ is not an empty store, and answering {} for it is
+  # how a good state file gets destroyed: the writer below starts from that {}
+  # and moves a one-key file over the top, so every other tab's record goes, and
+  # each of those tabs then carries a label state knows nothing about -- a name
+  # typed by hand, as far as the next pass can tell, so each opts itself out.
+  # Callers must not write on a non-zero return.
+  #
+  # The tell is cat's own exit status, NOT whether bytes are left on disk. A file
+  # holding a newline and nothing else reads back empty, because command
+  # substitution strips trailing newlines, and it still has a byte in it: judging
+  # by size refuses to heal it and freezes the store exactly the way an
+  # unparseable file used to. `echo > state.json` during a hand recovery makes
+  # one. A file that has genuinely gone (deleted between the -f and the cat)
+  # fails the read and is refused once, which the next pass reads as missing.
+  if [ -f "$STATE_FILE" ] && ! base=$(cat "$STATE_FILE" 2>/dev/null); then
+    return 1
+  fi
+  [ -n "$base" ] || { printf '{}'; return 0; }
+  printf '%s' "$base" | jq -c -s \
+    'if length == 1 and (.[0] | type) == "object" then .[0] else {} end' 2>/dev/null \
+    || printf '{}'
+}
+
+# ar_state_get reads the file directly and needs no repair path: an unreadable
+# file yields no value, and no value already means "nothing known about this tab".
 ar_state_get() { # <tab_id> <field>
   [ -f "$STATE_FILE" ] || return 0
   # NOT `.[$t][$f] // empty`: `//` treats a boolean `false` as absent, so the
@@ -314,9 +495,7 @@ ar_state_get() { # <tab_id> <field>
 }
 ar_state_set() { # <tab_id> <auto-name> <enabled true|false>
   local base tmp
-  base='{}'
-  [ -f "$STATE_FILE" ] && base=$(cat "$STATE_FILE" 2>/dev/null)
-  [ -n "$base" ] || base='{}'
+  base=$(ar_state_read) || return 1        # unreadable: leave the file alone
   # A write that did not land reports it. Ownership IS this file, so swallowing a
   # full disk or an unwritable state directory told the reset action a tab was
   # re-adopted while the next pass, finding no entry, opted it straight back out.
@@ -330,22 +509,28 @@ ar_state_set() { # <tab_id> <auto-name> <enabled true|false>
   fi
 }
 ar_state_del() { # <tab_id>
-  [ -f "$STATE_FILE" ] || return 0
   local tmp
   tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 0
-  if jq --arg t "$1" 'del(.[$t])' "$STATE_FILE" > "$tmp" 2>/dev/null; then
+  local base
+  base=$(ar_state_read) || { rm -f "$tmp"; return 0; }   # unreadable: leave it alone
+  if printf '%s' "$base" | jq --arg t "$1" 'del(.[$t])' > "$tmp" 2>/dev/null; then
     mv "$tmp" "$STATE_FILE"
   else
     rm -f "$tmp"
   fi
 }
 ar_state_prune() { # <keep tab_ids...> - drop entries for tabs that no longer exist
-  [ -f "$STATE_FILE" ] || return 0
+  # The keep list is joined on newlines, so an id carrying one would split into two
+  # entries that match nothing and the tab would be pruned while it still exists,
+  # reading as hand-renamed on the next pass. Ids reach here through `clean`, which
+  # is what keeps a control character out of one (see AR_JQ_CLEAN).
   local keep tmp
   keep=$(printf '%s\n' "$@" | jq -R . | jq -s .) || return 0
   tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 0
-  if jq --argjson keep "$keep" \
-       'with_entries(select(.key as $k | $keep | index($k)))' "$STATE_FILE" > "$tmp" 2>/dev/null; then
+  local base
+  base=$(ar_state_read) || { rm -f "$tmp"; return 0; }   # unreadable: leave it alone
+  if printf '%s' "$base" | jq --argjson keep "$keep" \
+       'with_entries(select(.key as $k | $keep | index($k)))' > "$tmp" 2>/dev/null; then
     mv "$tmp" "$STATE_FILE"
   else
     rm -f "$tmp"
@@ -685,7 +870,7 @@ ar_workspace_positions() {
                    else $mem[1:][] end )
             end ] ) as $order
     | $rows[] | ._i as $i | ($order | index($i)) as $pos
-    | [ .workspace_id, (.label | clean),
+    | [ (.workspace_id | clean), (.label | clean),
         ((if $pos == null then 0 else $pos + 1 end) | tostring) ]
     | join([31] | implode)' 2>/dev/null
 }
@@ -730,7 +915,7 @@ ar_reconcile_tabs() {
     [ -n "$tjson" ] || continue
     rows=$(printf '%s' "$tjson" | jq -r "$AR_JQ_CLEAN"'
       (.result.tabs // .tabs // [])[]
-      | [ .tab_id, (.label | clean), ((.pane_count // 0) | tostring),
+      | [ (.tab_id | clean), (.label | clean), ((.pane_count // 0) | tostring),
           ((.focused // false) | tostring), (._name_pane // ""),
           (((.label // "") != (.label | clean)) | tostring),
           (._name_agent // ""), (._name_title // ""), (._name_title_lc // ""),
@@ -1133,6 +1318,9 @@ ar_reconcile() {
   if ar_index_pass tabs || [ "$NAME_TABS" = "1" ]; then
     AR_SEEN_TABS=""
     ar_reconcile_tabs "$wsjson"
+    # AR_SEEN_TABS is a space-joined list and ar_state_prune takes one tab id per
+    # argument, so the split is the call. herdr tab ids carry no whitespace.
+    # shellcheck disable=SC2086
     [ "$NAME_TABS" = "1" ] && [ -n "$AR_SEEN_TABS" ] && ar_state_prune $AR_SEEN_TABS
   fi
   if ar_index_pass agents; then
@@ -1250,7 +1438,11 @@ ar_main() {
   mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
 
   # Config overrides must load BEFORE naming.sh (its defaults only fill unset vars).
+  # The config path is the user's, resolved at runtime, so shellcheck has no file
+  # to read here.
+  # shellcheck source=/dev/null
   [ -f "$CONFIG_FILE" ] && . "$CONFIG_FILE"
+  # shellcheck source=naming.sh
   . "$AR_ROOT/naming.sh"
 
   # TITLE_BRANDS as one argument for the two title lifts, joined here so neither

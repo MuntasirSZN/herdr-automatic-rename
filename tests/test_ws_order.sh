@@ -13,6 +13,7 @@
 
 set -o pipefail
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib.sh
 . "$here/lib.sh"
 
 ENGINE="$here/../automatic-rename.sh"
@@ -25,6 +26,7 @@ chmod +x "$MOCK" 2>/dev/null || true
 # directly. One repo with a main checkout and one linked worktree, then a plain
 # workspace, is the smallest shape that shows every rule.
 # ======================================================================
+# shellcheck source=automatic-rename.sh
 . "$ENGINE"
 
 positions() { ar_workspace_positions "$1" "$2" | tr '\037' ' ' | tr '\n' '|'; }

@@ -21,6 +21,7 @@
 # unchanged. icons.sh loads after config.sh has run, so its defaults only fill
 # unset vars.
 _ar_icons_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=icons.sh
 . "$_ar_icons_dir/icons.sh"
 unset _ar_icons_dir
 
@@ -229,6 +230,9 @@ ar_title_ignore_fold() {
   _ar_title_ignore_lc=()
   [ "${#TITLE_IGNORE[@]}" -gt 0 ] || return 0
   local entry
+  # Folding ASCII only is deliberate: the comparisons this feeds are product and
+  # directory names, and the Unicode-aware fold happens in jq (see AR_JQ_CLEAN).
+  # shellcheck disable=SC2018,SC2019
   while IFS= read -r entry; do
     [ -n "$entry" ] && _ar_title_ignore_lc+=("$entry")
   done <<< "$(printf '%s\n' "${TITLE_IGNORE[@]}" | tr 'A-Z' 'a-z')"

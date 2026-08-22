@@ -5,10 +5,12 @@
 # there and the real state is never touched.
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib.sh
 . "$here/lib.sh"
 
 SB=$(mktemp -d "${TMPDIR:-/tmp}/hal-state.XXXXXX")
 export XDG_STATE_HOME="$SB/xdg"
+# shellcheck source=automatic-rename.sh
 . "$here/../automatic-rename.sh"
 mkdir -p "$STATE_DIR"
 
@@ -85,6 +87,50 @@ reset_state
 ar_state_set tX "" false
 AR_FORCE_TAB=tX ar_name_eligible tX "still-named"; check_rc "force re-adopts" 0 $?
 
+# ======================================================================
+# ar_state_read: a file jq cannot parse is read as an empty one.
+#
+# Every writer starts from the file that is already there, so one jq could not
+# read froze the whole store: the tab lost its ownership record, read as
+# hand-renamed on the next pass, opted out, and the reset action could not bring
+# it back either, because re-adopting it is another write. Naming was dead for
+# the session with nothing said.
+# ======================================================================
+reset_state
+check "a missing state file reads as empty" "{}" "$(ar_state_read)"
+
+printf '{"t1": {"auto": "nvim", "enab' >"$STATE_FILE"
+check "a truncated state file reads as empty" "{}" "$(ar_state_read)"
+
+# The regression: with the file unparseable, a write has to land anyway.
+ar_state_set t1 nvim true
+check_rc "a truncated state file heals on write" 0 $?
+check "and the entry reads back"  "nvim" "$(ar_state_get t1 auto)"
+check "healthy state is not discarded" "nvim" "$(ar_state_read | jq -r '.t1.auto')"
+
+# A valid JSON array parses but is not a state store, and assigning a key into
+# one is not a write this file can come back from.
+printf '["t1"]' >"$STATE_FILE"
+check "a JSON array reads as empty" "{}" "$(ar_state_read)"
+
+# jq reads top-level values as a STREAM, so a file holding two objects parses and
+# would come back as the pair. The writers would then update each document and
+# write both out, leaving the file multi-document for good, and ar_state_get would
+# emit one value per document into a variable no comparison can match.
+printf '{"t1": {"auto": "nvim", "enabled": true}}\n{"t2": {"auto": "vim", "enabled": true}}\n' >"$STATE_FILE"
+check "two documents read as empty" "{}" "$(ar_state_read)"
+ar_state_set t3 lazygit true
+check_rc "and a write over them lands"  0 $?
+check "leaving exactly one document"    "1" "$(jq -s 'length' "$STATE_FILE" 2>/dev/null)"
+check "with only the new entry in it"   "lazygit" "$(ar_state_get t3 auto)"
+check "and nothing from the stream"     "" "$(ar_state_get t1 auto)"
+
+printf '{"a": {"auto": "x", "enab' >"$STATE_FILE"
+ar_state_prune a
+check "prune leaves a file that parses" "object" "$(jq -r 'type' "$STATE_FILE" 2>/dev/null)"
+
+reset_state
+
 # ---- a claim that could not be written is not a claim ----
 # Ownership IS this file, so a write that fails and says nothing let the reset
 # action report a re-adoption for a tab the next pass would find unowned and opt
@@ -113,6 +159,52 @@ AR_FORCE_TAB=tZ AR_STATE_ENABLED="" AR_STATE_AUTO="" ar_state_claim tZ nvim 1
 check "a claim that landed reports one" "1" "$AR_FORCE_ADOPTED"
 check "and the tab is owned"            "nvim true" \
   "$(ar_state_get tZ auto) $(ar_state_get tZ enabled)"
+
+# ======================================================================
+# A state file we could not READ is left alone, not overwritten as empty.
+#
+# Every writer starts from ar_state_read, and a read that failed used to be
+# indistinguishable from a file with nothing in it: the writer began at {} and
+# moved a one-key file over the top, so every other tab's record went. Each of
+# those tabs then carries a label state knows nothing about, which is what a
+# name typed by hand looks like, so each one opts itself out. Unparseable is
+# still healed -- only a read that failed is refused.
+#
+# The unreadable file is made with chmod, so the block is skipped wherever that
+# does not actually take: as root, and under a sandbox or a filesystem that
+# ignores the mode. Asserting on a file we can still read would fail for a
+# reason that has nothing to do with the code.
+# ======================================================================
+printf '{"tR":{"auto":"nvim","enabled":true},"tS":{"auto":"vim","enabled":true}}' \
+  >"$STATE_FILE"
+chmod 000 "$STATE_FILE" 2>/dev/null
+if ! cat "$STATE_FILE" >/dev/null 2>&1; then
+  ar_state_read >/dev/null
+  check_rc "an unreadable state file is not an empty store" 1 $?
+  ar_state_set tT emacs true
+  check_rc "and a write onto it is refused"                 1 $?
+  chmod 644 "$STATE_FILE"
+  check "so the records it held survive" "nvim vim" \
+    "$(ar_state_get tR auto) $(ar_state_get tS auto)"
+fi
+chmod 644 "$STATE_FILE" 2>/dev/null       # readable again whether or not it ran
+
+# A readable file holding only a newline is CORRUPT, not unreadable, so it heals
+# like any other shape jq cannot use. It reads back empty, because command
+# substitution strips trailing newlines, and it still has a byte in it -- so
+# judging a read error by size rather than by cat's exit status refuses to heal
+# it and freezes the store, which is the bug this whole path exists to fix.
+# `echo > state.json` during a hand recovery makes one.
+printf '\n' >"$STATE_FILE"
+check "a blank state file reads as empty"  "{}" "$(ar_state_read)"
+ar_state_set tU emacs true
+check_rc "and a write onto it lands"       0 $?
+check "so the store is usable again"       "emacs" "$(ar_state_get tU auto)"
+
+# A file that went away between the test and the read is refused once, which the
+# next pass reads as a missing store.
+rm -f "$STATE_FILE"
+check "a missing state file still reads as empty" "{}" "$(ar_state_read)"
 
 rm -rf "$SB" 2>/dev/null || true
 t_summary

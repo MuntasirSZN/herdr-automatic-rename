@@ -12,6 +12,7 @@
 
 set -o pipefail
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib.sh
 . "$here/lib.sh"
 
 ENGINE="$here/../automatic-rename.sh"
