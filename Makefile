@@ -6,16 +6,29 @@
 test:
 	@./tests/run.sh
 
-# Optional static analysis, if shellcheck is installed. The shell hooks are
-# per-shell (zsh/fish) so only the portable bash sources are checked.
+# Static analysis, skipped when shellcheck is absent and FAILING when it is not.
+# An `&& tool || echo skipping` chain cannot tell those apart: a real warning
+# took the || branch too, so this target printed "not installed" and exited 0,
+# and no local lint gate could ever say no. CI runs the same file list.
+#
+# -x follows the sourced files, which the `# shellcheck source=` directives in
+# each of them name. The shell hooks are per-shell (zsh/fish) so only the
+# portable bash sources are checked; CI covers those two with `zsh -n`/`fish -n`.
 lint:
-	@command -v shellcheck >/dev/null 2>&1 \
-		&& shellcheck -s bash automatic-rename.sh naming.sh icons.sh shell/hook.bash tests/*.sh \
-		|| echo "shellcheck not installed; skipping"
+	@if command -v shellcheck >/dev/null 2>&1; then \
+		shellcheck -x -s bash automatic-rename.sh naming.sh icons.sh config.example.sh \
+			shell/hook.bash tests/*.sh tests/mocks/herdr; \
+	else \
+		echo "shellcheck not installed; skipping"; \
+	fi
 	@$(MAKE) --no-print-directory lint-md
 
-# Markdown prose rules, including the no-hard-wrap check CI enforces.
+# Markdown prose rules, including the no-hard-wrap check CI enforces. Same shape
+# as lint above, and for the same reason: a hard-wrapped line used to report
+# itself as a missing npx.
 lint-md:
-	@command -v npx >/dev/null 2>&1 \
-		&& npx --yes markdownlint-cli2@0.23.2 \
-		|| echo "npx not installed; skipping markdownlint"
+	@if command -v npx >/dev/null 2>&1; then \
+		npx --yes markdownlint-cli2@0.23.2; \
+	else \
+		echo "npx not installed; skipping markdownlint"; \
+	fi

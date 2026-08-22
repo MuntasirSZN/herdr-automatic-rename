@@ -35,9 +35,14 @@ jobs:
           fish --version
           jq --version
 
+      # Every bash file in the repo, not just the three this used to name.
+      # icons.sh is 168 lines of case arms full of octal escapes, and the test
+      # scripts are most of the codebase. tests/mocks/herdr is bash with no .sh
+      # suffix, so a glob misses it.
       - name: Syntax check
         run: |
-          for f in automatic-rename.sh naming.sh shell/hook.bash; do
+          for f in automatic-rename.sh naming.sh icons.sh config.example.sh shell/hook.bash \
+                   tests/run.sh tests/lib.sh tests/test_*.sh tests/mocks/herdr; do
             /bin/bash -n "$f"
           done
           zsh -n shell/hook.zsh
@@ -60,3 +65,27 @@ jobs:
       # CHANGELOG.md, so a wrap in the source ships as a wrap on GitHub.
       - name: Lint markdown
         run: npx --yes markdownlint-cli2@0.23.2
+
+  # The bash sources only. hook.zsh and hook.fish are not bash, and the test job
+  # checks those two with `zsh -n` and `fish -n`. Its own job rather than a step
+  # in the test matrix: the answer is the same on both runners, and apt-get has
+  # no shellcheck on macOS. Keep this file list identical to the Makefile's, so
+  # `make lint` and CI cannot disagree about what is linted.
+  #
+  # -x follows the sourced files, which the `# shellcheck source=` directives
+  # inside them name.
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Version
+        run: shellcheck --version
+
+      - name: Lint shell sources
+        run: |
+          shellcheck -x -s bash automatic-rename.sh naming.sh icons.sh config.example.sh \
+            shell/hook.bash tests/*.sh tests/mocks/herdr
