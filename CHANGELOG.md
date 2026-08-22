@@ -4,6 +4,8 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-08-22
+
 ### Fixed
 
 - Tab naming could stop for a session, or for half a minute at a time, and say nothing either way. Both come from the lock that keeps one reconcile pass running at a time. Its 30-second steal was three filesystem calls, so two passes that found the same abandoned lock could both come away holding it: each writes the whole state file, one overwrites the other's record of which tabs it named, and a tab whose record is gone reads as renamed by hand on the next pass and opts out for good, recoverable only through the reset action. Stealing is now a move, an immediate reservation of the lock path, and only then the question of whether what was moved was really abandoned. Against six processes racing one abandoned lock, that is the difference between two holders in roughly a third of bursts and somewhere between none and one in a hundred.
@@ -206,7 +208,8 @@ First public release.
 - Configuration via `~/.config/herdr-automatic-rename/config.sh` (or `$HERDR_AUTOMATIC_RENAME_CONFIG`), with a documented `config.example.sh`.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers, the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.6.1...v0.7.0
