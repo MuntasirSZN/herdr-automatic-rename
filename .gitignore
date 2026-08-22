@@ -6,3 +6,6 @@
 # Test scratch (mktemp sandboxes clean themselves, but ignore any stragglers)
 tests/tmp/
 *.tmp
+
+# Scratch: review notes and other working files.
+tmp/
