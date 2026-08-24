@@ -24,7 +24,9 @@ prek run --all-files      # run every check now, staged or not
 git commit --no-verify    # skip it for one commit
 ```
 
-Each hook only fires when a file it cares about is staged, so a docs-only commit pays for markdownlint and nothing else. Two caveats: `shellcheck` and `npx` are skipped rather than failed when they are not installed locally, and a shellcheck older or newer than CI's can disagree with it, so a green hook is not a promise about the run.
+Each hook only fires when a file it cares about is staged, so a docs-only commit pays for markdownlint and nothing else. One caveat: `shellcheck` and `npx` are skipped rather than failed when they are not installed locally, so a green hook on a machine without them says less than it looks like.
+
+CI installs the exact shellcheck release named by `SHELLCHECK_VERSION` in the Makefile, because findings move between versions (an SC2218 that 0.9.0 reports, 0.11.0 does not). `make lint-sh` warns when your local shellcheck is a different version. To bump it, edit that one variable.
 
 ## Ground rules
 

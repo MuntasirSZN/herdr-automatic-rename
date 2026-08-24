@@ -1,6 +1,11 @@
 # herdr-automatic-rename developer tasks.
 
-.PHONY: test lint lint-sh lint-md syntax hooks
+.PHONY: test lint lint-sh lint-md syntax hooks print-shellcheck-version
+
+# The one place the shellcheck version is written down. CI downloads exactly
+# this release, so bumping it here is the whole bump. Findings move between
+# versions, so a local run on anything else can disagree with CI.
+SHELLCHECK_VERSION := 0.11.0
 
 # Run the full test suite (needs bash + jq only).
 test:
@@ -20,6 +25,9 @@ lint: lint-sh lint-md
 # portable bash sources are checked; the syntax target covers those two.
 lint-sh:
 	@if command -v shellcheck >/dev/null 2>&1; then \
+		have=$$(shellcheck --version | sed -n 's/^version: //p'); \
+		[ "$$have" = "$(SHELLCHECK_VERSION)" ] || \
+			echo "warning: shellcheck $$have, CI runs $(SHELLCHECK_VERSION)"; \
 		shellcheck -x -s bash automatic-rename.sh naming.sh icons.sh config.example.sh \
 			shell/hook.bash tests/*.sh tests/mocks/herdr; \
 	else \
@@ -56,3 +64,7 @@ hooks:
 	@if command -v prek >/dev/null 2>&1; then prek install; \
 	elif command -v pre-commit >/dev/null 2>&1; then pre-commit install; \
 	else echo "prek not installed: see https://prek.j178.dev (or pipx install pre-commit)"; exit 1; fi
+
+# For the CI job, which installs the pinned release rather than the distro's.
+print-shellcheck-version:
+	@echo $(SHELLCHECK_VERSION)
