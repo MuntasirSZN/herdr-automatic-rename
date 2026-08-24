@@ -14,6 +14,18 @@ make test                 # same as ./tests/run.sh
 
 Add or update a test with any behavior change. The suite covers the naming rules (`test_naming.sh`), the `[N]` prefix helpers (`test_prefix.sh`), the state store and opt-out state machine (`test_state.sh`), the cross-invocation lock (`test_lock.sh`), the shell hooks (`test_hooks.sh`), and a full reconcile against a fake herdr (`test_reconcile.sh`, driven by `tests/mocks/herdr`).
 
+## Pre-commit hook
+
+`make hooks` installs a git pre-commit hook that runs the same four checks CI runs: bash/zsh/fish syntax, shellcheck, markdownlint, then the suite. It needs [prek](https://prek.j178.dev) (`pre-commit` works too, and the config is the same `.pre-commit-config.yaml`).
+
+```sh
+make hooks                # install the hook
+prek run --all-files      # run every check now, staged or not
+git commit --no-verify    # skip it for one commit
+```
+
+Each hook only fires when a file it cares about is staged, so a docs-only commit pays for markdownlint and nothing else. Two caveats: `shellcheck` and `npx` are skipped rather than failed when they are not installed locally, and a shellcheck older or newer than CI's can disagree with it, so a green hook is not a promise about the run.
+
 ## Ground rules
 
 - **Target bash 3.2.** macOS ships `/bin/bash` 3.2, so no associative arrays, no namerefs, no `${var^^}`. When in doubt, test with `/bin/bash`.
@@ -27,5 +39,5 @@ Add or update a test with any behavior change. The suite covers the naming rules
 
 1. Fork and branch.
 2. Make the change with a test.
-3. Confirm `./tests/run.sh` passes (CI runs it on Linux and macOS).
+3. Confirm `prek run --all-files` passes (CI runs the same checks, the suite on both Linux and macOS).
 4. Open a pull request describing the behavior before and after.
