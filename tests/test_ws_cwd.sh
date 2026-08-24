@@ -307,4 +307,96 @@ run_event tab.focused
 check_contains "and tracking still works" "$(log)" "workspace rename w1 [1] project-b"
 teardown
 
+# ======================================================================
+# Scenario 12: the workspace herdr has not persisted yet, which is EVERY new
+#   one for up to five seconds. It is in no copy of session.json, so a pass
+#   numbering it seconds after it opened used to read "a label nobody derived",
+#   opt it out for good, and leave it on its creation name forever -- the very
+#   bug, surviving the fix. The pane's own directory settles the comparison at
+#   creation, where herdr's label and the pane agree. Snapshot path, since that
+#   is what herdr >= 0.7.2 gives every pass.
+# ======================================================================
+setup
+mkdir -p "$SB/home/project-a" "$SB/home/project-b"
+snapshot() {   # snapshot <ws label> <pane cwd under $SB>
+  cat >"$HERDR_MOCK_DIR/snapshot.json" <<JSON
+{"result":{"snapshot":{"workspaces":[
+  {"workspace_id":"w1","label":"$1","focused":true,"active_tab_id":"w1:t1"}
+],"tabs":[],"panes":[
+  {"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,
+   "foreground_cwd":"$SB$2"}
+],"agents":[]}}}
+JSON
+}
+session "w9=/home/other"                          # the file exists, without w1 in it
+snapshot project-a /home/project-a
+run_event workspace.created
+check_contains "unpersisted ws numbered" "$(log)" "workspace rename w1 [1] project-a"
+state=$XDG_STATE_HOME/herdr-automatic-rename/state.json
+check "and claimed from its pane" "project-a" \
+  "$(jq -r '."ws:w1".auto // ""' "$state" 2>/dev/null)"
+
+# The pane cds while herdr still has not written the file: tracking already works.
+clear_log
+snapshot '[1] project-a' /home/project-b
+run_event pane.focused
+check_contains "tracks before herdr persists it" "$(log)" "workspace rename w1 [1] project-b"
+teardown
+
+# ======================================================================
+# Scenario 13: the create prompt (`prompt_new_workspace_name`) types the name
+#   before the plugin ever sees the workspace, and that name is not what the
+#   pane's directory would give. It gets numbered and nothing else, which is the
+#   promise the README makes.
+# ======================================================================
+setup
+mkdir -p "$SB/home/project-a" "$SB/home/project-b"
+snapshot() {
+  cat >"$HERDR_MOCK_DIR/snapshot.json" <<JSON
+{"result":{"snapshot":{"workspaces":[
+  {"workspace_id":"w1","label":"$1","focused":true,"active_tab_id":"w1:t1"}
+],"tabs":[],"panes":[
+  {"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,
+   "foreground_cwd":"$SB$2"}
+],"agents":[]}}}
+JSON
+}
+session "w9=/home/other"
+snapshot 'incident room' /home/project-a
+run_event workspace.created
+check_contains "typed name numbered" "$(log)" "workspace rename w1 [1] incident room"
+
+clear_log
+snapshot '[1] incident room' /home/project-b
+run_event pane.focused
+check "typed name never retitled" "" "$(log)"
+teardown
+
+# ======================================================================
+# Scenario 14: once herdr HAS persisted the workspace, its identity_cwd wins
+#   over the pane directory. herdr moves identity with the workspace's active
+#   pane and answering which pane that is takes the layout, so the file is the
+#   answer and the panes are only the stand-in for a workspace missing from it.
+# ======================================================================
+setup
+mkdir -p "$SB/home/from-identity" "$SB/home/from-pane"
+cat >"$HERDR_MOCK_DIR/snapshot.json" <<JSON
+{"result":{"snapshot":{"workspaces":[
+  {"workspace_id":"w1","label":"[1] stale","focused":true,"active_tab_id":"w1:t1"}
+],"tabs":[],"panes":[
+  {"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,
+   "foreground_cwd":"$SB/home/from-pane"}
+],"agents":[]}}}
+JSON
+session "w1=/home/from-identity"
+printf '{"ws:w1":{"auto":"stale","enabled":true}}\n' \
+  >"$XDG_STATE_HOME/herdr-automatic-rename/state.json" 2>/dev/null \
+  || { mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"; \
+       printf '{"ws:w1":{"auto":"stale","enabled":true}}\n' \
+         >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"; }
+run_event pane.focused
+check_contains "identity_cwd wins" "$(log)" "workspace rename w1 [1] from-identity"
+check_absent   "pane dir ignored"  "$(log)" "from-pane"
+teardown
+
 t_summary

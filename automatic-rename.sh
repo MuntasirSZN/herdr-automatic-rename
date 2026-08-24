@@ -939,17 +939,58 @@ ar_project_base() {
   printf '%s' "${dir##*/}"
 }
 
-# ar_identity_base <workspace_id> -> the base herdr derives for it, from the rows
-# ar_workspace_identities put in AR_WS_IDENTITY. Returns 1 when there is no row,
-# which is not the same answer as an empty base: no row means nothing is known.
-# A loop rather than a jq per row, because a pass sees every workspace and the
-# whole map is one read.
+# ar_workspace_pane_dirs <workspace-list-json> -> one "<workspace_id><SEP><dir>"
+# row per workspace, from the panes the pass already holds: its focused pane, or
+# a pane of the tab it has active, or any pane of it.
+#
+# This is what covers a workspace herdr has not persisted yet. session.json is
+# saved on a 5-second debounce, and a workspace created inside that window is in
+# no copy of the file, so the pass numbering it seconds after it opened has no
+# identity to compare its label against. Every new workspace passes through that
+# state, and treating it as "a label nobody derived" opted the workspace out of
+# tracking for good: the numbering rename lands first, and by the time herdr
+# writes the file the label it wrote is already the stale one. Reading the pane's
+# directory instead settles the comparison at creation, where the two agree.
+#
+# A pane list is not a substitute for identity_cwd in the steady state, though.
+# herdr moves identity_cwd with the workspace's ACTIVE pane, and which pane that
+# is takes the layout to answer (ar_resolve_pane, the same problem tab naming
+# has), so a workspace whose split panes sit in different directories is exactly
+# where a guess disagrees with herdr's own label.
+ar_workspace_pane_dirs() {
+  local wsjson=$1
+  [ -n "${AR_PANES_JSON:-}" ] || return 0
+  jq -r -n "$AR_JQ_CLEAN"'
+    ($pn.result.panes // $pn.panes // []) as $panes
+    | ($ws.result.workspaces // $ws.workspaces // [])[]
+    | (.workspace_id | clean) as $w
+    | (.active_tab_id | clean) as $at
+    | [ $panes[] | select((.workspace_id | clean) == $w) ] as $mine
+    | ( ( [ $mine[] | select(.focused == true) ] | .[0] )
+        // ( [ $mine[] | select((.tab_id | clean) == $at) ] | .[0] )
+        // ( $mine | .[0] ) ) as $p
+    | select($p != null)
+    | ((($p.foreground_cwd // $p.cwd) | clean)) as $c
+    | select($c != "")
+    | [ $w, $c ] | join([31] | implode)' \
+    --argjson ws "$wsjson" --argjson pn "$AR_PANES_JSON" 2>/dev/null || printf ''
+}
+
+# ar_identity_base <workspace_id> -> the base herdr derives for it. Reads the
+# rows ar_workspace_identities put in AR_WS_IDENTITY first, since that is herdr's
+# own answer, and falls back to the pane directory in AR_WS_PANEDIR for a
+# workspace too new to be in the file. Returns 1 when neither knows it, which is
+# not the same answer as an empty base: no row means nothing is known.
+# A loop rather than a jq per row, because a pass sees every workspace and each
+# map is one read.
 ar_identity_base() { # <workspace_id>
-  local wid=$1 k v
-  [ -n "${AR_WS_IDENTITY:-}" ] || return 1
-  while IFS=$AR_ROW_SEP read -r k v; do
-    if [ "$k" = "$wid" ]; then ar_project_base "$v"; return 0; fi
-  done <<< "$AR_WS_IDENTITY"
+  local wid=$1 k v rows
+  for rows in "${AR_WS_IDENTITY:-}" "${AR_WS_PANEDIR:-}"; do
+    [ -n "$rows" ] || continue
+    while IFS=$AR_ROW_SEP read -r k v; do
+      if [ "$k" = "$wid" ]; then ar_project_base "$v"; return 0; fi
+    done <<< "$rows"
+  done
   return 1
 }
 
@@ -1026,7 +1067,11 @@ ar_renumber_workspaces() {
   rows=$(ar_workspace_positions "$json" "$(ar_collapsed_spaces)")
   [ -n "$rows" ] || return 0
   AR_WS_IDENTITY=""
-  [ "$CLEAR" = "1" ] || AR_WS_IDENTITY=$(ar_workspace_identities)
+  AR_WS_PANEDIR=""
+  if [ "$CLEAR" != "1" ]; then
+    AR_WS_IDENTITY=$(ar_workspace_identities)
+    AR_WS_PANEDIR=$(ar_workspace_pane_dirs "$json")
+  fi
   while IFS=$AR_ROW_SEP read -r wid label pos; do
     [ -n "$wid" ] || continue
     seen="$seen $wid"
@@ -1455,7 +1500,11 @@ ar_reconcile() {
                                    | split("/") | last) // "" | ascii_downcase) } ]}}' 2>/dev/null)
     AR_SNAP_AGENTS_JSON=$(printf '%s' "$snap" | jq -c \
       '{result:{agents:((.result.snapshot // .snapshot).agents // [])}}' 2>/dev/null)
-    if [ "$CLEAR" != "1" ] && [ "$NAME_TABS" = "1" ]; then
+    # Lifted whatever the toggles say, because the workspace pass wants them as
+    # well (ar_workspace_pane_dirs) and the snapshot is already in hand: one jq
+    # over memory, no herdr call. The per-list path below still fetches only when
+    # tab naming needs it, since there a pane list is a round-trip.
+    if [ "$CLEAR" != "1" ]; then
       AR_PANES_JSON=$(printf '%s' "$snap" | jq -c \
         '{result:{panes:((.result.snapshot // .snapshot).panes // [])}}' 2>/dev/null)
       [ -n "$AR_PANES_JSON" ] || AR_PANES_JSON='{"result":{"panes":[]}}'
