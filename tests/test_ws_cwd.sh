@@ -351,16 +351,6 @@ teardown
 # ======================================================================
 setup
 mkdir -p "$SB/home/project-a" "$SB/home/project-b"
-snapshot() {
-  cat >"$HERDR_MOCK_DIR/snapshot.json" <<JSON
-{"result":{"snapshot":{"workspaces":[
-  {"workspace_id":"w1","label":"$1","focused":true,"active_tab_id":"w1:t1"}
-],"tabs":[],"panes":[
-  {"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,
-   "foreground_cwd":"$SB$2"}
-],"agents":[]}}}
-JSON
-}
 session "w9=/home/other"
 snapshot 'incident room' /home/project-a
 run_event workspace.created
