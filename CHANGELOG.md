@@ -4,6 +4,14 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Fixed
+
+- A numbered workspace goes on following its directory ([#13](https://github.com/qu8n/herdr-automatic-rename/issues/13)). herdr names a workspace after `identity_cwd`, its own tracked directory, and the first `workspace rename` freezes that name for good: herdr keeps the directory current and never labels from it again. Numbering a workspace pinned it to whatever it was called when it opened, and no smaller rename would have helped, because there is no rename that leaves the derivation alive.
+
+  The base now comes from `identity_cwd`, read out of the `session.json` the collapse rules already read, and resolves to the repository the directory belongs to, or to the directory itself outside a repo. A pane moving around inside a project is not a rename; a pane that leaves takes the new name. Two caveats come with the file. The value is in no API response, and herdr saves it on a 5-second debounce, so a `cd` lands on the label an event or two later rather than instantly. An older herdr without the field keeps the previous behavior.
+
+  A workspace named by hand, or by another plugin, keeps its name and is only ever numbered, which is the promise a tab already gets. The plugin tracks a label that is herdr's own derivation or its own last write, and nothing else. Renaming a workspace back to the directory name hands tracking back, since `reset` takes a tab and a workspace has no equivalent.
+
 ## [0.7.3] - 2026-08-22
 
 ### Fixed

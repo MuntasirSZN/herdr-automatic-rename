@@ -6,6 +6,7 @@ This plugin makes herdr easier to navigate:
 
 - Like [tmux](https://github.com/tmux/tmux)'s `automatic-rename`, a tab shows its foreground process (`nvim`, `claude`) or the shell (`zsh`) instead of `1`, `2`, `3`. A tab running a coding agent shows the task instead, with names like `Squash merge command`.
 - Workspaces and tabs get an `[N]` prefix matching the `1-9` binding for that slot, so you can glance at the sidebar or tab bar and jump straight there.
+- A workspace keeps the name herdr gives it, which follows the directory its panes are in. Numbering it used to freeze that name at whatever the workspace was called when it opened.
 
 Set `NAME_TABS=0` to turn off the naming, `AUTO_INDEX=0` to turn off the numbering.
 
@@ -65,7 +66,7 @@ herdr asks each new tab for a name (`prompt_new_tab_name`, on by default). A nam
 prompt_new_tab_name = false
 ```
 
-Keep `prompt_new_workspace_name` if you use it. The plugin only prefixes workspace names, it never generates them.
+Keep `prompt_new_workspace_name` if you use it. A name typed there is a name the plugin leaves alone, prefix aside.
 
 ## Configuration
 

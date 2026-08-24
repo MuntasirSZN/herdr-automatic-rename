@@ -529,8 +529,15 @@ ar_state_prune() { # <keep tab_ids...> - drop entries for tabs that no longer ex
   tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 0
   local base
   base=$(ar_state_read) || { rm -f "$tmp"; return 0; }   # unreadable: leave it alone
+  # "ws:" keys belong to the workspace tracker (ar_state_prune_ws prunes those),
+  # and a keep list of tab ids never holds one: selecting on this list ALONE wiped
+  # every workspace's ownership record on the pass after it was written, so each
+  # workspace read as first-seen, found a label that was no longer herdr's own
+  # derivation, and opted itself out of tracking for good -- issue #13 again, one
+  # layer down. Each kind prunes its own keys and leaves the other's alone.
   if printf '%s' "$base" | jq --argjson keep "$keep" \
-       'with_entries(select(.key as $k | $keep | index($k)))' > "$tmp" 2>/dev/null; then
+       'with_entries(select((.key | startswith("ws:")) or (.key as $k | $keep | index($k))))' \
+       > "$tmp" 2>/dev/null; then
     mv "$tmp" "$STATE_FILE"
   else
     rm -f "$tmp"
@@ -877,21 +884,169 @@ ar_workspace_positions() {
     | join([31] | implode)' 2>/dev/null
 }
 
-# Workspaces: number them by herdr's visible sidebar order. Arg 1 is a cached
-# `workspace list` JSON.
+# ar_workspace_identities -> one "<workspace_id><SEP><identity_cwd>" row per
+# workspace herdr has an identity directory for, or nothing at all.
+#
+# identity_cwd is herdr's OWN tracked directory for a workspace: it follows the
+# focused pane's cwd. herdr labels the workspace after it -- until the first
+# rename, which freezes the derivation for good while identity_cwd goes on
+# updating (issue #13). Reading the value back is what lets a numbered workspace
+# keep tracking its directory, and a pane cwd out of `pane list` is not a
+# substitute: herdr updates identity_cwd for the FOCUSED pane only, and a pass
+# would have to decide which pane speaks for a split.
+#
+# Same file, and the same two caveats, as ar_collapsed_spaces: herdr publishes the
+# value nowhere in its API (no field on `workspace list` or `api snapshot`,
+# checked against protocol 17), and session.json is saved on a 5-second debounce,
+# so a cd lands on the label an event or two later rather than instantly. A
+# missing, unreadable, or older-herdr file yields no rows, which is what makes
+# the caller fall back to the label it wrote last pass -- the behavior before
+# this existed.
+ar_workspace_identities() {
+  jq -r "$AR_JQ_CLEAN"'
+    .workspaces[]? | select(type == "object")
+    | ((.id // .workspace_id) | strings | clean) as $w
+    | (.identity_cwd | strings | clean) as $c
+    | select($w != "" and $c != "")
+    | [ $w, $c ] | join([31] | implode)' \
+    "$(ar_herdr_session_dir)/session.json" 2>/dev/null || printf ''
+}
+
+# ar_project_base <dir> -> the base herdr labels a workspace sitting in <dir>:
+# the name of the repository <dir> belongs to, or <dir>'s own name outside a repo.
+#
+# Measured against herdr 0.8.2, both arms. A workspace whose pane cds from a repo
+# root into a subdirectory keeps the repo's name; one that cds between plain
+# directories takes the new directory's name. Taking the basename alone would
+# rename the workspace on every cd inside the project, which is the opposite of
+# what this feature is for.
+#
+# The walk looks for `.git` rather than asking git, because a linked worktree's
+# `.git` is a FILE and its repo name is the checkout's own directory name (herdr
+# labels those by the checkout, not the main repo), which is exactly what the
+# first hit up the chain gives -- and it costs no process. It stops at "/" and
+# tolerates a relative or empty path by answering the plain basename.
+ar_project_base() {
+  local dir=$1
+  case "$dir" in
+    /*) while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+          if [ -e "$dir/.git" ]; then break; fi
+          dir=${dir%/*}
+        done
+        [ -n "$dir" ] && [ "$dir" != "/" ] || dir=$1 ;;
+  esac
+  dir=${dir%/}
+  printf '%s' "${dir##*/}"
+}
+
+# ar_identity_base <workspace_id> -> the base herdr derives for it, from the rows
+# ar_workspace_identities put in AR_WS_IDENTITY. Returns 1 when there is no row,
+# which is not the same answer as an empty base: no row means nothing is known.
+# A loop rather than a jq per row, because a pass sees every workspace and the
+# whole map is one read.
+ar_identity_base() { # <workspace_id>
+  local wid=$1 k v
+  [ -n "${AR_WS_IDENTITY:-}" ] || return 1
+  while IFS=$AR_ROW_SEP read -r k v; do
+    if [ "$k" = "$wid" ]; then ar_project_base "$v"; return 0; fi
+  done <<< "$AR_WS_IDENTITY"
+  return 1
+}
+
+# ar_ws_track_eligible <workspace_id> <base label, prefix stripped> <identity base>
+# The manual-rename exclusion for workspaces: 0 to take the base from herdr's
+# directory derivation, 1 to leave the label's own base alone. Keyed "ws:<id>" in
+# the same state file the tabs use, which no tab id can collide with (a tab id
+# carries its workspace and a colon) and no tab prune may drop.
+#
+# Two ways in. The label already IS herdr's derivation, which covers a workspace
+# seen for the first time and one renamed back by hand -- the recovery path, since
+# workspaces have no `reset` action. Or state says we own it and the base is still
+# what we last wrote, which is the case that survives a cd: herdr's derivation has
+# moved on and ours has not, and only the record tells that apart from a name
+# somebody typed. Anything else is somebody's name and is left alone for good.
+ar_ws_track_eligible() {
+  local key="ws:$1" slabel=$2 ibase=$3 enabled auto
+  enabled=$(ar_state_get "$key" enabled)
+  auto=$(ar_state_get "$key" auto)
+  AR_WS_STATE_ENABLED=$enabled
+  AR_WS_STATE_AUTO=$auto
+  if [ "$slabel" = "$ibase" ]; then
+    return 0
+  elif [ "$enabled" = "true" ] && [ "$slabel" = "$auto" ]; then
+    return 0
+  fi
+  [ "$enabled" = "false" ] || ar_state_set "$key" "" false
+  return 1
+}
+
+# ar_ws_claim <workspace_id> <base> - record that we own this workspace's base,
+# unless state already says exactly that (the steady state, every pass, for every
+# tracked workspace: ar_state_set rewrites the whole file). Reads what
+# ar_ws_track_eligible published for this same workspace. Only ever called for a
+# base the workspace CARRIES -- a base recorded for a rename that never landed
+# reads as a hand-typed name one pass later, and opts the workspace out.
+ar_ws_claim() {
+  if [ "${AR_WS_STATE_ENABLED:-}" = "true" ] && [ "${AR_WS_STATE_AUTO:-}" = "$2" ]; then
+    return 0
+  fi
+  ar_state_set "ws:$1" "$2" true
+}
+
+# ar_state_prune_ws <keep workspace_ids...> - drop the "ws:" records of
+# workspaces that no longer exist, and touch no other key (the tabs own theirs,
+# and ar_state_prune is called with tab ids alone). Writes only when the pruned
+# document differs, so a steady session leaves the file alone.
+ar_state_prune_ws() {
+  local keep base pruned tmp
+  keep=$(printf '%s\n' "$@" | jq -R . | jq -s .) || return 0
+  base=$(ar_state_read) || return 0                      # unreadable: leave it alone
+  pruned=$(printf '%s' "$base" | jq -c --argjson keep "$keep" \
+    'with_entries(select((.key | startswith("ws:") | not)
+                         or ((.key | ltrimstr("ws:")) as $w | $keep | index($w))))' \
+    2>/dev/null) || return 0
+  [ -n "$pruned" ] && [ "$pruned" != "$base" ] || return 0
+  tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 0
+  if printf '%s' "$pruned" > "$tmp"; then mv "$tmp" "$STATE_FILE"; else rm -f "$tmp"; fi
+}
+
+# Workspaces: number them by herdr's visible sidebar order, and keep the base
+# tracking the workspace's directory. Arg 1 is a cached `workspace list` JSON.
+#
+# The base comes from herdr's identity_cwd, not from the label we wrote last pass.
+# Recycling the label is what made issue #13: the first numbering rename freezes
+# herdr's own directory derivation, so a label built out of the previous label can
+# never move again, and a workspace kept the name it had when it was created.
+# Ownership decides per workspace whether that swap applies (ar_ws_track_eligible),
+# and --clear skips it entirely: the uninstall path strips prefixes and retitles
+# nothing.
 ar_renumber_workspaces() {
-  local json=$1 rows wid label pos base want
+  local json=$1 rows wid label pos base want ibase track seen=""
   [ -n "$json" ] || return 0
   rows=$(ar_workspace_positions "$json" "$(ar_collapsed_spaces)")
   [ -n "$rows" ] || return 0
+  AR_WS_IDENTITY=""
+  [ "$CLEAR" = "1" ] || AR_WS_IDENTITY=$(ar_workspace_identities)
   while IFS=$AR_ROW_SEP read -r wid label pos; do
     [ -n "$wid" ] || continue
+    seen="$seen $wid"
     base=$(ar_strip_prefix "$label")
+    track=0
+    if ibase=$(ar_identity_base "$wid") && ar_ws_track_eligible "$wid" "$base" "$ibase"; then
+      base=$ibase
+      track=1
+    fi
     [ -n "$base" ] || continue          # empty label: nothing to number, leave it
     want=$(ar_desired workspaces "$pos" "$base")  # position 0 (hidden) -> bare, like 10+
-    [ "$want" = "$label" ] && continue
-    "$HERDR" workspace rename "$wid" "$want" >/dev/null 2>&1 || true
+    if [ "$want" != "$label" ]; then
+      "$HERDR" workspace rename "$wid" "$want" >/dev/null 2>&1 || continue
+    fi
+    [ "$track" = "1" ] && ar_ws_claim "$wid" "$base"
   done <<< "$rows"
+  # A workspace id carries no whitespace (both go through `clean`), so the
+  # space-joined list splits into one argument per workspace.
+  # shellcheck disable=SC2086
+  [ "$CLEAR" = "1" ] || ar_state_prune_ws $seen
 }
 
 # Tabs: cmd+N indexes the focused workspace's tabs by ARRAY ORDER (NOT the

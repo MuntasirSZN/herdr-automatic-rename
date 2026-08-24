@@ -40,7 +40,11 @@ case "$group" in
   workspace)
     case "$action" in
       list)   serve workspaces.json '{"result":{"workspaces":[]}}' ;;
-      rename) printf 'workspace rename %s %s\n' "$1" "$2" >>"$log" ;;
+      # $HERDR_MOCK_FAIL_RENAME=1 rejects this the way it rejects a tab rename
+      # (see below): logged, then non-zero, so a test can tell an attempted
+      # rename from a landed one.
+      rename) printf 'workspace rename %s %s\n' "$1" "$2" >>"$log"
+              [ "${HERDR_MOCK_FAIL_RENAME:-0}" = "1" ] && exit 1 ;;
     esac ;;
   tab)
     case "$action" in
