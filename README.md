@@ -10,7 +10,7 @@ This plugin makes herdr easier to navigate:
 
 Set `NAME_TABS=0` to turn off the naming, `AUTO_INDEX=0` to turn off the numbering.
 
-<img width="1080" height="942" alt="Tab bars before and after the plugin names tabs" src="docs/readme-demo.jpg" />
+<img width="1200" height="520" alt="Tab bars before and after the plugin names tabs" src="docs/readme-demo.jpg" />
 
 ## Requirements
 
