@@ -185,6 +185,42 @@ declare -p TITLE_IGNORE >/dev/null 2>&1 || TITLE_IGNORE=("claude code" "codex cl
 # kinds (src/detect/mod.rs, herdr 0.8.2) and both are the same program's brand.
 declare -p TITLE_BRANDS >/dev/null 2>&1 || TITLE_BRANDS=("pi="$'\317\200' "omp="$'\317\200')
 
+# 1 = condense a title into its keywords before it becomes a label, instead of
+# showing the agent's sentence with the tail cut off. A title arrives as prose
+# ("Adjust the screensaver timeout") and MAX_TITLE_LEN takes the end off it, so
+# the words that say WHICH task this is are the first to go. Condensing drops a
+# leading verb and the filler and joins what is left, which fits the same budget
+# while keeping the nouns: "screensaver-timeout".
+#
+# Off by default, so a config that does not name it gets the title exactly as
+# AGENT_TITLES has always rendered it. That is also what keeps this a bolt-on:
+# every released test asserts the sentence, and a default of 1 would rewrite
+# their expectations rather than add to them.
+: "${TITLE_CONDENSE:=0}"
+
+# Verbs an agent opens a title with. Every tab reading "Fix ..." or "Add ..."
+# spends its first word saying what the tab beside it also says, so a LEADING one
+# is dropped. Leading only: "port" in "port forwarding" is the subject.
+declare -p TITLE_LEAD_VERBS >/dev/null 2>&1 || TITLE_LEAD_VERBS=(review adjust add fix update
+  create make check investigate debug refactor implement write set setup configure explore
+  improve build test run clean remove delete migrate port rename draft plan research diagnose audit)
+
+# Words dropped wherever they appear. A tab label is not a sentence, so articles,
+# prepositions and phrasal-verb particles only spend the budget.
+declare -p TITLE_FILLER_WORDS >/dev/null 2>&1 || TITLE_FILLER_WORDS=(a an the to for of on in at
+  and or with from into via why how what that if whether is are be it its this up out off down over back)
+
+# What joins the surviving words. The default fuses the label into one token, the
+# shape every other tab name has; " " reads as the phrase instead. Its length is
+# charged to MAX_TITLE_LEN like any other character.
+: "${TITLE_WORD_SEPARATOR:=-}"
+
+# Casing. "fold" downcases every word except an all-caps-and-digits identifier: a
+# sentence-case capital is the agent writing a sentence rather than signal, while
+# the shape of "ETL" carries meaning. "lower" folds the identifiers too, and
+# "keep" leaves the agent's casing alone.
+: "${TITLE_CASE:=fold}"
+
 # Exact program-name renames: "<program>=<label>" pairs. A matching foreground
 # program is shown as <label> regardless of its category (e.g. "clx=hn" makes a
 # clx tab read "hn"). Takes priority over every rule except the bare-prompt shell
@@ -566,6 +602,77 @@ ar_title_ignore_fold() {
   done
 }
 
+
+# ar_condense_title <title> [<reserved>] -> a task label, or "".
+#
+# The label fits MAX_TITLE_LEN minus <reserved>'s length: the caller passes the
+# literal text that will share the label (a name part and its joint, a glyph
+# and its space), and jq measures it in codepoints, because bash's ${#} counts
+# bytes under a C locale and would overcharge anything non-ASCII.
+#
+# Selects; never generates. The agent already wrote the summary, so the work here
+# is only to shorten it: drop a leading verb (TITLE_LEAD_VERBS), drop filler
+# (TITLE_FILLER_WORDS), then take whole words from the front until the budget is
+# spent, stopping at the first word that does not fit rather than skipping ahead
+# (a later short word would read as a non sequitur next to the ones before it).
+#
+# Words are taken in the order the agent wrote them. Selecting by "distinctness"
+# instead -- proper nouns, gerunds, rare words -- measurably reads worse: it
+# prefers where the work happens over what it is ("screensaver Ubuntu" for
+# "Adjust screensaver timeout on the Ubuntu box"), and an -ing word in these
+# summaries is usually a modifier ("streaming pipeline"), so promoting it evicts
+# the noun carrying the meaning. The input is already ordered by an agent that
+# put the salient words first; this trusts that rather than re-ranking it.
+#
+# One jq program rather than a bash loop: jq is already a hard dependency, reads
+# UTF-8 regardless of the ambient locale (see the truncation note in ar_format),
+# and keeps this a single subprocess per tab.
+ar_condense_title() {
+  local title=$1 reserved=${2:-} max=${MAX_TITLE_LEN:-28}
+  [ -n "$title" ] || return 0
+  printf '%s' "$title" | jq -Rrs \
+    --argjson max "$max" \
+    --arg reserved "$reserved" \
+    --arg sep "${TITLE_WORD_SEPARATOR:--}" \
+    --arg case "${TITLE_CASE:-fold}" \
+    --arg verbs "${TITLE_LEAD_VERBS[*]}" \
+    --arg filler "${TITLE_FILLER_WORDS[*]}" '
+      ([$max - ($reserved | length), 0] | max) as $m
+    | ($verbs  | ascii_downcase | split(" ")) as $verb
+    | ($filler | ascii_downcase | split(" ")) as $fill
+    # Leading state glyphs: herdr strips some agent title decorations but not
+    # all, and a label must not open with a stray bullet. Separators inside the
+    # title are word breaks, not characters ("tab/workspace" is two words).
+    | sub("^[^\\p{L}\\p{N}]+"; "")
+    # An agent that badges its title ("OC | Reviewing unpushed commits") spends
+    # the budget on its own name before saying anything. Drop a short all-caps
+    # token followed by a pipe: that shape is branding, and the cap plus the
+    # upper-case requirement keeps it off real content ("auth | login flow"
+    # keeps its first word).
+    | sub("^[A-Z0-9]{1,4} *\\| *"; "")
+    | gsub("[/,;:|]+"; " ")
+    | [splits("[[:space:]]+")]
+    | map(select(length > 0))
+    | . as $words
+    | (if ($words | length) > 0 and ($verb | index($words[0] | ascii_downcase))
+       then $words[1:] else $words end)
+    | map(. as $w | select($fill | index($w | ascii_downcase) | not))
+    # Casing: a sentence-case capital is the agent writing a sentence, not
+    # signal; an all-caps-and-digits token is an identifier whose shape means
+    # something. "fold" spares only the identifiers, "lower" folds those too,
+    # "keep" touches nothing. Anything else behaves as the "fold" default.
+    | map(if $case == "keep" then .
+          elif $case == "lower" then ascii_downcase
+          elif test("^[A-Z0-9]{2,}$") then .
+          else ascii_downcase end)
+    | reduce .[] as $w ({out: "", done: false};
+        if .done then .
+        elif .out == "" then {out: ($w[:$m]), done: false}
+        elif ((.out | length) + ($sep | length) + ($w | length)) <= $m then {out: (.out + $sep + $w), done: false}
+        else {out: .out, done: true} end)
+    | .out
+  ' 2>/dev/null
+}
 # ---- helpers ----
 
 # ssh options whose value is a SEPARATE argument, so `ssh -p 2222 prod-01` does
