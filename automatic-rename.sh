@@ -823,7 +823,7 @@ ar_tab_name() {
     # reached when there is a session to read and a title that was not enough, so
     # a titled agent pays nothing for this.
     if [ -z "$title" ] && [ -n "$AR_PANE_SESSION" ] \
-       && ar_transcript_topic "$AR_PANE_SESSION" "$AR_PANE_DIR"; then
+       && ar_transcript_topic "$AR_PANE_AGENT" "$AR_PANE_SESSION" "$AR_PANE_DIR"; then
       title=$(ar_title_clean "$AR_TRANSCRIPT_TOPIC" "$AR_TRANSCRIPT_TOPIC_LC" \
         "$AR_PANE_DIR_LC" "$AR_PANE_AGENT")
     fi

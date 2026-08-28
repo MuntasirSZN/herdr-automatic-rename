@@ -677,6 +677,12 @@ check "and by whatever case it was written in" "" \
   "$(ar_ssh_host 'ssh -o proxycommand=ssh -W %h:%p bastion prod-01')"
 check "a remote command is refused as well" "" \
   "$(ar_ssh_host 'ssh -o RemoteCommand=tail -f /var/log/syslog prod-01')"
+# ssh takes the setting attached to the flag too, and that form has to be read
+# the same way: it was the flag's own word that told us a setting was coming.
+check "an attached proxy command is refused" "" \
+  "$(ar_ssh_host 'ssh -oProxyCommand=ssh -W %h:%p bastion prod-01')"
+check "an attached ordinary setting still parses" "prod-01" \
+  "$(ar_ssh_host 'ssh -oStrictHostKeyChecking=no prod-01')"
 # An ordinary -o option has a value that cannot hold a space, so it parses.
 check "an ordinary -o option still parses" "prod-01" \
   "$(ar_ssh_host 'ssh -o StrictHostKeyChecking=no prod-01')"

@@ -429,4 +429,36 @@ check_contains "the program names the tab instead" "$out" "tab rename w1:t1 clau
 check_absent   "the transcript is not read"        "$out" "Not to be read"
 teardown
 
+# ======================================================================
+# Scenario 13: another agent's pane is not read. Only Claude Code keeps its
+#   sessions in this shape and this place, and a pane can carry a session value
+#   that a claude left behind in it -- reading that would put one agent's prompts
+#   on another agent's tab.
+# ======================================================================
+setup
+SESSION=647693ed-d633-4871-b7ee-5f5e4b5728ea
+mkdir -p "$CLAUDE_CONFIG_DIR/projects/-home-u-dev-api"
+cat >"$CLAUDE_CONFIG_DIR/projects/-home-u-dev-api/$SESSION.jsonl" <<'JSON'
+{"type":"ai-title","aiTitle":"Belongs to claude","sessionId":"x"}
+JSON
+cat >"$HERDR_MOCK_DIR/snapshot.json" <<JSON
+{"result":{"snapshot":{
+  "workspaces":[{"workspace_id":"w1","label":"api"}],
+  "tabs":[{"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true,"workspace_id":"w1"}],
+  "panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true,"cwd":"/home/u/dev/api",
+     "agent":"codex","agent_status":"working",
+     "agent_session":{"agent":"claude","kind":"id","value":"$SESSION"}}],
+  "layouts":[{"tab_id":"w1:t1","focused_pane_id":"p1"}]
+}}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"codex","cmdline":"codex"}]}}}
+JSON
+HOME=/home/u run_event tab.focused
+out=$(log)
+check_contains "the program names the tab" "$out" "tab rename w1:t1 codex"
+check_absent   "another agent's transcript is not read" "$out" "Belongs to claude"
+teardown
+
 t_summary

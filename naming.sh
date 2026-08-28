@@ -505,7 +505,17 @@ _AR_SSH_VALUE_FLAGS='BbcDEeFIiJLlmOoPpQRSWw'
 # is a tab confidently naming the wrong machine. Seeing one of these is how that
 # is recognized; the answer is to refuse the line. Written lowercase and compared
 # folded, since ssh does not care how they are spelled.
-_AR_SSH_COMMAND_OPTS=' proxycommand remotecommand localcommand knownhostscommand setenv '
+_AR_SSH_COMMAND_OPTS=(proxycommand remotecommand localcommand knownhostscommand setenv)
+
+# ar_ssh_setting_opaque <setting=value> -> 0 when that -o setting takes a COMMAND
+# for its value, and so when nothing after it on a flattened command line can be
+# trusted: the command's own words are already mixed in with ssh's, and a
+# ProxyCommand parses as its own bastion -- a tab confidently naming the wrong
+# machine. Folded, since ssh does not care how a setting is spelled.
+ar_ssh_setting_opaque() {
+  ar_case "${1%%=*}" "$_AR_UPPER" "$_AR_LOWER"
+  ar_in_list "$AR_CASE" "${_AR_SSH_COMMAND_OPTS[@]}"
+}
 
 # ar_ssh_host <command line> -> the machine the pane reached, or "" when the
 # command is not ssh or names no destination.
@@ -545,11 +555,7 @@ ar_ssh_host() {
       skip=0
       if [ "$setting" = "1" ]; then
         setting=0
-        # A setting whose value is a command: the rest of the line is that
-        # command mixed in with ssh's own arguments and there is no telling them
-        # apart, so nothing after this can be trusted.
-        ar_case "${word%%=*}" "$_AR_UPPER" "$_AR_LOWER"
-        case $_AR_SSH_COMMAND_OPTS in *" $AR_CASE "*) return 0 ;; esac
+        ar_ssh_setting_opaque "$word" && return 0
       fi
       continue
     fi
@@ -571,8 +577,15 @@ ar_ssh_host() {
           cluster=${cluster#?}
           case $_AR_SSH_VALUE_FLAGS in
           *"$letter"*)
-            [ -n "$cluster" ] || skip=1
-            [ "$letter" = "o" ] && setting=1
+            # ssh takes -o's setting either attached to the flag or as the next
+            # word, and both forms have to be read: the attached one is what
+            # `-oProxyCommand=...` writes.
+            if [ -n "$cluster" ]; then
+              [ "$letter" = "o" ] && ar_ssh_setting_opaque "$cluster" && return 0
+            else
+              skip=1
+              [ "$letter" = "o" ] && setting=1
+            fi
             break
             ;;
           esac

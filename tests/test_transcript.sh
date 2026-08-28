@@ -13,6 +13,11 @@ here=$(cd "$(dirname "$0")" && pwd)
 SHELL_NAME=zsh
 # shellcheck source=naming.sh
 . "$here/../naming.sh"
+# The engine too, for the jq definitions a topic is cleaned and folded through
+# (AR_JQ_CLEAN / AR_JQ_TASK) and for AR_ROW_SEP. Sourcing it defines its
+# functions and runs nothing, which is what tests/test_naming.sh relies on too.
+# shellcheck source=automatic-rename.sh
+. "$here/../automatic-rename.sh"
 # shellcheck source=transcript.sh
 . "$here/../transcript.sh"
 
@@ -24,7 +29,10 @@ SLUG=-Users-tester-dev-api
 mkdir -p "$CLAUDE_CONFIG_DIR/projects/$SLUG"
 FILE="$CLAUDE_CONFIG_DIR/projects/$SLUG/$ID.jsonl"
 
-topic_of() { if ar_transcript_topic "$1" "$2"; then printf '%s' "$AR_TRANSCRIPT_TOPIC"; else printf -- '-'; fi; }
+topic_of() {
+  if ar_transcript_topic "${3:-claude}" "$1" "$2"; then printf '%s' "$AR_TRANSCRIPT_TOPIC"
+  else printf -- '-'; fi
+}
 
 # ---- the title the agent generated ----
 # Claude Code writes one of these every time it renames the session, so the LAST
@@ -37,7 +45,7 @@ cat >"$FILE" <<'JSON'
 JSON
 check "the last generated title wins" "Uploader retry backoff" "$(topic_of "$ID" "$DIR")"
 check "and is folded for comparison" "uploader retry backoff" \
-  "$(ar_transcript_topic "$ID" "$DIR" && printf '%s' "$AR_TRANSCRIPT_TOPIC_LC")"
+  "$(ar_transcript_topic claude "$ID" "$DIR" && printf '%s' "$AR_TRANSCRIPT_TOPIC_LC")"
 
 # ---- the first prompt, when there is no title yet ----
 # The case this exists for: a session that has said nothing Claude Code could
@@ -135,6 +143,15 @@ check "an id that is not a uuid is refused" "-" "$(topic_of notauuid "$DIR")"
 check "an unknown session is not there" "-" \
   "$(topic_of 00000000-0000-0000-0000-000000000000 "$DIR")"
 check "AGENT_TRANSCRIPT=0 reads nothing" "-" "$(AGENT_TRANSCRIPT=0 topic_of "$ID" "$DIR")"
+# Only Claude Code keeps its sessions in this shape and this place. Another
+# agent's pane can carry a session value of its own -- or a stale one left by a
+# claude that ran there before -- and reading it here would put one agent's
+# prompts on another agent's tab.
+cat >"$FILE" <<'JSON'
+{"type":"ai-title","aiTitle":"Belongs to claude","sessionId":"x"}
+JSON
+check "another agent's pane is not read" "-" "$(topic_of "$ID" "$DIR" codex)"
+check "and the kind is compared exactly" "-" "$(topic_of "$ID" "$DIR" Claude)"
 
 rm -rf "$SB"
 t_summary
