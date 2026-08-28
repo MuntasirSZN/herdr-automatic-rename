@@ -269,10 +269,16 @@ ar_context_dir() {
     # would disagree about whether a directory repeats its workspace -- which is
     # a tab that flips on every prompt. ASCII, deterministically, in both.
     local folded
-    ar_case "$base" "$_AR_UPPER" "$_AR_LOWER"
-    folded=$AR_CASE
-    ar_case "$ws" "$_AR_UPPER" "$_AR_LOWER"
-    [ "$folded" = "$AR_CASE" ] && return 0
+    # The exact match is the common one and the length is what rules most of the
+    # rest out, both without touching the fold below, which walks two strings a
+    # character at a time on a path that runs per tab and per prompt.
+    [ "$base" = "$ws" ] && return 0
+    if [ "${#base}" = "${#ws}" ]; then
+      ar_case "$base" "$_AR_UPPER" "$_AR_LOWER"
+      folded=$AR_CASE
+      ar_case "$ws" "$_AR_UPPER" "$_AR_LOWER"
+      [ "$folded" = "$AR_CASE" ] && return 0
+    fi
   fi
   ar_trunc "$base" "${MAX_CONTEXT_LEN:-12}"
 }
@@ -476,10 +482,12 @@ ar_title_ignore_fold() {
   local entry
   # Folding ASCII only is deliberate: the comparisons this feeds are product and
   # directory names, and the Unicode-aware fold happens in jq (see AR_JQ_CLEAN).
-  # shellcheck disable=SC2018,SC2019
-  while IFS= read -r entry; do
-    [ -n "$entry" ] && _ar_title_ignore_lc+=("$entry")
-  done <<< "$(printf '%s\n' "${TITLE_IGNORE[@]}" | tr 'A-Z' 'a-z')"
+  # ar_case rather than `tr`, so this file has one case-fold and not two.
+  for entry in "${TITLE_IGNORE[@]}"; do
+    [ -n "$entry" ] || continue
+    ar_case "$entry" "$_AR_UPPER" "$_AR_LOWER"
+    _ar_title_ignore_lc+=("$AR_CASE")
+  done
 }
 
 # ---- helpers ----
@@ -504,44 +512,41 @@ _AR_SSH_VALUE_FLAGS='BbcDEeFIiJLlmOoPpQRSWw'
 # to say who is logged in.
 ar_ssh_host() {
   [ "${TAB_CONTEXT:-1}" = "1" ] || return 0
-  local word host="" skip=0 first=1
-  # Word splitting is the parse. A command line reaches here as one string with
-  # its quoting already gone (herdr joins argv, and the shell hook is handed the
-  # line as typed), so there is nothing better to split on -- and a hostname has
-  # no spaces in it.
-  # A glob in the command line must not expand. Restored to whatever the caller
-  # had rather than simply cleared: this is a process-wide setting, and the
-  # engine's own reconcile is running underneath.
-  local noglob=0
-  case $- in *f*) noglob=1 ;; esac
-  set -f
-  for word in $1; do
-    if [ "$first" = "1" ]; then
-      first=0
-      case ${word##*/} in ssh) continue ;; *) break ;; esac
-    fi
-    if [ "$skip" = "1" ]; then skip=0; continue; fi
-    case $word in
-    --)
+  local word host="" skip=0 done=0 words=()
+  case ${1%% *} in */ssh | ssh) ;; *) return 0 ;; esac
+  case $1 in *' '*) ;; *) return 0 ;; esac    # ssh with no arguments names nobody
+  # Splitting IS the parse. A command line reaches here as one string with its
+  # quoting already gone (herdr joins argv, and the shell hook is handed the line
+  # as typed), so there is nothing better to split on -- and a hostname has no
+  # spaces in it. `read -a` rather than a bare `for word in $1`, because that
+  # would expand a glob in the line and would need `set -f` around it, which is a
+  # process-wide setting to be flipping under the reconcile that called this.
+  IFS=' ' read -ra words <<< "${1#* }"
+  for word in ${words[@]+"${words[@]}"}; do
+    if [ "$skip" = "1" ]; then
       skip=0
       continue
-      ;;
-    -[!-]*)
-      # A short option's letter is the LAST one in the cluster: only that one can
-      # take a value, and only when nothing follows it in the same word.
-      case ${word#-} in
-      ?) case $_AR_SSH_VALUE_FLAGS in *"${word#-}"*) skip=1 ;; esac ;;
+    fi
+    if [ "$done" = "0" ]; then
+      case $word in
+      --)
+        done=1                          # everything after this is positional
+        continue
+        ;;
+      -[!-]*)
+        # A short option's letter is the LAST one in the cluster: only that one
+        # can take a value, and only when nothing follows it in the same word.
+        case ${word#-} in
+        ?) case $_AR_SSH_VALUE_FLAGS in *"${word#-}"*) skip=1 ;; esac ;;
+        esac
+        continue
+        ;;
+      -*) continue ;;
       esac
-      continue
-      ;;
-    -*) continue ;;
-    *)
-      host=$word
-      break
-      ;;
-    esac
+    fi
+    host=$word
+    break
   done
-  [ "$noglob" = "1" ] || set +f
   [ -n "$host" ] || return 0
   host=${host#ssh://}                   # the url form ssh accepts
   host=${host##*@}                      # whoever is logged in

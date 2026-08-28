@@ -658,6 +658,9 @@ check "the user is dropped" "prod-01" "$(ar_ssh_host 'ssh deploy@prod-01')"
 check "a remote command is not the host" "prod-01" \
   "$(ar_ssh_host 'ssh prod-01 tail -f /var/log/syslog')"
 check "-- ends the options" "prod-01" "$(ar_ssh_host 'ssh -- prod-01')"
+# ... and ends them for good: a destination that looks like an option after it is
+# still the destination, which is the whole reason for writing it.
+check "-- means what follows is positional" "-weird-host" "$(ar_ssh_host 'ssh -- -weird-host')"
 check "the url form" "prod-01" "$(ar_ssh_host 'ssh ssh://deploy@prod-01:2222')"
 check "no destination at all" "" "$(ar_ssh_host 'ssh')"
 check "an option with nothing after it" "" "$(ar_ssh_host 'ssh -p')"
