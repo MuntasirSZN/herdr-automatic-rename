@@ -512,9 +512,15 @@ _AR_SSH_VALUE_FLAGS='BbcDEeFIiJLlmOoPpQRSWw'
 # to say who is logged in.
 ar_ssh_host() {
   [ "${TAB_CONTEXT:-1}" = "1" ] || return 0
-  local word host="" skip=0 done=0 words=()
+  local word host="" skip=0 done=0 cluster letter words=()
   case ${1%% *} in */ssh | ssh) ;; *) return 0 ;; esac
   case $1 in *' '*) ;; *) return 0 ;; esac    # ssh with no arguments names nobody
+  # A quoted argument cannot be split back out of a flattened command line: its
+  # words look exactly like arguments of ssh itself, and the commonest one --
+  # `-o ProxyCommand="ssh -W %h:%p bastion"` -- names another machine entirely,
+  # which is the one wrong answer worth more than no answer. Refused, and the tab
+  # reads "ssh" as it did before any of this existed.
+  case $1 in *[\"\']*) return 0 ;; esac
   # Splitting IS the parse. A command line reaches here as one string with its
   # quoting already gone (herdr joins argv, and the shell hook is handed the line
   # as typed), so there is nothing better to split on -- and a hostname has no
@@ -534,11 +540,22 @@ ar_ssh_host() {
         continue
         ;;
       -[!-]*)
-        # A short option's letter is the LAST one in the cluster: only that one
-        # can take a value, and only when nothing follows it in the same word.
-        case ${word#-} in
-        ?) case $_AR_SSH_VALUE_FLAGS in *"${word#-}"*) skip=1 ;; esac ;;
-        esac
+        # Short options cluster, and the one that takes a value need not be alone
+        # in the word: `-4p 2222` is IPv4 on port 2222. So the cluster is read
+        # left to right until a value-taking letter turns up; what follows it in
+        # the same word is its value, and an empty remainder means the value is
+        # the next word.
+        cluster=${word#-}
+        while [ -n "$cluster" ]; do
+          letter=${cluster%"${cluster#?}"}
+          cluster=${cluster#?}
+          case $_AR_SSH_VALUE_FLAGS in
+          *"$letter"*)
+            [ -n "$cluster" ] || skip=1
+            break
+            ;;
+          esac
+        done
         continue
         ;;
       -*) continue ;;
@@ -550,8 +567,15 @@ ar_ssh_host() {
   [ -n "$host" ] || return 0
   host=${host#ssh://}                   # the url form ssh accepts
   host=${host##*@}                      # whoever is logged in
-  host=${host%%:*}                      # ... and the port that form carries
-  host=${host%%/*}                      # ... and the path
+  case $host in
+  # A bracketed IPv6 address: the colons inside it are the address, not a port,
+  # and the brackets are what say so.
+  \[*\]*) host=${host%%\]*}\] ;;
+  *)
+    host=${host%%:*}                    # the port the url form carries
+    host=${host%%/*}                    # ... and the path
+    ;;
+  esac
   [ -n "$host" ] || return 0
   ar_trunc "$host" "${MAX_CONTEXT_LEN:-12}"
 }

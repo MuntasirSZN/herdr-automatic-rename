@@ -649,6 +649,23 @@ check "the plain form" "prod-01" "$(ar_ssh_host 'ssh prod-01')"
 check "an option with a separate value" "prod-01" "$(ar_ssh_host 'ssh -p 2222 prod-01')"
 check "an option with an attached value" "prod-01" "$(ar_ssh_host 'ssh -p2222 prod-01')"
 check "a switch" "prod-01" "$(ar_ssh_host 'ssh -4 prod-01')"
+# Short options cluster, and the one that takes a value need not be alone in the
+# word: `-4p 2222` is IPv4, port 2222. Reading only a lone letter as a value flag
+# named one tab after its port number.
+check "a cluster whose last letter takes a value" "prod-01" "$(ar_ssh_host 'ssh -4p 2222 prod-01')"
+check "a cluster with the value attached" "prod-01" "$(ar_ssh_host 'ssh -4p2222 prod-01')"
+check "a cluster of switches only" "prod-01" "$(ar_ssh_host 'ssh -46 prod-01')"
+# An IPv6 address is bracketed, and the colons inside are the address rather than
+# a port.
+check "a bracketed IPv6 host" "[2001:db8::1]" "$(MAX_CONTEXT_LEN=20 ar_ssh_host 'ssh [2001:db8::1]')"
+check "... with a port after it" "[2001:db8::1]" \
+  "$(MAX_CONTEXT_LEN=20 ar_ssh_host 'ssh [2001:db8::1]:2222')"
+# A quoted argument cannot be split back out of a flattened command line: the
+# words inside it look exactly like arguments of ssh itself, and a ProxyCommand
+# names another machine entirely. Refused rather than guessed at -- the tab then
+# reads "ssh", which is what it read before any of this existed.
+check "a quoted argument is refused" "" \
+  "$(ar_ssh_host 'ssh -o ProxyCommand="ssh -W %h:%p bastion" prod-01')"
 check "a long option's value" "prod-01" "$(ar_ssh_host 'ssh -o StrictHostKeyChecking=no prod-01')"
 # The user is dropped: root@prod-01 and deploy@prod-01 are the same machine, and
 # a tab bar has no room to say who is logged in.
