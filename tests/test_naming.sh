@@ -578,6 +578,48 @@ check "TAB_CONTEXT=0 turns the context off" "" \
   "$(TAB_CONTEXT=0 ar_context_dir '/Users/tester/dev/api' 'web')"
 HOME=$HOME_SAVE
 
+# ---- ar_branch_label: which slice of a project a tab is on ----
+# A branch qualifies the context: "api › feat/oauth › nvim" says which slice of
+# the project the tab is on, where the directory alone says only which project.
+check "a branch that fits is left whole" "feat/oauth" "$(ar_branch_label 'feat/oauth' 'main')"
+# The trunk says nothing -- every tab in the repository would carry it alike --
+# and which branch that is comes from the repository rather than from a list of
+# names, so a team whose trunk is "develop" gets the same silence.
+check "the trunk contributes nothing" "" "$(ar_branch_label 'main' 'main')"
+check "a non-default trunk name is silent too" "" "$(ar_branch_label 'develop' 'develop')"
+check "a branch called main off a develop trunk shows" "main" "$(ar_branch_label 'main' 'develop')"
+check "a repository with no default shows its branch" "main" "$(ar_branch_label 'main' '')"
+# Compared exactly, because git refs are: "Main" beside a "main" trunk is a
+# different branch and has something to say.
+check "the trunk compare is exact" "Main" "$(ar_branch_label 'Main' 'main')"
+# An issue key identifies the work whatever convention wraps it, so it wins
+# outright over cutting -- and it is the one value allowed past the budget,
+# because half a key identifies nothing.
+check "an over-long branch yields its issue key" "MC-13675" \
+  "$(ar_branch_label 'bugfix-asa-cpanel-uapi-mc-13675' 'main')"
+check "the key is upper-cased" "FH-9627" \
+  "$(ar_branch_label 'feature/fh-9627-qa-bot-programmatic' 'main')"
+# Failing a key, the namespace goes first (it is the half every branch shares)
+# and what is left is cut at a whole word.
+check "a long branch loses its namespace and its tail" "filter" \
+  "$(ar_branch_label 'fix/filter-sentry-errors-in-the-agent' 'main')"
+check "and is cut at a word boundary" "reticulate" \
+  "$(ar_branch_label 'reticulate-splines-thoroughly' 'main')"
+# A hyphen-and-digits pair that is not a key must not be mistaken for one:
+# "utf-8" has too few digits, "release" too many letters.
+check "utf-8 is not an issue key" "utf-8-decode" \
+  "$(MAX_BRANCH_LEN=30 ar_branch_label 'utf-8-decode' 'main')"
+check "MAX_BRANCH_LEN=0 leaves branches out" "" \
+  "$(MAX_BRANCH_LEN=0 ar_branch_label 'feat/oauth' 'main')"
+check "SHOW_BRANCH=0 leaves branches out" "" \
+  "$(SHOW_BRANCH=0 ar_branch_label 'feat/oauth' 'main')"
+# TAB_CONTEXT is the switch for the whole context half, branch included: a user
+# who asked for none of it did not ask for some of it.
+check "TAB_CONTEXT=0 leaves branches out too" "" \
+  "$(TAB_CONTEXT=0 ar_branch_label 'feat/oauth' 'main')"
+check "a detached hash passes through" "3f2a1b9" "$(ar_branch_label '3f2a1b9' 'main')"
+check "nothing checked out, nothing shown" "" "$(ar_branch_label '' 'main')"
+
 # ---- ar_compose: joining the halves ----
 check "context and activity are joined" "api › nvim" "$(ar_compose 'api' '' 'nvim')"
 check "a branch sits between them" "api › feat/oauth › nvim" \

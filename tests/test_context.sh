@@ -233,4 +233,75 @@ check_contains "the tab dedupes against the NEW name" "$out" "tab rename w1:t1 [
 check_absent   "... not against the one it was fetched with" "$out" "web${SEP}nvim"
 teardown
 
+# ======================================================================
+# Scenario 7: the branch qualifies the context.
+#   t1 sits in the workspace's own directory on a feature branch -> the
+#      directory drops out and the branch is what is left to say
+#   t2 sits in another checkout that is on its trunk -> the branch says nothing
+#      (every tab of that repository would carry it alike)
+# ======================================================================
+setup
+mkdir -p "$SB/dev/api/.git/refs/remotes/origin" "$SB/dev/web/.git/refs/remotes/origin"
+printf 'ref: refs/heads/feature/fh-9627-qa-bot\n' >"$SB/dev/api/.git/HEAD"
+printf 'ref: refs/remotes/origin/main\n' >"$SB/dev/api/.git/refs/remotes/origin/HEAD"
+printf 'ref: refs/heads/main\n' >"$SB/dev/web/.git/HEAD"
+printf 'ref: refs/remotes/origin/main\n' >"$SB/dev/web/.git/refs/remotes/origin/HEAD"
+cat >"$HERDR_MOCK_DIR/snapshot.json" <<JSON
+{"result":{"snapshot":{
+  "workspaces":[{"workspace_id":"w1","label":"api"}],
+  "tabs":[
+    {"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true,"workspace_id":"w1"},
+    {"tab_id":"w1:t2","label":"2","pane_count":1,"focused":false,"workspace_id":"w1"}
+  ],
+  "panes":[
+    {"pane_id":"p1","tab_id":"w1:t1","focused":true,"cwd":"$SB/dev/api"},
+    {"pane_id":"p2","tab_id":"w1:t2","focused":true,"cwd":"$SB/dev/web"}
+  ],
+  "layouts":[
+    {"tab_id":"w1:t1","focused_pane_id":"p1"},
+    {"tab_id":"w1:t2","focused_pane_id":"p2"}
+  ]
+}}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"nvim","cmdline":"nvim main.go"}]}}}
+JSON
+HOME=/home/u run_event tab.focused
+out=$(log)
+check_contains "the branch is reduced to its issue key" "$out" "tab rename w1:t1 FH-9627${SEP}nvim"
+check_contains "the trunk contributes nothing"          "$out" "tab rename w1:t2 web${SEP}nvim"
+check_absent   "... and is not shown beside it"         "$out" "web${SEP}main"
+teardown
+
+# ======================================================================
+# Scenario 8: SHOW_BRANCH=0, and the shell hook reads the branch from its own
+#   directory -- a checkout switched at the prompt shows up at the next one,
+#   which no herdr event would have told us about.
+# ======================================================================
+setup
+export SHOW_BRANCH=0
+mkdir -p "$SB/dev/api/.git/refs/remotes/origin"
+printf 'ref: refs/heads/feature/oauth\n' >"$SB/dev/api/.git/HEAD"
+printf 'ref: refs/remotes/origin/main\n' >"$SB/dev/api/.git/refs/remotes/origin/HEAD"
+export HERDR_TAB_ID=t1 HERDR_PANE_ID=p1
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"t1":{"auto":"zsh","enabled":true,"ws":"api"}}\n' \
+  >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+fixture tab_t1.json <<'JSON'
+{"result":{"tab":{"tab_id":"t1","label":"zsh"}}}
+JSON
+( cd "$SB/dev/api" && /usr/bin/env bash "$ENGINE" precmd zsh )
+check "SHOW_BRANCH=0 leaves the hook's label bare" "" "$(log)"
+: >"$HERDR_MOCK_LOG"
+unset SHOW_BRANCH
+( cd "$SB/dev/api" && /usr/bin/env bash "$ENGINE" precmd zsh )
+check_contains "the hook reads the branch from its own directory" "$(log)" \
+  "tab rename t1 oauth${SEP}zsh"
+teardown
+
 t_summary

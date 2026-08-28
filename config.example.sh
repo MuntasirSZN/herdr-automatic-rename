@@ -52,6 +52,24 @@
 # width on what is on screen anyway).
 # TAB_CONTEXT=1
 
+# 1 = qualify the context with the branch the pane's repository has checked out:
+# "api › MC-13675 › nvim". It says which slice of a project a tab is on, where
+# the directory alone says only which project.
+#
+# The branch is read from the files under .git and never by running git, so it
+# costs no process. Three rules keep it quiet: the repository's own default
+# branch is left out (every tab would carry it alike, and which branch that is
+# comes from the repository rather than a list of names), a branch that fits is
+# shown whole, and one that does not is reduced -- to its issue key where it has
+# one ("bugfix-asa-cpanel-uapi-mc-13675" -> "MC-13675"), else to the part after
+# the last "/", cut at a whole word.
+# SHOW_BRANCH=1
+
+# Longest branch a label may carry, in characters. 0 leaves branches out, the
+# same as SHOW_BRANCH=0. An issue key is shown whole even when it exceeds this:
+# half a key identifies nothing.
+# MAX_BRANCH_LEN=12
+
 # Truncate the directory part to this many characters. It is a project name, not
 # a sentence, and the program beside it still needs the room MAX_NAME_LEN gives
 # it, so it has a budget of its own rather than eating that one.

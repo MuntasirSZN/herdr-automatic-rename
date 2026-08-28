@@ -777,6 +777,16 @@ ar_pane_program() {
   ' 2>/dev/null
 }
 
+# ar_branch_of <directory> -> what the branch checked out there contributes to a
+# label, or "" -- from the repository when there is one, and nothing when there
+# is not. The read is four opens and no fork (see git.sh); the fork is this
+# function's own substitution, which is one per named tab.
+ar_branch_of() {
+  ar_branch_wanted || return 0
+  ar_git_head "$1" || return 0
+  ar_branch_label "$AR_GIT_HEAD" "$AR_GIT_DEFAULT"
+}
+
 # ar_tab_name <tab_id> <pane_count> <focused> <layout_pane> [workspace base]
 #   -> base name on stdout.
 # Returns 1 when the name can't be computed (no resolvable pane, process-info
@@ -804,7 +814,8 @@ ar_tab_name() {
   if [ "${AGENT_TITLES:-1}" = "1" ] && [ -n "$AR_PANE_AGENT" ]; then
     title=$(ar_title_clean "$AR_PANE_TITLE" "$AR_PANE_TITLE_LC" "$AR_PANE_DIR_LC" "$AR_PANE_AGENT")
     if [ -n "$title" ]; then
-      ar_label "$AR_PANE_DIR" "${5:-}" "" "$AR_PANE_AGENT" "" "$title"
+      ar_label "$AR_PANE_DIR" "${5:-}" "$(ar_branch_of "$AR_PANE_DIR")" \
+        "$AR_PANE_AGENT" "" "$title"
       return 0
     fi
   fi
@@ -827,7 +838,7 @@ ar_tab_name() {
     prog=$AR_PANE_AGENT
     cmd=$AR_PANE_AGENT
   fi
-  ar_label "$AR_PANE_DIR" "${5:-}" "" "$prog" "$cmd"
+  ar_label "$AR_PANE_DIR" "${5:-}" "$(ar_branch_of "$AR_PANE_DIR")" "$prog" "$cmd"
 }
 
 # ======================================================================
@@ -1653,7 +1664,9 @@ ar_fast_once() {
   # prompt. The workspace it dedupes against is whatever the last reconcile
   # recorded on the tab: reading it back costs nothing, where asking herdr would
   # cost a socket round-trip on every command.
-  name=$(ar_label "$PWD" "${AR_STATE_WS:-}" "" "$prog" "$cmd")
+  # The branch comes from this shell's own directory, so a checkout switched at
+  # the prompt shows up at the next one -- herdr has no event to tell us.
+  name=$(ar_label "$PWD" "${AR_STATE_WS:-}" "$(ar_branch_of "$PWD")" "$prog" "$cmd")
   # Empty is a real answer under HIDE_SHELL (name the tab nothing, keeping the
   # number alone when there is one); anywhere else it means we have no name.
   if [ -z "$name" ]; then
@@ -1724,6 +1737,10 @@ ar_main() {
   [ -f "$CONFIG_FILE" ] && . "$CONFIG_FILE"
   # shellcheck source=naming.sh
   . "$AR_ROOT/naming.sh"
+  # The one module that reads the filesystem. Sourced beside naming.sh rather
+  # than from it, which keeps that file's string-in / string-out contract.
+  # shellcheck source=git.sh
+  . "$AR_ROOT/git.sh"
 
   # TITLE_BRANDS as one argument for the two title lifts, joined here so neither
   # pays for it per pane. Both look a brand up by the pane's agent kind, and the

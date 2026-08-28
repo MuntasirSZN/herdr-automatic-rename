@@ -132,6 +132,16 @@ The directory is refused when it says nothing a tab bar has room for: a relative
 
 Each part carries its own budget rather than sharing one: the directory is cut to `MAX_CONTEXT_LEN` (12), the program keeps `MAX_NAME_LEN` (20), an agent's task keeps `MAX_TITLE_LEN` (28). The whole is then bounded by construction and there is no second number to keep in step. An empty activity still empties the whole label, because that is `HIDE_SHELL` asking for no name at all and half a name is not what it asked for.
 
+### The branch
+
+`git.sh` is the one module that reads the filesystem, which is why it is neither in `naming.sh` (strings) nor `icons.sh` (a table). It reads `.git` directly and never runs git: `git rev-parse` is a process, `HEAD` is one open, and this runs per named tab on every event and again on every shell prompt. Its answers come back in `AR_GIT_*` globals, because a command substitution is exactly the fork the file exists to avoid. Nothing is cached: a fresh read costs less than remembering a stale answer, and a checkout shows up at the next event rather than whenever a cache expires.
+
+It follows the `gitdir:` line of a linked worktree or submodule to the directory holding that checkout's own `HEAD`, and its `commondir` to the shared refs the default branch lives in. Agents run in worktrees, so that is not the exotic layout. Relative paths inside those files are left relative, since every use is opening a file under them and the kernel resolves `..` perfectly well.
+
+A rebase is the one detached HEAD that keeps its name: it records the branch it set aside, and that is still where the user is, so the tab does not take a new hash on every step. Any other detached HEAD shows the short hash, because that is where commits get lost and silence there cannot be told from sitting on the trunk.
+
+`ar_branch_label` (in `naming.sh`, so it is testable as a string rule) decides what the branch contributes. The repository's own default contributes nothing, compared exactly because git refs are exact. A name that fits is left whole, so `feat/oauth` keeps the namespace that tells it from `fix/oauth`. Only a name over `MAX_BRANCH_LEN` is reduced, and then an issue key wins outright and is the one value allowed past the budget, because half a key identifies nothing.
+
 ### The two paths have to agree
 
 The reconcile is not the only thing that names a tab. The shell hook's fast path renames on every command, so a hook that dropped the context would flip the tab between `api › nvim` and `nvim` on every prompt -- the same flicker the fast path exists to avoid.

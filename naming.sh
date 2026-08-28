@@ -80,6 +80,17 @@ unset _ar_icons_dir
 # it -- so it gets a budget of its own rather than eating that one.
 : "${MAX_CONTEXT_LEN:=12}"
 
+# 1 = qualify the context with the branch the pane's repository has checked out:
+# "api > MC-13675 > nvim". It says which slice of a project a tab is on, where
+# the directory alone says only which project. 0 leaves branches out, and so
+# does MAX_BRANCH_LEN=0.
+: "${SHOW_BRANCH:=1}"
+
+# Longest branch a label may carry, in characters. Twelve holds an issue key, or
+# a word and part of the next. A branch over it is reduced rather than dropped:
+# see ar_branch_label.
+: "${MAX_BRANCH_LEN:=12}"
+
 # What joins the parts of a label. Where a part came from -- a directory, a
 # branch, a program -- is not something a separator can convey, so every part
 # shares one. Written as its UTF-8 bytes for the reason icons.sh writes its
@@ -269,6 +280,72 @@ ar_context_dir() {
     [ "$folded" = "1" ] && return 0
   fi
   ar_trunc "$base" "${MAX_CONTEXT_LEN:-12}"
+}
+
+# The characters branch names are built out of. Cutting a long one at any of
+# them ends it on a whole word.
+_AR_BRANCH_SEPS='-_./ '
+
+# An issue key: two to six letters and at least two digits, on its own rather
+# than inside a longer word. The bounds are what keep it clear of hyphenated
+# words ("utf-8" has too few digits, "release-2026" too many letters). Held in a
+# variable because bash 3.2 matches an unquoted one as a pattern and a quoted one
+# as a literal.
+_AR_BRANCH_KEY='(^|[^[:alnum:]])([[:alpha:]]{2,6}-[[:digit:]]{2,6})([^[:digit:]]|$)'
+
+# ar_branch_label <branch or short hash> <the repository's default branch>
+#   -> what the branch contributes to a label, or "" when it contributes nothing.
+#
+# Three rules keep it from saying anything it has not earned:
+#
+#   The trunk contributes nothing. Every tab in the repository would carry it
+#   alike, so it is a column of noise. The comparison is exact, because git refs
+#   are: a branch named `Main` beside a `main` trunk is a different branch.
+#
+#   A name that fits is left whole. `feat/oauth` keeps the namespace that tells
+#   it from `fix/oauth`; only a name too wide is touched at all.
+#
+#   Reducing one prefers an issue key outright, because that identifies the work
+#   whatever convention wraps it, and it is the one value allowed past the
+#   budget: half a key identifies nothing. Failing a key the namespace goes --
+#   it is the half every branch in the repository shares -- and what is left is
+#   cut at a whole word.
+# ar_branch_wanted -> 0 when a branch would be shown at all. Its own function
+# because the engine asks BEFORE reading a repository: the answer is no reads at
+# all rather than reads whose answer is thrown away.
+ar_branch_wanted() {
+  [ "${TAB_CONTEXT:-1}" = "1" ] || return 1
+  [ "${SHOW_BRANCH:-1}" = "1" ] || return 1
+  [ "${MAX_BRANCH_LEN:-12}" -gt 0 ] 2>/dev/null || return 1
+}
+
+ar_branch_label() {
+  local branch=$1 default=$2 max=${MAX_BRANCH_LEN:-12} cut next
+  ar_branch_wanted || return 0
+  [ -n "$branch" ] || return 0
+  [ "$branch" = "$default" ] && return 0
+  [ "${#branch}" -le "$max" ] && { printf '%s' "$branch"; return 0; }
+  if [[ $branch =~ $_AR_BRANCH_KEY ]]; then
+    # The one fork on this path, and only for a branch too long to show whole.
+    # Folding ASCII alone is deliberate, as everywhere else in this file: an
+    # issue key is a tracker's own alphabet, not the user's prose.
+    # shellcheck disable=SC2018,SC2019
+    printf '%s' "$(printf '%s' "${BASH_REMATCH[2]}" | tr 'a-z' 'A-Z')"
+    return 0
+  fi
+  branch=${branch##*/}
+  cut=$(ar_trunc "$branch" "$max")
+  # When the character that did not fit is itself a separator the head already
+  # ends on a whole word, and cutting again would throw one away.
+  next=${branch:${#cut}:1}
+  case $next in
+  [-_./\ ]) ;;
+  *) case $cut in *[-_./\ ]*) cut=${cut%[-_./\ ]*} ;; esac ;;
+  esac
+  # A separator on either end says nothing on its own.
+  cut=${cut#["$_AR_BRANCH_SEPS"]}
+  cut=${cut%["$_AR_BRANCH_SEPS"]}
+  printf '%s' "$cut"
 }
 
 # ar_compose <context> <branch> <activity> -> the tab's base label.
