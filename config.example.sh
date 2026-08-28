@@ -49,7 +49,14 @@
 # The directory is refused when it says nothing a tab bar has room for: your home
 # directory, the filesystem root, and the name of the workspace the tab is in
 # (herdr shows that above the tabs already, so repeating it there spends half the
-# width on what is on screen anyway).
+# width on what is on screen anyway). A worktree counts as the same place as its
+# workspace: herdr names one after the branch with the convention in front
+# stripped, so a "bugfix-fh-9865-fix" directory under an "fh-9865-fix" workspace
+# says nothing new.
+#
+# A directory too long for MAX_CONTEXT_LEN is reduced the way a branch is, not
+# cut through the middle: worktrees and branches are named the same way by the
+# same people, so "bugfix-fh-9865-fix-rev-discrepancy" reads as "FH-9865".
 # TAB_CONTEXT=1
 #
 # A pane running ssh is named after the machine it reached instead ("prod-01 ›
@@ -69,11 +76,23 @@
 # one ("bugfix-asa-cpanel-uapi-mc-13675" -> "MC-13675"), else to the part after
 # the last "/", cut at a whole word.
 # SHOW_BRANCH=1
+#
+# A branch that repeats what is already on screen is dropped as well: a worktree
+# named after its branch would otherwise say one thing three times ("auto-title >
+# auto-title > Rename the tabs"), since herdr shows the workspace above the tabs.
 
 # Longest branch a label may carry, in characters. 0 leaves branches out, the
 # same as SHOW_BRANCH=0. An issue key is shown whole even when it exceeds this:
 # half a key identifies nothing.
 # MAX_BRANCH_LEN=12
+
+# The branches treated as a trunk when the repository records no default of its
+# own -- one cloned without an origin/HEAD, or one that was never cloned. Without
+# this such a repository shows its branch on every tab alike, which is the column
+# of noise the trunk rule exists to prevent. A repository that DOES record a
+# default is believed over this list, so a team whose trunk is "release" is not
+# second-guessed. TRUNK_BRANCHES=() shows every branch in such a repository.
+# TRUNK_BRANCHES=(main master develop trunk)
 
 # Truncate the directory part to this many characters. It is a project name, not
 # a sentence, and the program beside it still needs the room MAX_NAME_LEN gives

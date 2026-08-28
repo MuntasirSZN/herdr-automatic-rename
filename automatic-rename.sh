@@ -781,13 +781,16 @@ ar_pane_program() {
 
 # ar_branch_of <directory> -> what the branch checked out there contributes to a
 # label, or "" -- from the repository when there is one, and nothing when there
-# is not. The read itself is a handful of opens and no fork (see git.sh); the one
-# fork is each caller's own substitution, one per named tab on a reconcile and
-# one per prompt on the shell hook's path.
+# is not. Published as AR_BRANCH as well as printed, so a caller on the naming
+# path can read it back without a command substitution: the read itself is a
+# handful of opens and no fork (see git.sh), and the fork would have been the
+# expensive half.
 ar_branch_of() {
+  AR_BRANCH=""
   ar_branch_wanted || return 0
   ar_git_head "$1" || return 0
-  ar_branch_label "$AR_GIT_HEAD" "$AR_GIT_DEFAULT"
+  AR_BRANCH=$(ar_branch_label "$AR_GIT_HEAD" "$AR_GIT_DEFAULT")
+  printf '%s' "$AR_BRANCH"
 }
 
 # ar_tab_name <tab_id> <pane_count> <focused> <layout_pane> [workspace base]
@@ -828,8 +831,8 @@ ar_tab_name() {
         "$AR_PANE_DIR_LC" "$AR_PANE_AGENT")
     fi
     if [ -n "$title" ]; then
-      ar_label "$AR_PANE_DIR" "${5:-}" "$(ar_branch_of "$AR_PANE_DIR")" \
-        "$AR_PANE_AGENT" "" "$title"
+      ar_branch_of "$AR_PANE_DIR" >/dev/null
+      ar_label "$AR_PANE_DIR" "${5:-}" "$AR_BRANCH" "$AR_PANE_AGENT" "" "$title"
       return 0
     fi
   fi
@@ -852,7 +855,8 @@ ar_tab_name() {
     prog=$AR_PANE_AGENT
     cmd=$AR_PANE_AGENT
   fi
-  ar_label "$AR_PANE_DIR" "${5:-}" "$(ar_branch_of "$AR_PANE_DIR")" "$prog" "$cmd"
+  ar_branch_of "$AR_PANE_DIR" >/dev/null
+  ar_label "$AR_PANE_DIR" "${5:-}" "$AR_BRANCH" "$prog" "$cmd"
 }
 
 # ======================================================================
@@ -1685,7 +1689,8 @@ ar_fast_once() {
   # cost a socket round-trip on every command.
   # The branch comes from this shell's own directory, so a checkout switched at
   # the prompt shows up at the next one -- herdr has no event to tell us.
-  name=$(ar_label "$PWD" "${AR_STATE_WS:-}" "$(ar_branch_of "$PWD")" "$prog" "$cmd")
+  ar_branch_of "$PWD" >/dev/null
+  name=$(ar_label "$PWD" "${AR_STATE_WS:-}" "$AR_BRANCH" "$prog" "$cmd")
   # Empty is a real answer under HIDE_SHELL (name the tab nothing, keeping the
   # number alone when there is one); anywhere else it means we have no name.
   if [ -z "$name" ]; then

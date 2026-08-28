@@ -568,7 +568,19 @@ for _loc in C en_US.UTF-8; do
   check "ASCII case still is (LC_ALL=$_loc)" "" \
     "$(LC_ALL=$_loc ar_context_dir '/Users/tester/dev/API' 'api')"
 done
-# ... and only an exact match, so a tab whose directory has left its workspace
+# herdr names a worktree workspace after the branch with the convention in front
+# of it stripped, so its directory ends with the workspace's name and the two are
+# the same place: "bugfix-fh-9865-fix" under a workspace called
+# "fh-9865-fix" is not a tab that has gone anywhere.
+check "a worktree prefix is the same place" "" \
+  "$(ar_context_dir '/Users/tester/dev/wt/bugfix-fh-9865-fix' 'fh-9865-fix')"
+check "and the separator is required" "aaafh-9865-fix" \
+  "$(MAX_CONTEXT_LEN=20 ar_context_dir '/Users/tester/dev/wt/aaafh-9865-fix' 'fh-9865-fix')"
+# The other direction is a different directory, not a prefix convention: a tab in
+# api-docs under a workspace called api has genuinely gone somewhere.
+check "a longer name is not a prefix convention" "api-docs" \
+  "$(ar_context_dir '/Users/tester/dev/api-docs' 'api')"
+# ... and only those, so a tab whose directory has left its workspace
 # behind is exactly the one that keeps saying where it is.
 check "a different directory still shows" "api" "$(ar_context_dir '/Users/tester/dev/api' 'api-docs')"
 # A workspace nobody has named (or a path with no workspace to compare) dedupes
@@ -580,6 +592,13 @@ check "a trailing slash names the same directory" "api" \
 # activity beside it still needs the room MAX_NAME_LEN gives it.
 check "a long directory is cut to MAX_CONTEXT_LEN" "aaaaaaaaaaaa" \
   "$(ar_context_dir '/Users/tester/dev/aaaaaaaaaaaaaaaaaaaa' 'web')"
+# A directory is reduced the way a branch is, and for the same reason: a worktree
+# is usually named after the work in it, so a cut through the middle of one
+# ("bugfix-fh-98") throws away the part that identifies it.
+check "an over-long directory yields its issue key" "FH-9865" \
+  "$(ar_context_dir '/Users/tester/dev/wt/bugfix-fh-9865-fix-rev-discrepancy' 'web')"
+check "and otherwise ends on a whole word" "herdr-prompt" \
+  "$(ar_context_dir '/Users/tester/dev/herdr-prompt-picker' 'web')"
 check "MAX_CONTEXT_LEN is configurable" "aaaa" \
   "$(MAX_CONTEXT_LEN=4 ar_context_dir '/Users/tester/dev/aaaaaaaaaaaaaaaaaaaa' 'web')"
 # One switch turns the whole context half off, and it lives here rather than at
@@ -598,7 +617,10 @@ check "a branch that fits is left whole" "feat/oauth" "$(ar_branch_label 'feat/o
 check "the trunk contributes nothing" "" "$(ar_branch_label 'main' 'main')"
 check "a non-default trunk name is silent too" "" "$(ar_branch_label 'develop' 'develop')"
 check "a branch called main off a develop trunk shows" "main" "$(ar_branch_label 'main' 'develop')"
-check "a repository with no default shows its branch" "main" "$(ar_branch_label 'main' '')"
+# A repository that records no default falls back to the conventional trunk
+# names (see TRUNK_BRANCHES below), so this one is quiet and a branch that is not
+# one of them still shows.
+check "a repository with no default falls back to the list" "" "$(ar_branch_label 'main' '')"
 # Compared exactly, because git refs are: "Main" beside a "main" trunk is a
 # different branch and has something to say.
 check "the trunk compare is exact" "Main" "$(ar_branch_label 'Main' 'main')"
@@ -628,6 +650,18 @@ check "SHOW_BRANCH=0 leaves branches out" "" \
 check "TAB_CONTEXT=0 leaves branches out too" "" \
   "$(TAB_CONTEXT=0 ar_branch_label 'feat/oauth' 'main')"
 check "a detached hash passes through" "3f2a1b9" "$(ar_branch_label '3f2a1b9' 'main')"
+# A repository that records no default branch -- one cloned without an
+# origin/HEAD, or one that was never cloned -- would otherwise show its branch on
+# every tab alike, which is the column of noise the trunk rule exists to prevent.
+# Only as a fallback: a repository that DOES record one is believed over any list.
+check "no recorded default: a conventional trunk is still quiet" "" \
+  "$(ar_branch_label 'main' '')"
+check "... and so are the others" "" "$(ar_branch_label 'develop' '')"
+check "but a real branch still shows" "feat/oauth" "$(ar_branch_label 'feat/oauth' '')"
+check "a recorded default is believed over the list" "main" \
+  "$(ar_branch_label 'main' 'develop')"
+check "TRUNK_BRANCHES is configurable" "main" \
+  "$(TRUNK_BRANCHES=(release) ar_branch_label 'main' '')"
 # A first word too long to fit has no separator to cut back to, so it is cut
 # where the budget ends -- on a codepoint boundary, which is the one case here
 # that pays for a jq.
@@ -640,6 +674,19 @@ check "upper: a key" "MC-13675" "$(ar_upper 'mc-13675')"
 check "upper: mixed already" "FH-9627" "$(ar_upper 'Fh-9627')"
 check "upper: non-letters survive" "A.B_C/D" "$(ar_upper 'a.b_c/d')"
 check "nothing checked out, nothing shown" "" "$(ar_branch_label '' 'main')"
+
+# ---- a branch that repeats what is already on screen ----
+# herdr shows the workspace above the tabs and the tab shows its own context, so
+# a branch that says the same thing again spends width on what the reader can
+# already see. A worktree named after its branch is the common case.
+check "a branch the workspace already says is dropped" "Herdr auto title" \
+  "$(ar_label '/Users/tester/dev/wt/auto-title' 'auto-title' 'auto-title' 'claude' '' 'Herdr auto title')"
+check "a branch the directory already says is dropped" "FH-9865 › claude" \
+  "$(ar_label '/Users/tester/dev/wt/bugfix-fh-9865-fix' 'other' 'FH-9865' 'claude' '')"
+check "the compare ignores ASCII case" "auto-title › claude" \
+  "$(ar_label '/Users/tester/dev/wt/auto-title' 'other' 'AUTO-TITLE' 'claude' '')"
+check "a branch that says something new stays" "api › feat/oauth › claude" \
+  "$(ar_label '/Users/tester/dev/api' 'other' 'feat/oauth' 'claude' '')"
 
 # ---- ar_ssh_host: the machine a pane reached ----
 # A pane running ssh is about the machine on the other end, not the directory it

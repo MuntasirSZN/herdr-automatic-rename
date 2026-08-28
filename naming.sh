@@ -86,6 +86,13 @@ unset _ar_icons_dir
 # does MAX_BRANCH_LEN=0.
 : "${SHOW_BRANCH:=1}"
 
+# The branches treated as a trunk when the repository records no default of its
+# own -- one cloned without an origin/HEAD, or one that was never cloned. A
+# repository that DOES record one is believed over this list, so a team whose
+# trunk is "release" is not second-guessed. Assigning the array replaces the
+# default; TRUNK_BRANCHES=() shows every branch in such a repository.
+declare -p TRUNK_BRANCHES >/dev/null 2>&1 || TRUNK_BRANCHES=(main master develop trunk)
+
 # Longest branch a label may carry, in characters. Twelve holds an issue key, or
 # a word and part of the next. A branch over it is reduced rather than dropped:
 # see ar_branch_label.
@@ -255,6 +262,7 @@ ar_trunc() {
 # workspace behind is exactly the one that keeps saying where it is.
 ar_context_dir() {
   local dir=$1 ws=$2 base
+  AR_CONTEXT=""
   [ "${TAB_CONTEXT:-1}" = "1" ] || return 0
   case $dir in /*) ;; *) return 0 ;; esac
   dir=${dir%/}                        # a trailing slash names the same directory
@@ -269,18 +277,22 @@ ar_context_dir() {
     # would disagree about whether a directory repeats its workspace -- which is
     # a tab that flips on every prompt. ASCII, deterministically, in both.
     local folded
-    # The exact match is the common one and the length is what rules most of the
-    # rest out, both without touching the fold below, which walks two strings a
-    # character at a time on a path that runs per tab and per prompt.
+    # The exact match is the common one and settles it without folding anything,
+    # which matters because the fold walks a string a character at a time on a
+    # path that runs per tab and again per prompt.
     [ "$base" = "$ws" ] && return 0
-    if [ "${#base}" = "${#ws}" ]; then
-      ar_case "$base" "$_AR_UPPER" "$_AR_LOWER"
-      folded=$AR_CASE
-      ar_case "$ws" "$_AR_UPPER" "$_AR_LOWER"
-      [ "$folded" = "$AR_CASE" ] && return 0
-    fi
+    ar_case "$base" "$_AR_UPPER" "$_AR_LOWER"
+    folded=$AR_CASE
+    ar_case "$ws" "$_AR_UPPER" "$_AR_LOWER"
+    [ "$folded" = "$AR_CASE" ] && return 0
+    # herdr names a worktree workspace after the branch with the convention in
+    # front of it stripped, so the directory ends with the workspace's name and
+    # the two are the same place. The separator is required, or a workspace
+    # called "api" would swallow a tab that really is in "legacy-api".
+    case $folded in *[-_.]"$AR_CASE") return 0 ;; esac
   fi
-  ar_trunc "$base" "${MAX_CONTEXT_LEN:-12}"
+  AR_CONTEXT=$(ar_shorten "$base" "${MAX_CONTEXT_LEN:-12}")
+  printf '%s' "$AR_CONTEXT"
 }
 
 # The characters branch names are built out of. Cutting a long one at any of
@@ -364,7 +376,26 @@ ar_branch_label() {
   # caller can miss.
   ar_branch_wanted || return 0
   [ -n "$branch" ] || return 0
-  [ "$branch" = "$default" ] && return 0
+  if [ -n "$default" ]; then
+    [ "$branch" = "$default" ] && return 0
+  else
+    ar_in_list "$branch" "${TRUNK_BRANCHES[@]}" && return 0
+  fi
+  ar_shorten "$branch" "$max"
+}
+
+# ar_shorten <value> <max> -> the value reduced to what is worth <max> columns.
+#
+# An issue key wins outright, because it identifies the work whatever convention
+# wraps it, and it is the one value allowed past the budget: half a key
+# identifies nothing. Failing a key the namespace goes -- it is the half every
+# branch in a repository shares -- and what is left is cut at a whole word.
+#
+# Branches and worktree directories are named the same way by the same people
+# ("bugfix-fh-9865-fix-rev-discrepancy" is both), so both are reduced here rather
+# than one being cut through the middle.
+ar_shorten() {
+  local branch=$1 max=$2 cut next
   [ "${#branch}" -le "$max" ] && { printf '%s' "$branch"; return 0; }
   if [[ $branch =~ $_AR_BRANCH_KEY ]]; then
     ar_upper "${BASH_REMATCH[2]}"
@@ -530,6 +561,7 @@ ar_ssh_setting_opaque() {
 # root@prod-01 and deploy@prod-01 are the same machine, and a tab bar has no room
 # to say who is logged in.
 ar_ssh_host() {
+  AR_SSH_HOST=""
   [ "${TAB_CONTEXT:-1}" = "1" ] || return 0
   local word host="" skip=0 setting=0 done=0 cluster letter words=()
   case ${1%% *} in */ssh | ssh) ;; *) return 0 ;; esac
@@ -611,7 +643,30 @@ ar_ssh_host() {
     ;;
   esac
   [ -n "$host" ] || return 0
-  ar_trunc "$host" "${MAX_CONTEXT_LEN:-12}"
+  AR_SSH_HOST=$(ar_trunc "$host" "${MAX_CONTEXT_LEN:-12}")
+  printf '%s' "$AR_SSH_HOST"
+}
+
+# ar_branch_new <branch> <what the reader can already see> -> the branch, or ""
+# when it says nothing that is not on screen already.
+#
+# herdr shows the workspace above the tabs and the tab shows its own context, so
+# a branch repeating either spends width on what the reader is looking at. A
+# worktree named after the branch checked out in it is the common case, not a
+# corner: "auto-title > auto-title > Rename the tabs" says one thing three times.
+# Containment rather than equality, because the directory is usually the branch
+# with a convention wrapped round it ("bugfix-" in front, the ticket in the
+# middle). ASCII-folded, like every other compare in this file.
+ar_branch_new() {
+  local branch=$1 said
+  AR_BRANCH_NEW=""
+  [ -n "$branch" ] || return 0
+  ar_case "$2" "$_AR_UPPER" "$_AR_LOWER"
+  said=$AR_CASE
+  ar_case "$branch" "$_AR_UPPER" "$_AR_LOWER"
+  case $said in *"$AR_CASE"*) return 0 ;; esac
+  AR_BRANCH_NEW=$branch
+  printf '%s' "$branch"
 }
 
 # ar_label <pane directory> <workspace base> <branch> <program|""> <cmdline> [title]
@@ -627,7 +682,7 @@ ar_ssh_host() {
 # takes: a label they disagree about is a tab that flips on every prompt. That is
 # why the raw directory comes in rather than a context computed outside.
 ar_label() {
-  local ctx activity
+  local ctx
   # A pane running ssh is named after the machine it reached, and after nothing
   # local: the branch is read from the directory ssh was launched in, and printed
   # beside prod-01 it would read as that machine's, while the directory itself is
@@ -635,18 +690,27 @@ ar_label() {
   # activity, which is where the program rules would have put it anyway. The test
   # is the program name, so nothing but an ssh pane pays for the parse.
   if [ "$4" = "ssh" ] && [ "${TAB_CONTEXT:-1}" = "1" ]; then
-    ar_compose "$(ar_ssh_host "$5")" "" "$(ar_format ssh ssh "${6:-}")"
+    ar_ssh_host "$5" >/dev/null
+    ar_format ssh ssh "${6:-}" >/dev/null
+    ar_compose "$AR_SSH_HOST" "" "$AR_ACTIVITY"
     return 0
   fi
-  ctx=$(ar_context_dir "$1" "$2")
-  activity=$(ar_format "$4" "$5" "${6:-}")
-  ar_compose "$ctx" "$3" "$activity"
+  # Each part is read back off the global its function publishes rather than out
+  # of a command substitution. Four parts, four subshells, once per named tab on
+  # every herdr event: on a session of a dozen tabs that was most of the cost of
+  # a reconcile, and a fork is a whole shell on macOS.
+  ar_context_dir "$1" "$2" >/dev/null
+  ctx=$AR_CONTEXT
+  ar_format "$4" "$5" "${6:-}" >/dev/null
+  ar_branch_new "$3" "$ctx $2" >/dev/null
+  ar_compose "$ctx" "$AR_BRANCH_NEW" "$AR_ACTIVITY"
 }
 
 # ar_format <program|""> <cmdline> [title] -> final tab label
 #   program == "" means a bare prompt (name by the shell).
 ar_format() {
   local prog=$1 cmdline=$2 title=${3:-} name="" ic aliased="" is_shell=0 max=${MAX_NAME_LEN:-20}
+  AR_ACTIVITY=""
   # Only the program-name chain below consults an alias, so a title (or a bare
   # prompt) does not pay for the lookup.
   [ -n "$prog" ] && [ -z "$title" ] && aliased=$(ar_alias "$prog")
@@ -746,5 +810,6 @@ ar_format() {
       [ "${#short}" -ge $(( max / 2 )) ] && name=$short
     fi
   fi
+  AR_ACTIVITY=$name
   printf '%s' "$name"
 }
