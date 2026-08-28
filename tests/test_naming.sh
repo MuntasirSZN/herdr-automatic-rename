@@ -558,6 +558,16 @@ check "a relative path says nothing" "" "$(ar_context_dir 'dev/api' 'web')"
 # its own directory spends half its width repeating what is already on screen.
 check "the workspace name is not repeated" "" "$(ar_context_dir '/Users/tester/dev/api' 'api')"
 check "the repeat is matched ignoring ASCII case" "" "$(ar_context_dir '/Users/tester/dev/API' 'api')"
+# ASCII, and only ASCII, whatever locale the process was launched under. herdr
+# may start the plugin with no LC_* while the shell hook inherits the user's
+# UTF-8: a fold that followed the locale would have the two naming paths
+# disagree about this tab, which is a tab that flips on every prompt.
+for _loc in C en_US.UTF-8; do
+  check "non-ASCII case is not folded (LC_ALL=$_loc)" "ÄPI" \
+    "$(LC_ALL=$_loc ar_context_dir '/Users/tester/dev/ÄPI' 'äpi')"
+  check "ASCII case still is (LC_ALL=$_loc)" "" \
+    "$(LC_ALL=$_loc ar_context_dir '/Users/tester/dev/API' 'api')"
+done
 # ... and only an exact match, so a tab whose directory has left its workspace
 # behind is exactly the one that keeps saying where it is.
 check "a different directory still shows" "api" "$(ar_context_dir '/Users/tester/dev/api' 'api-docs')"

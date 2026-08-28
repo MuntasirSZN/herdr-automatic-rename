@@ -250,15 +250,9 @@ ar_trunc() {
 #
 # Also refused: the name of the workspace the tab is in. herdr shows that above
 # the tabs, so a tab there spends half its width repeating what is already on
-# screen. Matched ignoring case, and exactly otherwise -- a tab whose directory
-# has left its workspace behind is exactly the one that keeps saying where it is.
-#
-# The fold is the shell's, so it follows the locale: ASCII where the plugin was
-# launched without one, and whatever the locale knows where it has one. That is
-# the opposite of the choice made for title comparisons, and deliberately: both
-# sides here are directory names the user chose themselves, so folding `Ä` onto
-# `ä` drops a repetition they would also call one, where a title compared against
-# a product name has no such licence.
+# screen. Matched ignoring the case of ASCII letters, like every other compare in
+# this file, and exactly otherwise -- a tab whose directory has left its
+# workspace behind is exactly the one that keeps saying where it is.
 ar_context_dir() {
   local dir=$1 ws=$2 base
   [ "${TAB_CONTEXT:-1}" = "1" ] || return 0
@@ -269,15 +263,16 @@ ar_context_dir() {
   base=${dir##*/}
   [ -n "$base" ] || return 0
   if [ -n "$ws" ]; then
-    # A QUOTED right-hand side is a literal string rather than a glob, so a
-    # workspace named "a[b" compares as itself; nocasematch is what folds the
-    # case, and it folds ASCII under the C locale the plugin may be launched in.
-    local folded=1 nocase
-    nocase=$(shopt -p nocasematch)      # whatever the caller had, to put back
-    shopt -s nocasematch
-    [[ $base == "$ws" ]] || folded=0
-    $nocase
-    [ "$folded" = "1" ] && return 0
+    # Folded here rather than by the shell's own case-insensitive compare, which
+    # follows the locale: herdr may launch the plugin with no LC_* at all while
+    # the shell hook inherits the user's UTF-8, and then the two naming paths
+    # would disagree about whether a directory repeats its workspace -- which is
+    # a tab that flips on every prompt. ASCII, deterministically, in both.
+    local folded
+    ar_case "$base" "$_AR_UPPER" "$_AR_LOWER"
+    folded=$AR_CASE
+    ar_case "$ws" "$_AR_UPPER" "$_AR_LOWER"
+    [ "$folded" = "$AR_CASE" ] && return 0
   fi
   ar_trunc "$base" "${MAX_CONTEXT_LEN:-12}"
 }
@@ -304,17 +299,30 @@ _AR_BRANCH_KEY='(^|[^[:alnum:]])([[:alpha:]]{2,6}-[[:digit:]]{2,6})([^[:digit:]]
 # as everywhere else in this file: what this raises is a tracker's own alphabet,
 # not the user's prose.
 ar_upper() {
-  local s=$1 out="" c rest
+  ar_case "$1" "$_AR_LOWER" "$_AR_UPPER"
+  printf '%s' "$AR_CASE"
+}
+
+# ar_case <string> <alphabet in> <alphabet out> -> sets AR_CASE to the string
+# with every letter of the first alphabet swapped for the one at its position in
+# the second, and everything else left exactly as it is.
+#
+# The answer comes back in a global because both callers are on the path that
+# runs per named tab on every event and again on every shell prompt, and a
+# command substitution is a fork. It is also why this is not `tr`.
+ar_case() {
+  local s=$1 in=$2 out=$3 acc="" c rest
+  AR_CASE=""
   while [ -n "$s" ]; do
     c=${s%"${s#?}"}                     # the first character, however wide
     s=${s#?}
     # A letter cuts the alphabet in two, and where it sits is how much is left.
     # A character that is not one leaves the alphabet whole, which is the test.
-    rest=${_AR_LOWER#*"$c"}
-    [ "$rest" != "$_AR_LOWER" ] && c=${_AR_UPPER:$(( 25 - ${#rest} )):1}
-    out=$out$c
+    rest=${in#*"$c"}
+    [ "$rest" != "$in" ] && c=${out:$(( ${#in} - ${#rest} - 1 )):1}
+    acc=$acc$c
   done
-  printf '%s' "$out"
+  AR_CASE=$acc
 }
 
 # ar_branch_wanted -> 0 when a branch would be shown at all. Its own function
@@ -353,20 +361,26 @@ ar_branch_label() {
   [ "$branch" = "$default" ] && return 0
   [ "${#branch}" -le "$max" ] && { printf '%s' "$branch"; return 0; }
   if [[ $branch =~ $_AR_BRANCH_KEY ]]; then
-    # Folding ASCII alone is deliberate, as everywhere else in this file: an
-    # issue key is a tracker's own alphabet, not the user's prose.
-    # shellcheck disable=SC2018,SC2019
-    printf '%s' "${BASH_REMATCH[2]}" | tr 'a-z' 'A-Z' 
+    ar_upper "${BASH_REMATCH[2]}"
     return 0
   fi
   branch=${branch##*/}
-  cut=$(ar_trunc "$branch" "$max")
+  cut=${branch:0:$max}
+  next=${branch:$max:1}
   # When the character that did not fit is itself a separator the head already
   # ends on a whole word, and cutting again would throw one away.
-  next=${branch:${#cut}:1}
   case $next in
   ["$_AR_BRANCH_SEPS"]) ;;
-  *) case $cut in *["$_AR_BRANCH_SEPS"]*) cut=${cut%["$_AR_BRANCH_SEPS"]*} ;; esac ;;
+  *)
+    case $cut in
+    # Cutting back to a separator is also what makes the slice above safe: a
+    # separator is ASCII, so a cut at one lands on a character boundary whatever
+    # the locale made of the slice. Only a first word too long to fit has no
+    # separator to fall back to, and that alone pays for ar_trunc's jq.
+    *["$_AR_BRANCH_SEPS"]*) cut=${cut%["$_AR_BRANCH_SEPS"]*} ;;
+    *) cut=$(ar_trunc "$branch" "$max") ;;
+    esac
+    ;;
   esac
   # A separator on either end says nothing on its own.
   cut=${cut#["$_AR_BRANCH_SEPS"]}

@@ -34,6 +34,11 @@
 ar_git_line() {
   local line=""
   AR_GIT_LINE=""
+  # A REGULAR file, tested before it is opened. Reading from a fifo blocks
+  # forever, and this runs inside the pass that holds the plugin's lock, so one
+  # directory with a `.git/HEAD` that is not a file would stall every rename and
+  # both actions behind it until the lock went stale.
+  [ -f "$1" ] || return 1
   IFS= read -r line 2>/dev/null < "$1"
   line=${line#"${line%%[![:space:]]*}"}           # leading blanks
   line=${line%"${line##*[![:space:]]}"}           # trailing blanks, CR included

@@ -92,6 +92,19 @@ check "a dangling gitdir says nothing" "-" "$(head_of "$SB/wt")"
 printf 'this is not a gitdir line\n' >"$SB/wt/.git"
 check "a .git file that is not a pointer" "-" "$(head_of "$SB/wt")"
 
+# ---- a ref file that is not a file ----
+# Reading a fifo blocks forever, and this runs inside the pass holding the
+# plugin's lock: one directory with a `.git/HEAD` like this would stall every
+# rename behind it. The test hangs rather than fails if the guard goes, which is
+# the honest way to notice.
+if command -v mkfifo >/dev/null 2>&1; then
+  mkdir -p "$SB/fifo/.git"
+  mkfifo "$SB/fifo/.git/HEAD" 2>/dev/null
+  check "a HEAD that is not a regular file" "-" "$(head_of "$SB/fifo")"
+else
+  check "mkfifo absent: skipped" "" ""
+fi
+
 # ---- against real git, if it is here ----
 # The hand-built fixtures above are the point of this file; this one check is
 # what says they are the shapes git actually writes.
