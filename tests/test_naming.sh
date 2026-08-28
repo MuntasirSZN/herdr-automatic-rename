@@ -641,6 +641,54 @@ check "upper: mixed already" "FH-9627" "$(ar_upper 'Fh-9627')"
 check "upper: non-letters survive" "A.B_C/D" "$(ar_upper 'a.b_c/d')"
 check "nothing checked out, nothing shown" "" "$(ar_branch_label '' 'main')"
 
+# ---- ar_ssh_host: the machine a pane reached ----
+# A pane running ssh is about the machine on the other end, not the directory it
+# was launched from. Options are parsed rather than guessed at, because the first
+# word after `ssh` is as often an option's value as it is a host.
+check "the plain form" "prod-01" "$(ar_ssh_host 'ssh prod-01')"
+check "an option with a separate value" "prod-01" "$(ar_ssh_host 'ssh -p 2222 prod-01')"
+check "an option with an attached value" "prod-01" "$(ar_ssh_host 'ssh -p2222 prod-01')"
+check "a switch" "prod-01" "$(ar_ssh_host 'ssh -4 prod-01')"
+check "a long option's value" "prod-01" "$(ar_ssh_host 'ssh -o StrictHostKeyChecking=no prod-01')"
+# The user is dropped: root@prod-01 and deploy@prod-01 are the same machine, and
+# a tab bar has no room to say who is logged in.
+check "the user is dropped" "prod-01" "$(ar_ssh_host 'ssh deploy@prod-01')"
+# Everything after the destination is the remote command, which the machine's own
+# terminal title is what reports.
+check "a remote command is not the host" "prod-01" \
+  "$(ar_ssh_host 'ssh prod-01 tail -f /var/log/syslog')"
+check "-- ends the options" "prod-01" "$(ar_ssh_host 'ssh -- prod-01')"
+check "the url form" "prod-01" "$(ar_ssh_host 'ssh ssh://deploy@prod-01:2222')"
+check "no destination at all" "" "$(ar_ssh_host 'ssh')"
+check "an option with nothing after it" "" "$(ar_ssh_host 'ssh -p')"
+check "not ssh at all" "" "$(ar_ssh_host 'nvim README.md')"
+check "a long host is cut to the context budget" "aaaaaaaaaaaa" \
+  "$(ar_ssh_host 'ssh aaaaaaaaaaaaaaaaaaaa')"
+check "TAB_CONTEXT=0 names no machine" "" "$(TAB_CONTEXT=0 ar_ssh_host 'ssh prod-01')"
+
+# ---- ar_label: an ssh pane is named after the machine ----
+check "the machine leads, ssh follows" "prod-01 › ssh" \
+  "$(ar_label '/home/u/dev/api' 'web' '' 'ssh' 'ssh prod-01')"
+# The branch is read from the directory ssh was launched in, which says nothing
+# about the machine on the other end -- and printed beside prod-01 it would read
+# as that machine's.
+check "no branch on a remote pane" "prod-01 › ssh" \
+  "$(ar_label '/home/u/dev/api' 'web' 'MC-13675' 'ssh' 'ssh prod-01')"
+# ... and neither does the local directory, for the same reason.
+check "no local directory either" "prod-01 › ssh" \
+  "$(ar_label '/home/u/dev/api' '' '' 'ssh' 'ssh prod-01')"
+# With no host to name, the tab still says it is remote.
+check "an unreadable destination still says ssh" "ssh" \
+  "$(ar_label '/home/u/dev/api' 'web' '' 'ssh' 'ssh -p')"
+# A command line is not shown for ssh even with SHOW_PROGRAM_ARGS on: the host
+# it carries is already the context, and the rest is the remote command.
+check "the command line is not repeated" "prod-01 › ssh" \
+  "$(SHOW_PROGRAM_ARGS=1 ar_label '/home/u/dev/api' 'web' '' 'ssh' 'ssh -p 2222 prod-01')"
+# With the context off, an ssh tab is named like any other program, as it was
+# before any of this existed.
+check "TAB_CONTEXT=0 leaves ssh to the program rules" "ssh -p 2222 prod-01" \
+  "$(TAB_CONTEXT=0 SHOW_PROGRAM_ARGS=1 ar_label '/home/u/dev/api' 'web' '' 'ssh' 'ssh -p 2222 prod-01')"
+
 # ---- ar_compose: joining the halves ----
 check "context and activity are joined" "api › nvim" "$(ar_compose 'api' '' 'nvim')"
 check "a branch sits between them" "api › feat/oauth › nvim" \

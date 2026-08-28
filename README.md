@@ -13,6 +13,8 @@ Set `NAME_TABS=0` to turn off the naming, `AUTO_INDEX=0` to turn off the numberi
 
 A label reads `[N] <directory> › <branch> › <activity>`: where the work is, then what is being done there. Each part drops out when it says nothing worth the width. The directory goes when it is your home directory, the filesystem root, or the name of the workspace the tab is already in (herdr shows that above the tabs). The branch goes when it is the repository's own default, and a long one is reduced to its issue key (`bugfix-asa-cpanel-uapi-mc-13675` becomes `MC-13675`). `SHOW_BRANCH=0` leaves branches out.
 
+A pane running `ssh` is named after the machine instead, `prod-01 › ssh`, since the directory and the branch it was launched from are local and say nothing about the remote.
+
 <img width="1200" height="520" alt="Tab bars before and after the plugin names tabs" src="docs/readme-demo.jpg" />
 
 ## Requirements

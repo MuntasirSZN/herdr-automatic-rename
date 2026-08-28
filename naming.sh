@@ -484,6 +484,73 @@ ar_title_ignore_fold() {
 
 # ---- helpers ----
 
+# ssh options whose value is a SEPARATE argument, so `ssh -p 2222 prod-01` does
+# not read 2222 as the destination. Everything else starting with a dash is a
+# switch, or carries its value attached. From ssh(1); a flag added later reads as
+# a switch here, which costs at most the tab saying `ssh` alone for one release.
+_AR_SSH_VALUE_FLAGS='BbcDEeFIiJLlmOoPpQRSWw'
+
+# ar_ssh_host <command line> -> the machine the pane reached, or "" when the
+# command is not ssh or names no destination.
+#
+# A pane running ssh is about the machine on the other end. Its directory is the
+# local one it was launched from and says nothing about the remote; the remote's
+# own terminal title says what is being done there but never which machine, which
+# is exactly what a row of identical shells needs.
+#
+# The destination is the first argument that is neither an option nor an option's
+# value. Everything after it is the remote command. The user is dropped:
+# root@prod-01 and deploy@prod-01 are the same machine, and a tab bar has no room
+# to say who is logged in.
+ar_ssh_host() {
+  [ "${TAB_CONTEXT:-1}" = "1" ] || return 0
+  local word host="" skip=0 first=1
+  # Word splitting is the parse. A command line reaches here as one string with
+  # its quoting already gone (herdr joins argv, and the shell hook is handed the
+  # line as typed), so there is nothing better to split on -- and a hostname has
+  # no spaces in it.
+  # A glob in the command line must not expand. Restored to whatever the caller
+  # had rather than simply cleared: this is a process-wide setting, and the
+  # engine's own reconcile is running underneath.
+  local noglob=0
+  case $- in *f*) noglob=1 ;; esac
+  set -f
+  for word in $1; do
+    if [ "$first" = "1" ]; then
+      first=0
+      case ${word##*/} in ssh) continue ;; *) break ;; esac
+    fi
+    if [ "$skip" = "1" ]; then skip=0; continue; fi
+    case $word in
+    --)
+      skip=0
+      continue
+      ;;
+    -[!-]*)
+      # A short option's letter is the LAST one in the cluster: only that one can
+      # take a value, and only when nothing follows it in the same word.
+      case ${word#-} in
+      ?) case $_AR_SSH_VALUE_FLAGS in *"${word#-}"*) skip=1 ;; esac ;;
+      esac
+      continue
+      ;;
+    -*) continue ;;
+    *)
+      host=$word
+      break
+      ;;
+    esac
+  done
+  [ "$noglob" = "1" ] || set +f
+  [ -n "$host" ] || return 0
+  host=${host#ssh://}                   # the url form ssh accepts
+  host=${host##*@}                      # whoever is logged in
+  host=${host%%:*}                      # ... and the port that form carries
+  host=${host%%/*}                      # ... and the path
+  [ -n "$host" ] || return 0
+  ar_trunc "$host" "${MAX_CONTEXT_LEN:-12}"
+}
+
 # ar_label <pane directory> <workspace base> <branch> <program|""> <cmdline> [title]
 #   -> the whole label a tab should carry.
 #
@@ -498,6 +565,16 @@ ar_title_ignore_fold() {
 # why the raw directory comes in rather than a context computed outside.
 ar_label() {
   local ctx activity
+  # A pane running ssh is named after the machine it reached, and after nothing
+  # local: the branch is read from the directory ssh was launched in, and printed
+  # beside prod-01 it would read as that machine's, while the directory itself is
+  # only where the user was standing when they left. The `ssh` mark stays in the
+  # activity, which is where the program rules would have put it anyway. The test
+  # is the program name, so nothing but an ssh pane pays for the parse.
+  if [ "$4" = "ssh" ] && [ "${TAB_CONTEXT:-1}" = "1" ]; then
+    ar_compose "$(ar_ssh_host "$5")" "" "$(ar_format ssh ssh "${6:-}")"
+    return 0
+  fi
   ctx=$(ar_context_dir "$1" "$2")
   activity=$(ar_format "$4" "$5" "${6:-}")
   ar_compose "$ctx" "$3" "$activity"

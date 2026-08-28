@@ -142,6 +142,14 @@ A rebase is the one detached HEAD that keeps its name: it records the branch it 
 
 `ar_branch_label` (in `naming.sh`, so it is testable as a string rule) decides what the branch contributes. The repository's own default contributes nothing, compared exactly because git refs are exact. A name that fits is left whole, so `feat/oauth` keeps the namespace that tells it from `fix/oauth`. Only a name over `MAX_BRANCH_LEN` is reduced, and then an issue key wins outright and is the one value allowed past the budget, because half a key identifies nothing.
 
+### The machine, for a remote pane
+
+A pane running `ssh` is about the machine on the other end, so the host takes the context and the local directory and branch are dropped: both describe where the user was standing when they left, and a branch printed beside `prod-01` reads as that machine's. The `ssh` mark stays in the activity, which is where the program rules would have put it anyway, so nothing has to be invented to keep the tab saying it is remote.
+
+The destination is parsed rather than guessed at, because the first word after `ssh` is as often an option's value as a host: `ar_ssh_host` skips options, gives the ones whose value is a separate argument their word, stops at the first bare argument, and drops the user, the port and the path from it. Everything after the destination is the remote command, which the remote's own terminal title is what reports.
+
+The whole of it hangs off the program name being `ssh`, in `ar_label`, so no other pane pays for the parse -- and both naming paths get it for free, including the shell hook, which is the only thing that can name such a tab the moment the command starts.
+
 ### The two paths have to agree
 
 The reconcile is not the only thing that names a tab. The shell hook's fast path renames on every command, so a hook that dropped the context would flip the tab between `api › nvim` and `nvim` on every prompt -- the same flicker the fast path exists to avoid.

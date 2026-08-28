@@ -304,4 +304,49 @@ check_contains "the hook reads the branch from its own directory" "$(log)" \
   "tab rename t1 oauth${SEP}zsh"
 teardown
 
+# ======================================================================
+# Scenario 9: a pane that reached another machine is named after it. The
+#   directory it was launched from is local and says nothing about the remote,
+#   and the branch checked out there would read as that machine's.
+# ======================================================================
+setup
+mkdir -p "$SB/dev/api/.git/refs/remotes/origin"
+printf 'ref: refs/heads/feature/oauth\n' >"$SB/dev/api/.git/HEAD"
+printf 'ref: refs/remotes/origin/main\n' >"$SB/dev/api/.git/refs/remotes/origin/HEAD"
+cat >"$HERDR_MOCK_DIR/snapshot.json" <<JSON
+{"result":{"snapshot":{
+  "workspaces":[{"workspace_id":"w1","label":"web"}],
+  "tabs":[{"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true,"workspace_id":"w1"}],
+  "panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true,"cwd":"$SB/dev/api"}],
+  "layouts":[{"tab_id":"w1:t1","focused_pane_id":"p1"}]
+}}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"ssh","cmdline":"ssh -p 2222 deploy@prod-01"}]}}}
+JSON
+HOME=/home/u run_event tab.focused
+out=$(log)
+check_contains "the machine names the tab" "$out" "tab rename w1:t1 prod-01${SEP}ssh"
+check_absent   "no local directory on a remote tab" "$out" "api${SEP}"
+check_absent   "no local branch either"             "$out" "oauth"
+teardown
+
+# ======================================================================
+# Scenario 10: the shell hook names an ssh tab the moment the command starts,
+#   which is the only thing that can: herdr has no event for it, and by the time
+#   one arrives the user is already looking at the remote shell.
+# ======================================================================
+setup
+export HERDR_TAB_ID=t1 HERDR_PANE_ID=p1
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"t1":{"auto":"zsh","enabled":true,"ws":"api"}}\n' \
+  >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+fixture tab_t1.json <<'JSON'
+{"result":{"tab":{"tab_id":"t1","label":"zsh"}}}
+JSON
+/usr/bin/env bash "$ENGINE" preexec 'ssh prod-01'
+check_contains "the hook names the machine too" "$(log)" "tab rename t1 prod-01${SEP}ssh"
+teardown
+
 t_summary

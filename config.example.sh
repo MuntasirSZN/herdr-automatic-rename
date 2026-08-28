@@ -51,6 +51,11 @@
 # (herdr shows that above the tabs already, so repeating it there spends half the
 # width on what is on screen anyway).
 # TAB_CONTEXT=1
+#
+# A pane running ssh is named after the machine it reached instead ("prod-01 ›
+# ssh"): its directory is the local one it was launched from, and the branch
+# checked out there would read as the remote machine's. The user is dropped,
+# because root@prod-01 and deploy@prod-01 are the same machine.
 
 # 1 = qualify the context with the branch the pane's repository has checked out:
 # "api › MC-13675 › nvim". It says which slice of a project a tab is on, where
