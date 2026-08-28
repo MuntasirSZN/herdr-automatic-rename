@@ -206,5 +206,35 @@ check "so the store is usable again"       "emacs" "$(ar_state_get tU auto)"
 rm -f "$STATE_FILE"
 check "a missing state file still reads as empty" "{}" "$(ar_state_read)"
 
+# ======================================================================
+# ar_state_fields: the one read behind both eligibility machines.
+# ======================================================================
+reset_state
+ar_state_set t9 "api" true "web"
+IFS=$AR_ROW_SEP read -r _en _au _ws <<< "$(ar_state_fields t9)"
+check "fields: enabled" "true" "$_en"
+check "fields: auto"    "api"  "$_au"
+check "fields: ws"      "web"  "$_ws"
+# A record written without a workspace has no ws key, and the field still has to
+# arrive EMPTY rather than shifting the ones before it.
+ar_state_set t9 "api" true
+IFS=$AR_ROW_SEP read -r _en _au _ws <<< "$(ar_state_fields t9)"
+check "fields: absent ws is empty" "" "$_ws"
+check "fields: auto unshifted"     "api" "$_au"
+# An opted-out tab reads back as false, not as the empty string `//` would give:
+# empty is "never seen", which re-adopts a name somebody typed.
+ar_state_set t9 "" false
+IFS=$AR_ROW_SEP read -r _en _au _ws <<< "$(ar_state_fields t9)"
+check "fields: false is not empty" "false" "$_en"
+
+# Every caller must name a variable for EVERY field. bash gives the last variable
+# the rest of the line INCLUDING the delimiters, so a caller reading two of three
+# fields gets "api<SEP>" where it expects "api" -- and the comparison that keeps a
+# workspace tracked its directory can then never be true again.
+reset_state
+ar_state_set "ws:w1" "project-a" true
+check_rc "a tracked workspace stays tracked across a cd" 0 \
+  "$(ar_ws_track_eligible w1 "project-a" "project-b"; echo $?)"
+
 rm -rf "$SB" 2>/dev/null || true
 t_summary

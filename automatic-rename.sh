@@ -1038,8 +1038,14 @@ ar_identity_base() { # <workspace_id>
 # moved on and ours has not, and only the record tells that apart from a name
 # somebody typed. Anything else is somebody's name and is left alone for good.
 ar_ws_track_eligible() {
-  local key="ws:$1" slabel=$2 ibase=$3 enabled auto
-  IFS=$AR_ROW_SEP read -r enabled auto <<< "$(ar_state_fields "$key")"
+  local key="ws:$1" slabel=$2 ibase=$3 enabled auto unused
+  # Every field gets a name, including the one a workspace record never carries:
+  # bash hands the LAST variable the rest of the line, delimiters and all, so a
+  # reader short of one name would append the next field to $auto the day a
+  # workspace record grows one -- and the compare below could then never be true
+  # again, which is this workspace opting itself out of directory tracking.
+  # shellcheck disable=SC2034  # `unused` is named so it can be discarded
+  IFS=$AR_ROW_SEP read -r enabled auto unused <<< "$(ar_state_fields "$key")"
   AR_WS_STATE_ENABLED=$enabled
   AR_WS_STATE_AUTO=$auto
   if [ "$slabel" = "$ibase" ]; then
@@ -1093,6 +1099,7 @@ ar_state_prune_ws() {
 # nothing.
 ar_renumber_workspaces() {
   local json=$1 rows wid label pos base want ibase track seen=""
+  AR_WS_BASES=""
   [ -n "$json" ] || return 0
   rows=$(ar_workspace_positions "$json" "$(ar_collapsed_spaces)")
   [ -n "$rows" ] || return 0
@@ -1116,6 +1123,16 @@ ar_renumber_workspaces() {
     if [ "$want" != "$label" ]; then
       "$HERDR" workspace rename "$wid" "$want" >/dev/null 2>&1 || continue
     fi
+    # What this workspace is called AFTER this pass, for the tab pass to dedupe
+    # against (ar_ws_base). It reads the workspace list this pass fetched, which
+    # was fetched before the rename above, so a workspace re-labelled from its
+    # directory here would otherwise have its tabs deduped against the name it
+    # had a moment ago -- and a tab in the web workspace would read "web > nvim"
+    # until some later event refreshed the list. Recorded only past the rename,
+    # so a rename herdr rejected leaves the stale label standing, which is what
+    # the workspace still carries.
+    AR_WS_BASES="$AR_WS_BASES$wid$AR_ROW_SEP$base
+"
     [ "$track" = "1" ] && ar_ws_claim "$wid" "$base"
   done <<< "$rows"
   # A workspace id carries no whitespace (both go through `clean`), so the
@@ -1130,6 +1147,20 @@ ar_renumber_workspaces() {
 # are the only item both features touch), so per tab we compute the base ONCE
 # (naming if owned/eligible, else the stripped current base) and apply the
 # position prefix in a single rename. Arg 1 is the cached `workspace list` JSON.
+# ar_ws_base <workspace_id> <label> -> the base its tabs dedupe against: what
+# the workspace pass just applied, else the label as fetched with its numbering
+# prefix off. A loop over rows rather than a jq, like ar_identity_base next door:
+# a pass sees every workspace once and the list is short.
+ar_ws_base() {
+  local wid=$1 k v
+  if [ -n "${AR_WS_BASES:-}" ]; then
+    while IFS=$AR_ROW_SEP read -r k v; do
+      if [ "$k" = "$wid" ]; then printf '%s' "$v"; return 0; fi
+    done <<< "$AR_WS_BASES"
+  fi
+  ar_strip_prefix "$2"
+}
+
 ar_reconcile_tabs() {
   local wsjson=$1 w wslabel wsbase tjson rows tid label pcount foc base0 base named name i want
   [ -n "$wsjson" ] || return 0
@@ -1139,7 +1170,7 @@ ar_reconcile_tabs() {
   # is a directory name, which "[1] api" is not.
   while IFS=$AR_ROW_SEP read -r w wslabel; do
     [ -n "$w" ] || continue
-    wsbase=$(ar_strip_prefix "$wslabel")
+    wsbase=$(ar_ws_base "$w" "$wslabel")
     if [ "${AR_HAVE_SNAPSHOT:-0}" = "1" ]; then
       # Slice this workspace's tabs out of the cached snapshot, preserving array
       # order (what cmd+N numbers by). Same shape as `tab list --workspace`, plus

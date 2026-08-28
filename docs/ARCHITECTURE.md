@@ -10,7 +10,7 @@ Computing a tab's name and its `[N]` prefix in the same pass is what settles a b
 
 ## Naming lives in a pure module
 
-`naming.sh` turns `(program, cmdline, title)` into a display name and touches neither herdr nor the filesystem, which keeps the rules (shells, name-only programs, ignored programs, aliases, substitutions, agent titles, truncation, icons) unit testable. The icon knobs, glyph map, and lookup live in `icons.sh` (sourced by `naming.sh`) so the 100+ arm case statement stays out of the naming logic. The engine calls `ar_format` across that seam. Every function in these files uses the `ar_` prefix.
+`naming.sh` turns `(program, cmdline, title)` into a display name and touches neither herdr nor the filesystem, which keeps the rules (shells, name-only programs, ignored programs, aliases, substitutions, agent titles, truncation, icons) unit testable. The icon knobs, glyph map, and lookup live in `icons.sh` (sourced by `naming.sh`) so the 100+ arm case statement stays out of the naming logic. The engine calls `ar_label` across that seam, which is the module's one entry point for "what should this tab be called": it turns the pane's directory into a context, the program into an activity, and joins them. Every function in these files uses the `ar_` prefix.
 
 ## Rows carry values, not escapes
 
@@ -173,7 +173,7 @@ The empty string is now a name the engine has to carry around, so the invariant 
 - `ar_desired` numbers an empty base as `[3]` rather than `[3] `, since herdr drops the trailing space anyway and the bare form round-trips back through `ar_strip_prefix`.
 - The opt-out state machine keeps a tab whose recorded name is empty even when the label reads as herdr's integer again, which is what a restored session and herdr's own relabeling look like from here.
 - `ar_reconcile_tabs` writes an empty base when the emptiness is deliberate, and skips the tab only when herdr has not labeled it at all.
-- The fast path is the one exception: it calls `ar_format` directly rather than through `ar_tab_name`, so it has no status to read and tests `HIDE_SHELL` itself to decide whether an empty `ar_format` result is an answer.
+- The fast path is the one exception: it calls `ar_label` directly rather than through `ar_tab_name`, so it has no status to read and tests `HIDE_SHELL` itself to decide whether an empty label is an answer.
 
 The placeholder rule above is unaffected: it defers a tab whose name is not computable *yet*, while an empty name is computed and final.
 

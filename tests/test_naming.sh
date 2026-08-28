@@ -590,5 +590,14 @@ check "a branch with no context still shows" "feat/oauth › nvim" \
 check "an empty activity empties the whole label" "" "$(ar_compose 'api' 'feat/x' '')"
 check "the separator is configurable" "api | nvim" \
   "$(CONTEXT_SEP=' | ' ar_compose 'api' '' 'nvim')"
+# A directory may be named anything a filesystem accepts, and the shell hook
+# takes its context from a raw $PWD rather than from a value herdr's jq has
+# cleaned. A control character reaching the tab bar is the visible half of that;
+# the invisible half is herdr handing the label back normalized, which the
+# opt-out machine cannot tell from a name somebody typed.
+check "a control character in the context is scrubbed" "we b › nvim" \
+  "$(ar_compose "$(printf 'we\002b')" '' 'nvim')"
+check "a tab in the context is scrubbed" "we b › nvim" \
+  "$(ar_compose "$(printf 'we\tb')" '' 'nvim')"
 
 t_summary

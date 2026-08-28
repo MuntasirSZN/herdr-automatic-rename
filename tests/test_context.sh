@@ -184,4 +184,53 @@ got=$(jq -r '."w1:t1".ws' "$XDG_STATE_HOME/herdr-automatic-rename/state.json" 2>
 check "the workspace base is recorded on the tab" "api" "$got"
 teardown
 
+# ======================================================================
+# Scenario 6: a workspace renamed EARLIER IN THE SAME PASS. The workspace pass
+#   runs first and re-labels w1 from its directory ("api" -> "web"); the tab pass
+#   reads the workspace list fetched before that rename, so the label in hand is
+#   already one pass out of date. Deduping against it would name a tab in the web
+#   workspace "web > nvim" -- the exact repetition the dedupe exists to remove --
+#   until some later event refreshed the list.
+#
+#   Two events, because a workspace only follows its directory once the plugin
+#   owns its label: the first adopts it where label and directory agree, the
+#   second is the cd that moves it.
+# ======================================================================
+setup
+export AUTO_INDEX=1
+printf 'agent_panel_sort = "spaces"\n' >"$HERDR_CONFIG_FILE"
+mkdir -p "$SB/dev/api" "$SB/dev/web"
+ident() {
+  printf '{"version":7,"collapsed_space_keys":[],"workspaces":[{"id":"w1","label":null,"identity_cwd":"%s"}]}\n' \
+    "$1" >"$SB/session.json"
+}
+ident "$SB/dev/api"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api","focused":false}]}}
+JSON
+run_event workspace.created
+check_contains "the workspace is adopted at its own directory" "$(log)" "workspace rename w1 [1] api"
+
+: >"$HERDR_MOCK_LOG"
+ident "$SB/dev/web"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api","focused":false}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true}]}}
+JSON
+cat >"$HERDR_MOCK_DIR/panes.json" <<JSON
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true,"cwd":"$SB/dev/web"}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+HOME=/home/u run_event pane.focused
+out=$(log)
+check_contains "the workspace follows its directory" "$out" "workspace rename w1 [1] web"
+check_contains "the tab dedupes against the NEW name" "$out" "tab rename w1:t1 [1] nvim"
+check_absent   "... not against the one it was fetched with" "$out" "web${SEP}nvim"
+teardown
+
 t_summary

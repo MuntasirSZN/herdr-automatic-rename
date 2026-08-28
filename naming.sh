@@ -239,9 +239,15 @@ ar_trunc() {
 #
 # Also refused: the name of the workspace the tab is in. herdr shows that above
 # the tabs, so a tab there spends half its width repeating what is already on
-# screen. Matched ignoring the case of ASCII letters, like every other compare in
-# this file, and exactly otherwise -- a tab whose directory has left its
-# workspace behind is exactly the one that keeps saying where it is.
+# screen. Matched ignoring case, and exactly otherwise -- a tab whose directory
+# has left its workspace behind is exactly the one that keeps saying where it is.
+#
+# The fold is the shell's, so it follows the locale: ASCII where the plugin was
+# launched without one, and whatever the locale knows where it has one. That is
+# the opposite of the choice made for title comparisons, and deliberately: both
+# sides here are directory names the user chose themselves, so folding `Ä` onto
+# `ä` drops a repetition they would also call one, where a title compared against
+# a product name has no such licence.
 ar_context_dir() {
   local dir=$1 ws=$2 base
   [ "${TAB_CONTEXT:-1}" = "1" ] || return 0
@@ -280,6 +286,17 @@ ar_compose() {
   [ -n "$ctx" ] && out=$ctx
   [ -n "$branch" ] && { [ -n "$out" ] && out="$out$CONTEXT_SEP$branch" || out=$branch; }
   [ -n "$out" ] && out="$out$CONTEXT_SEP$activity" || out=$activity
+  # Scrub what only this half of a label can carry in. The reconcile's directory
+  # arrives through jq's `clean` and the activity is scrubbed by ar_format, but
+  # the shell hook takes its directory from a raw $PWD -- and a directory may be
+  # named anything a filesystem accepts. A control character reaching the tab bar
+  # is the visible half of it; the invisible half is that herdr hands the label
+  # back normalized, which reads as a name somebody typed and opts the tab out of
+  # naming for good. Guarded, so a clean label pays no fork (the common case).
+  case $out in
+  *[[:cntrl:]]* | *"  "*) out=$(printf '%s' "$out" | tr -s '[:cntrl:] ' ' ')
+                          out=${out# }; out=${out% } ;;
+  esac
   printf '%s' "$out"
 }
 
