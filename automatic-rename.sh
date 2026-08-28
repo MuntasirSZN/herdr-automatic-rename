@@ -779,8 +779,9 @@ ar_pane_program() {
 
 # ar_branch_of <directory> -> what the branch checked out there contributes to a
 # label, or "" -- from the repository when there is one, and nothing when there
-# is not. The read is four opens and no fork (see git.sh); the fork is this
-# function's own substitution, which is one per named tab.
+# is not. The read itself is a handful of opens and no fork (see git.sh); the one
+# fork is each caller's own substitution, one per named tab on a reconcile and
+# one per prompt on the shell hook's path.
 ar_branch_of() {
   ar_branch_wanted || return 0
   ar_git_head "$1" || return 0
@@ -956,6 +957,9 @@ ar_workspace_identities() {
 
 # ar_project_base <dir> -> the base herdr labels a workspace sitting in <dir>:
 # the name of the repository <dir> belongs to, or <dir>'s own name outside a repo.
+# Walks for `.git` as git.sh's ar_git_dir does, and stays separate from it for
+# the reason given there: this answers what a directory is CALLED, so any `.git`
+# ends the walk and none of them is opened.
 #
 # Measured against herdr 0.8.2, both arms. A workspace whose pane cds from a repo
 # root into a subdirectory keeps the repo's name; one that cds between plain

@@ -35,9 +35,8 @@ ar_git_line() {
   local line=""
   AR_GIT_LINE=""
   IFS= read -r line 2>/dev/null < "$1"
-  line=${line%$'\r'}                              # a checkout off a Windows share
   line=${line#"${line%%[![:space:]]*}"}           # leading blanks
-  line=${line%"${line##*[![:space:]]}"}           # trailing blanks
+  line=${line%"${line##*[![:space:]]}"}           # trailing blanks, CR included
   [ -n "$line" ] || return 1
   AR_GIT_LINE=$line
 }
@@ -54,6 +53,11 @@ ar_git_line() {
 # Relative paths are left relative on purpose. Every use of these is opening a
 # file under them, and the kernel resolves `..` in a path perfectly well, so
 # normalizing would be work done for nobody.
+# It walks for `.git` much as ar_project_base does next door, and the two are
+# deliberately not one function: that one answers "what does herdr call the
+# workspace sitting here", so it stops at the first `.git` of any kind and never
+# reads it, while this one has to open what it finds and can still answer "no
+# repository" for a `.git` it cannot follow.
 ar_git_dir() {
   local dir=$1 cand target
   AR_GIT_DIR=""

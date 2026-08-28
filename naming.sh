@@ -286,12 +286,45 @@ ar_context_dir() {
 # them ends it on a whole word.
 _AR_BRANCH_SEPS='-_./ '
 
+# The alphabet, for ar_upper. Two strings and an index rather than `tr`, because
+# what this raises is an issue key on a path that runs per named tab on every
+# event and again on every shell prompt, and `tr` is a process.
+_AR_LOWER='abcdefghijklmnopqrstuvwxyz'
+_AR_UPPER='ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
 # An issue key: two to six letters and at least two digits, on its own rather
 # than inside a longer word. The bounds are what keep it clear of hyphenated
 # words ("utf-8" has too few digits, "release-2026" too many letters). Held in a
 # variable because bash 3.2 matches an unquoted one as a pattern and a quoted one
 # as a literal.
 _AR_BRANCH_KEY='(^|[^[:alnum:]])([[:alpha:]]{2,6}-[[:digit:]]{2,6})([^[:digit:]]|$)'
+
+# ar_upper <string> -> the string with its ASCII lowercase letters raised, and
+# every other character left exactly as it is. Folding ASCII alone is deliberate,
+# as everywhere else in this file: what this raises is a tracker's own alphabet,
+# not the user's prose.
+ar_upper() {
+  local s=$1 out="" c rest
+  while [ -n "$s" ]; do
+    c=${s%"${s#?}"}                     # the first character, however wide
+    s=${s#?}
+    # A letter cuts the alphabet in two, and where it sits is how much is left.
+    # A character that is not one leaves the alphabet whole, which is the test.
+    rest=${_AR_LOWER#*"$c"}
+    [ "$rest" != "$_AR_LOWER" ] && c=${_AR_UPPER:$(( 25 - ${#rest} )):1}
+    out=$out$c
+  done
+  printf '%s' "$out"
+}
+
+# ar_branch_wanted -> 0 when a branch would be shown at all. Its own function
+# because the engine asks BEFORE reading a repository: the answer is no reads at
+# all rather than reads whose answer is thrown away.
+ar_branch_wanted() {
+  [ "${TAB_CONTEXT:-1}" = "1" ] || return 1
+  [ "${SHOW_BRANCH:-1}" = "1" ] || return 1
+  [ "${MAX_BRANCH_LEN:-12}" -gt 0 ] 2>/dev/null || return 1
+}
 
 # ar_branch_label <branch or short hash> <the repository's default branch>
 #   -> what the branch contributes to a label, or "" when it contributes nothing.
@@ -310,27 +343,20 @@ _AR_BRANCH_KEY='(^|[^[:alnum:]])([[:alpha:]]{2,6}-[[:digit:]]{2,6})([^[:digit:]]
 #   budget: half a key identifies nothing. Failing a key the namespace goes --
 #   it is the half every branch in the repository shares -- and what is left is
 #   cut at a whole word.
-# ar_branch_wanted -> 0 when a branch would be shown at all. Its own function
-# because the engine asks BEFORE reading a repository: the answer is no reads at
-# all rather than reads whose answer is thrown away.
-ar_branch_wanted() {
-  [ "${TAB_CONTEXT:-1}" = "1" ] || return 1
-  [ "${SHOW_BRANCH:-1}" = "1" ] || return 1
-  [ "${MAX_BRANCH_LEN:-12}" -gt 0 ] 2>/dev/null || return 1
-}
-
 ar_branch_label() {
   local branch=$1 default=$2 max=${MAX_BRANCH_LEN:-12} cut next
+  # Asked again here, though the engine asks before it reads a repository: this
+  # is the rule, and a rule that is only enforced by its caller is one a second
+  # caller can miss.
   ar_branch_wanted || return 0
   [ -n "$branch" ] || return 0
   [ "$branch" = "$default" ] && return 0
   [ "${#branch}" -le "$max" ] && { printf '%s' "$branch"; return 0; }
   if [[ $branch =~ $_AR_BRANCH_KEY ]]; then
-    # The one fork on this path, and only for a branch too long to show whole.
     # Folding ASCII alone is deliberate, as everywhere else in this file: an
     # issue key is a tracker's own alphabet, not the user's prose.
     # shellcheck disable=SC2018,SC2019
-    printf '%s' "$(printf '%s' "${BASH_REMATCH[2]}" | tr 'a-z' 'A-Z')"
+    printf '%s' "${BASH_REMATCH[2]}" | tr 'a-z' 'A-Z' 
     return 0
   fi
   branch=${branch##*/}
@@ -339,8 +365,8 @@ ar_branch_label() {
   # ends on a whole word, and cutting again would throw one away.
   next=${branch:${#cut}:1}
   case $next in
-  [-_./\ ]) ;;
-  *) case $cut in *[-_./\ ]*) cut=${cut%[-_./\ ]*} ;; esac ;;
+  ["$_AR_BRANCH_SEPS"]) ;;
+  *) case $cut in *["$_AR_BRANCH_SEPS"]*) cut=${cut%["$_AR_BRANCH_SEPS"]*} ;; esac ;;
   esac
   # A separator on either end says nothing on its own.
   cut=${cut#["$_AR_BRANCH_SEPS"]}
@@ -446,6 +472,11 @@ ar_title_ignore_fold() {
 
 # ar_label <pane directory> <workspace base> <branch> <program|""> <cmdline> [title]
 #   -> the whole label a tab should carry.
+#
+# The branch arrives as an argument where the directory arrives raw, because
+# reading it is a filesystem walk and this module does not touch the filesystem
+# (see git.sh). So it is the one part a caller has to remember: ar_branch_of next
+# to the engine's two naming paths is what both of them call for it.
 #
 # The one entry point for naming a tab. Both callers -- the reconcile and the
 # shell hook's fast path -- go through it, so neither can skip a step the other

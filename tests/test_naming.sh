@@ -618,6 +618,17 @@ check "SHOW_BRANCH=0 leaves branches out" "" \
 check "TAB_CONTEXT=0 leaves branches out too" "" \
   "$(TAB_CONTEXT=0 ar_branch_label 'feat/oauth' 'main')"
 check "a detached hash passes through" "3f2a1b9" "$(ar_branch_label '3f2a1b9' 'main')"
+# A first word too long to fit has no separator to cut back to, so it is cut
+# where the budget ends -- on a codepoint boundary, which is the one case here
+# that pays for a jq.
+check "one long word is cut where the budget ends" "aaaaaaaaaaaa" \
+  "$(ar_branch_label 'aaaaaaaaaaaaaaaaaaaa' 'main')"
+check "a multibyte branch is not sliced in half" "über-lange" \
+  "$(ar_branch_label 'über-lange-namen' 'main')"
+# ar_upper raises ASCII letters and leaves everything else alone.
+check "upper: a key" "MC-13675" "$(ar_upper 'mc-13675')"
+check "upper: mixed already" "FH-9627" "$(ar_upper 'Fh-9627')"
+check "upper: non-letters survive" "A.B_C/D" "$(ar_upper 'a.b_c/d')"
 check "nothing checked out, nothing shown" "" "$(ar_branch_label '' 'main')"
 
 # ---- ar_compose: joining the halves ----
