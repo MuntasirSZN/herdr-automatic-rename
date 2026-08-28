@@ -4,7 +4,11 @@
 # or filesystem calls) so the logic is unit-testable on its own (see
 # tests/test_naming.sh). Targets bash 3.2 (macOS /bin/bash): no associative
 # arrays, no namerefs. Functions share the ar_ prefix with the engine, which
-# calls ar_format across the module seam.
+# calls ar_label across the module seam.
+#
+# Two environment variables are read for DEFAULTS, both below: $SHELL names the
+# shell a bare prompt is labeled with, and $HOME is the directory ar_context_dir
+# treats as nowhere in particular. Neither is looked up per call.
 #
 # Naming rule: a tab is named after its foreground program (nvim, claude, git,
 # ...). At a bare prompt, or while a quick throwaway command runs, it shows the
@@ -26,7 +30,11 @@ _ar_icons_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 unset _ar_icons_dir
 
 # ---- configurable knobs (override in config.sh / $HERDR_AUTOMATIC_RENAME_CONFIG) ----
-: "${MAX_NAME_LEN:=20}"     # truncate the final label to this many chars
+# The ACTIVITY half of a label -- the program, or an agent's task -- is cut to
+# this. Each part of a label carries a budget of its own (MAX_CONTEXT_LEN and
+# MAX_BRANCH_LEN are the others), so the whole is bounded by construction and
+# there is no total to keep in step with the parts.
+: "${MAX_NAME_LEN:=20}"     # truncate the program name to this many chars
 : "${SHOW_PROGRAM_ARGS:=0}" # 1 = regular programs show their full command line; 0 = name only
 
 # 1 = name a tab running a coding agent after the task the agent reports in its
@@ -53,6 +61,31 @@ unset _ar_icons_dir
 # do: bash counts both as IFS whitespace and `read` collapses them, losing an
 # empty field. Change one and change the other.
 : "${AR_ROW_SEP:=$'\037'}"
+
+# ---- the context half of a label (TAB_CONTEXT) ----
+
+# 1 = put the context in front of the program: the directory the pane sits in,
+# the branch it has checked out, the machine it reached over ssh. A tab says WHAT
+# is running; without this half, five agent tabs across three checkouts read alike
+# and tell each other apart by position only. 0 names by the program alone, as
+# before.
+#
+# The switch is read inside ar_context_dir rather than at each call site, because
+# the reconcile and the shell hook both compute labels and a label they disagree
+# about is a tab that flips on every prompt.
+: "${TAB_CONTEXT:=1}"
+
+# Truncate the directory part to this many characters. It is a project name, not
+# a sentence, and the program beside it still needs the room MAX_NAME_LEN gives
+# it -- so it gets a budget of its own rather than eating that one.
+: "${MAX_CONTEXT_LEN:=12}"
+
+# What joins the parts of a label. Where a part came from -- a directory, a
+# branch, a program -- is not something a separator can convey, so every part
+# shares one. Written as its UTF-8 bytes for the reason icons.sh writes its
+# glyphs that way: a literal one is what an editor or a copy-paste eats without
+# saying so. This is U+203A, a single right-pointing angle quote.
+: "${CONTEXT_SEP:=$' \342\200\272 '}"
 
 # Name shown at a bare prompt (no foreground program), and while an
 # IGNORED_PROGRAMS command runs, so the tab holds steady instead of flickering.
@@ -173,6 +206,83 @@ ar_subst() {
   printf '%s' "$s"
 }
 
+# ar_trunc <string> <max> -> the string cut to <max> Unicode codepoints.
+#
+# Not bytes: bash's ${#s} and ${s:0:$max} count those under a C/POSIX locale
+# (herdr may launch plugins with no LC_*), which slices a multibyte character in
+# half and emits mojibake. jq (already a hard dependency) always reads its input
+# as UTF-8, so it slices on codepoint boundaries whatever the ambient locale is;
+# the byte cut is the fallback for a jq that is somehow unavailable. The length
+# test is a byte count on purpose -- a string of fewer bytes than max is also of
+# fewer codepoints, so the fork is skipped for every label that does not need it.
+ar_trunc() {
+  local s=$1 max=$2 cut
+  [ "${#s}" -gt "$max" ] || { printf '%s' "$s"; return 0; }
+  cut=$(printf '%s' "$s" | jq -Rrs --argjson n "$max" '.[:$n]' 2>/dev/null || printf '')
+  [ -n "$cut" ] || cut=${s:0:$max}
+  printf '%s' "$cut"
+}
+
+# ar_context_dir <pane directory> <workspace base label> -> the directory part of
+# the context, or "" when the directory says nothing worth a tab's width.
+#
+# The BASENAME, not ar_project_base's answer: that walks up to the repository a
+# directory belongs to, which is what herdr names a WORKSPACE after and therefore
+# the one thing a tab in it must not repeat. A tab cd'd into a subdirectory of
+# its project says which subdirectory, where the repository name would say what
+# the sidebar says.
+#
+# Normally the project name, then. Refused: a relative path (whatever
+# the reader's cwd makes of it -- herdr reports absolute ones), the filesystem
+# root, and the home directory, which is where a shell sits when it is nowhere in
+# particular.
+#
+# Also refused: the name of the workspace the tab is in. herdr shows that above
+# the tabs, so a tab there spends half its width repeating what is already on
+# screen. Matched ignoring the case of ASCII letters, like every other compare in
+# this file, and exactly otherwise -- a tab whose directory has left its
+# workspace behind is exactly the one that keeps saying where it is.
+ar_context_dir() {
+  local dir=$1 ws=$2 base
+  [ "${TAB_CONTEXT:-1}" = "1" ] || return 0
+  case $dir in /*) ;; *) return 0 ;; esac
+  dir=${dir%/}                        # a trailing slash names the same directory
+  [ -n "$dir" ] || return 0           # ... and "/" is left with nothing
+  [ "$dir" = "${HOME%/}" ] && return 0
+  base=${dir##*/}
+  [ -n "$base" ] || return 0
+  if [ -n "$ws" ]; then
+    # A QUOTED right-hand side is a literal string rather than a glob, so a
+    # workspace named "a[b" compares as itself; nocasematch is what folds the
+    # case, and it folds ASCII under the C locale the plugin may be launched in.
+    local folded=1 nocase
+    nocase=$(shopt -p nocasematch)      # whatever the caller had, to put back
+    shopt -s nocasematch
+    [[ $base == "$ws" ]] || folded=0
+    $nocase
+    [ "$folded" = "1" ] && return 0
+  fi
+  ar_trunc "$base" "${MAX_CONTEXT_LEN:-12}"
+}
+
+# ar_compose <context> <branch> <activity> -> the tab's base label.
+#
+# Read as a path from the general to the particular -- where the work is, then
+# what is being done -- with CONTEXT_SEP between every pair. Each part arrives
+# already cut to its own budget, so the whole is bounded by construction and
+# there is no second number to keep in step.
+#
+# An empty activity is HIDE_SHELL asking for no label at all, and half a label is
+# not what it asked for: the tab is handed back to herdr whole.
+ar_compose() {
+  local ctx=$1 branch=$2 activity=$3 out=""
+  [ -n "$activity" ] || return 0
+  [ -n "$ctx" ] && out=$ctx
+  [ -n "$branch" ] && { [ -n "$out" ] && out="$out$CONTEXT_SEP$branch" || out=$branch; }
+  [ -n "$out" ] && out="$out$CONTEXT_SEP$activity" || out=$activity
+  printf '%s' "$out"
+}
+
 # ar_title_clean <title> <title lowercased> <pane directory lowercased> <agent kind>
 #   -> the task the title describes, or "" when it describes no task and the
 #      program name is the better label.
@@ -239,6 +349,20 @@ ar_title_ignore_fold() {
 }
 
 # ---- helpers ----
+
+# ar_label <pane directory> <workspace base> <branch> <program|""> <cmdline> [title]
+#   -> the whole label a tab should carry.
+#
+# The one entry point for naming a tab. Both callers -- the reconcile and the
+# shell hook's fast path -- go through it, so neither can skip a step the other
+# takes: a label they disagree about is a tab that flips on every prompt. That is
+# why the raw directory comes in rather than a context computed outside.
+ar_label() {
+  local ctx activity
+  ctx=$(ar_context_dir "$1" "$2")
+  activity=$(ar_format "$4" "$5" "${6:-}")
+  ar_compose "$ctx" "$3" "$activity"
+}
 
 # ar_format <program|""> <cmdline> [title] -> final tab label
 #   program == "" means a bare prompt (name by the shell).
@@ -328,20 +452,9 @@ ar_format() {
   name=${name# }
   name=${name% }
 
-  # Truncate by Unicode codepoint, not byte. bash's ${#name} / ${name:0:$max}
-  # count bytes under a C/POSIX locale (herdr may launch plugins with no LC_*),
-  # which would slice a multibyte char in half and emit mojibake. jq (already a
-  # hard dependency of this plugin) always reads input as UTF-8, so it slices on
-  # codepoint boundaries regardless of the ambient locale; fall back to the byte
-  # cut only if jq is somehow unavailable.
+  # Cut to the budget (ar_trunc counts codepoints, not bytes).
   if [ "${#name}" -gt "$max" ]; then
-    local truncated
-    truncated=$(printf '%s' "$name" | jq -Rrs --argjson n "$max" '.[:$n]' 2>/dev/null || printf '')
-    if [ -n "$truncated" ]; then
-      name=$truncated
-    else
-      name=${name:0:$max}
-    fi
+    name=$(ar_trunc "$name" "$max")
     # A title is a sentence, so cut it at a word boundary rather than mid-word --
     # but only when that leaves most of the budget, since "Investigate" tells you
     # more than "I" does.

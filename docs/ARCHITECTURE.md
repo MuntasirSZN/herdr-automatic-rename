@@ -122,6 +122,22 @@ An agent that brands its own titles puts something in front of that glyph, and t
 
 `jq` does that strip, and the case-folding both sides of the comparisons need, in one call. Its character classes know Unicode; a byte-wise strip would eat the first letter of a title that opens with a non-ASCII word, and herdr may launch a plugin with no `LC_*` at all. Reaching for jq keeps the function inside the module's rule rather than bending it, and `ar_format` next door already calls it to truncate on codepoint boundaries for the same reason.
 
+## The context half of a label
+
+A tab used to say only what was running in it. `nvim` in three checkouts gave three tabs reading `nvim`, and an agent tab reading `claude` said no more. The context is the other half: the directory the pane sits in, in front of the program, joined by `CONTEXT_SEP` (`ar_compose`). It is `TAB_CONTEXT`, default on.
+
+The directory is refused when it says nothing a tab bar has room for: a relative path (herdr reports absolute ones, so this is a value that arrived broken), the filesystem root, and the home directory, which is where a shell sits when it is nowhere in particular.
+
+**The workspace name is not repeated.** herdr shows the workspace above its tabs, so a tab in the workspace named after its own directory would spend half its width on what is already on screen. `ar_reconcile_tabs` carries each workspace's own label down with its id, strips the `[N]` prefix (what it is compared against is a directory name, and `[1] api` is not one) and hands it to `ar_tab_name`, which passes it to `ar_context_dir`. The compare folds ASCII case and is exact otherwise, so a tab whose directory has left its workspace behind is exactly the one that keeps saying where it is.
+
+Each part carries its own budget rather than sharing one: the directory is cut to `MAX_CONTEXT_LEN` (12), the program keeps `MAX_NAME_LEN` (20), an agent's task keeps `MAX_TITLE_LEN` (28). The whole is then bounded by construction and there is no second number to keep in step. An empty activity still empties the whole label, because that is `HIDE_SHELL` asking for no name at all and half a name is not what it asked for.
+
+### The two paths have to agree
+
+The reconcile is not the only thing that names a tab. The shell hook's fast path renames on every command, so a hook that dropped the context would flip the tab between `api › nvim` and `nvim` on every prompt -- the same flicker the fast path exists to avoid.
+
+It gets both halves without a herdr call. The directory is the hook's own `$PWD`: the hook backgrounds the engine from the pane, so it arrives for free, and a `cd` shows up at the next prompt rather than waiting for an unrelated herdr event. The workspace name to dedupe against is recorded on the tab, in the `ws` field of its state record, by whichever reconcile last named it -- asking herdr for it would be a socket round-trip on every command. A workspace renamed since then leaves that field stale for one pass, and the pass that notices is the one that changes the label anyway, since a dedupe that flips changes what the label should be.
+
 ## Which pane names a tab
 
 A tab's name comes from one of its panes, so the pass has to pick that pane. The snapshot's `layouts` array makes the choice possible: one entry per tab, each carrying the `focused_pane_id` of that tab's own focus. It holds for tabs nobody is looking at, which the pane list cannot report (no pane of a background tab carries `.focused`), and it is per-tab, so it never picks up the globally focused pane, which belongs to whichever client moved focus last and may sit in another tab entirely (herdr supports several clients and remote attach).

@@ -40,11 +40,35 @@
 
 # ---- naming knobs (only used when NAME_TABS=1) ----
 
+# 1 = put the CONTEXT in front of the program: the directory the pane sits in,
+# the branch it has checked out, the machine it reached over ssh, joined with
+# CONTEXT_SEP -- "api › MC-13675 › nvim". A tab says what is running; without
+# this half, five agent tabs across three checkouts read alike. 0 names by the
+# program alone.
+#
+# The directory is refused when it says nothing a tab bar has room for: your home
+# directory, the filesystem root, and the name of the workspace the tab is in
+# (herdr shows that above the tabs already, so repeating it there spends half the
+# width on what is on screen anyway).
+# TAB_CONTEXT=1
+
+# Truncate the directory part to this many characters. It is a project name, not
+# a sentence, and the program beside it still needs the room MAX_NAME_LEN gives
+# it, so it has a budget of its own rather than eating that one.
+# MAX_CONTEXT_LEN=12
+
+# What joins the parts of a label. Written as a literal character; the default is
+# U+203A, a single right-pointing angle quote.
+# CONTEXT_SEP=' › '
+
 # 1 = a regular program shows its full command line ("psql -h db"); 0 = just its
 # name ("psql"). Default 0.
 # SHOW_PROGRAM_ARGS=0
 
-# Truncate the final label to this many characters (counted by codepoint).
+# Truncate the program name to this many characters (counted by codepoint). Each
+# part of a label has a budget of its own -- MAX_CONTEXT_LEN for the directory,
+# MAX_TITLE_LEN for an agent's task -- so the whole is bounded by the sum rather
+# than by a total you would have to keep in step with the parts.
 # MAX_NAME_LEN=20
 
 # 1 = name a tab running a coding agent after the task the agent reports in its

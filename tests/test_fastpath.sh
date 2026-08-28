@@ -34,6 +34,11 @@ setup() {
   export NAME_TABS=1 AUTO_INDEX=1
   unset HIDE_SHELL                            # per-scenario opt-in; default is off
   unset AUTO_INDEX_WORKSPACES AUTO_INDEX_TABS AUTO_INDEX_AGENTS   # per-kind opt-in
+  # These scenarios are about which PROGRAM the hook names a tab after, and the
+  # hook names the context from the shell's own $PWD -- which here is wherever
+  # the suite was started, so every expected label would carry that directory.
+  # The hook's own context handling is pinned in tests/test_context.sh instead.
+  export TAB_CONTEXT=0
   export HERDR_TAB_ID=t1 HERDR_PANE_ID=p1
   mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
   printf '{"t1":{"auto":"zsh","enabled":true}}\n' \

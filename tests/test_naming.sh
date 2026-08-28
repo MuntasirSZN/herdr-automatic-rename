@@ -533,4 +533,62 @@ check "MAX_TITLE_LEN follows MAX_NAME_LEN" "20" "$got"
 got=$(bash -c 'MAX_NAME_LEN=12; MAX_TITLE_LEN=40; . "$1"; printf %s "$MAX_TITLE_LEN"' _ "$here/../naming.sh")
 check "an explicit MAX_TITLE_LEN still wins" "40" "$got"
 
+# ======================================================================
+# The context half of a label: where the work is happening.
+# ======================================================================
+# A tab says WHAT is running; on its own that leaves five "claude" tabs across
+# three checkouts telling each other apart by position alone. The context is the
+# other half -- the directory the pane sits in, the branch it has checked out, the
+# machine it reached over ssh -- joined in front of the program with CONTEXT_SEP.
+
+# ---- ar_context_dir: the directory a pane sits in ----
+HOME_SAVE=$HOME
+HOME=/Users/tester
+check "a project directory names the context" "api" \
+  "$(ar_context_dir '/Users/tester/dev/api' 'web')"
+# The home directory and the filesystem root are where a shell sits when it is
+# nowhere in particular, and "tester" or "/" says nothing a tab bar has room for.
+check "the home directory says nothing" "" "$(ar_context_dir '/Users/tester' 'web')"
+check "the filesystem root says nothing" "" "$(ar_context_dir '/' 'web')"
+check "no directory at all says nothing" "" "$(ar_context_dir '' 'web')"
+# A relative path is not a directory this plugin can reason about: it is whatever
+# the reader's cwd happens to make it, and herdr reports absolute paths.
+check "a relative path says nothing" "" "$(ar_context_dir 'dev/api' 'web')"
+# herdr shows the workspace above its tabs, so a tab in the workspace named after
+# its own directory spends half its width repeating what is already on screen.
+check "the workspace name is not repeated" "" "$(ar_context_dir '/Users/tester/dev/api' 'api')"
+check "the repeat is matched ignoring ASCII case" "" "$(ar_context_dir '/Users/tester/dev/API' 'api')"
+# ... and only an exact match, so a tab whose directory has left its workspace
+# behind is exactly the one that keeps saying where it is.
+check "a different directory still shows" "api" "$(ar_context_dir '/Users/tester/dev/api' 'api-docs')"
+# A workspace nobody has named (or a path with no workspace to compare) dedupes
+# against nothing.
+check "no workspace name dedupes nothing" "api" "$(ar_context_dir '/Users/tester/dev/api' '')"
+check "a trailing slash names the same directory" "api" \
+  "$(ar_context_dir '/Users/tester/dev/api/' 'web')"
+# The context gets its own budget: it is a project name, not a sentence, and the
+# activity beside it still needs the room MAX_NAME_LEN gives it.
+check "a long directory is cut to MAX_CONTEXT_LEN" "aaaaaaaaaaaa" \
+  "$(ar_context_dir '/Users/tester/dev/aaaaaaaaaaaaaaaaaaaa' 'web')"
+check "MAX_CONTEXT_LEN is configurable" "aaaa" \
+  "$(MAX_CONTEXT_LEN=4 ar_context_dir '/Users/tester/dev/aaaaaaaaaaaaaaaaaaaa' 'web')"
+# One switch turns the whole context half off, and it lives here rather than at
+# each call site so the reconcile and the shell hook cannot disagree about it.
+check "TAB_CONTEXT=0 turns the context off" "" \
+  "$(TAB_CONTEXT=0 ar_context_dir '/Users/tester/dev/api' 'web')"
+HOME=$HOME_SAVE
+
+# ---- ar_compose: joining the halves ----
+check "context and activity are joined" "api › nvim" "$(ar_compose 'api' '' 'nvim')"
+check "a branch sits between them" "api › feat/oauth › nvim" \
+  "$(ar_compose 'api' 'feat/oauth' 'nvim')"
+check "no context leaves the activity alone" "nvim" "$(ar_compose '' '' 'nvim')"
+check "a branch with no context still shows" "feat/oauth › nvim" \
+  "$(ar_compose '' 'feat/oauth' 'nvim')"
+# An empty activity is HIDE_SHELL asking for no label at all, and half a label is
+# not what it asked for: the tab is handed back to herdr whole.
+check "an empty activity empties the whole label" "" "$(ar_compose 'api' 'feat/x' '')"
+check "the separator is configurable" "api | nvim" \
+  "$(CONTEXT_SEP=' | ' ar_compose 'api' '' 'nvim')"
+
 t_summary

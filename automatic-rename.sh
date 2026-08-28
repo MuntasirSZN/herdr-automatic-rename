@@ -493,15 +493,40 @@ ar_state_get() { # <tab_id> <field>
   jq -r --arg t "$1" --arg f "$2" '.[$t][$f] as $v | if $v == null then empty else $v end' \
     "$STATE_FILE" 2>/dev/null
 }
-ar_state_set() { # <tab_id> <auto-name> <enabled true|false>
+# <ws> is the base label of the workspace the tab was in when it was named. It
+# is recorded so the shell hook can dedupe the context against it (see
+# ar_context_dir) without a herdr call of its own on every prompt. Absent for
+# every key but a named tab's, and dropped rather than written empty.
+#
+# Last known good, not current: a workspace renamed, or a tab dragged into
+# another one, leaves it stale until the next reconcile. That pass is the one
+# that changes the label anyway -- a dedupe that flips is a different label --
+# so the staleness costs at most the label a tab already had.
+# ar_state_fields <key> -> "<enabled><SEP><auto><SEP><ws>" for that key, empty
+# throughout when nothing is known about it. One jq for the three fields the
+# opt-out machine reads together: they are read on every tab of every pass, and
+# a fork each is a fork per field per tab.
+#
+# `enabled` is emitted as its own text rather than through `//`, which treats a
+# boolean false as absent: an opted-out tab would read back as first-seen on
+# every pass and re-adopt a name somebody typed.
+ar_state_fields() { # <key>
+  [ -f "$STATE_FILE" ] || return 0
+  jq -r --arg t "$1" '.[$t] as $r
+    | [ ($r.enabled | if . == null then "" else tostring end),
+        ($r.auto // ""), ($r.ws // "") ] | join([31] | implode)' \
+    "$STATE_FILE" 2>/dev/null
+}
+ar_state_set() { # <tab_id> <auto-name> <enabled true|false> [ws]
   local base tmp
   base=$(ar_state_read) || return 1        # unreadable: leave the file alone
   # A write that did not land reports it. Ownership IS this file, so swallowing a
   # full disk or an unwritable state directory told the reset action a tab was
   # re-adopted while the next pass, finding no entry, opted it straight back out.
   tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 1
-  if printf '%s' "$base" | jq --arg t "$1" --arg a "$2" --argjson e "$3" \
-       '.[$t] = {auto: $a, enabled: $e}' > "$tmp" 2>/dev/null; then
+  if printf '%s' "$base" | jq --arg t "$1" --arg a "$2" --argjson e "$3" --arg w "${4:-}" \
+       '.[$t] = (if $w == "" then {auto: $a, enabled: $e}
+                 else {auto: $a, enabled: $e, ws: $w} end)' > "$tmp" 2>/dev/null; then
     mv "$tmp" "$STATE_FILE" || return 1
   else
     rm -f "$tmp"
@@ -544,7 +569,7 @@ ar_state_prune() { # <keep tab_ids...> - drop entries for tabs that no longer ex
   fi
 }
 
-# ar_state_claim <tab_id> <name> <named 0|1> - record that we own <tab_id> at
+# ar_state_claim <tab_id> <name> <named 0|1> [ws] - record that we own <tab_id> at
 # <name>, unless nothing has changed. State already saying exactly this is the
 # steady state -- every named tab, on every pass -- and ar_state_set rewrites the
 # whole file, so the guard keeps a quiet session from rewriting it per tab per
@@ -555,9 +580,10 @@ ar_state_claim() {
   # tab is back under naming: reporting it any earlier told the user it worked when
   # the rename failed, or when the state write did, and a tab in either position
   # opts itself straight back out on the next pass.
-  if [ "${AR_STATE_ENABLED:-}" = "true" ] && [ "${AR_STATE_AUTO:-}" = "$2" ]; then
+  if [ "${AR_STATE_ENABLED:-}" = "true" ] && [ "${AR_STATE_AUTO:-}" = "$2" ] \
+     && [ "${AR_STATE_WS:-}" = "${4:-}" ]; then
     :                                    # state already says this; nothing to write
-  elif ! ar_state_set "$1" "$2" true; then
+  elif ! ar_state_set "$1" "$2" true "${4:-}"; then
     return 1
   fi
   [ -n "${AR_FORCE_TAB:-}" ] && [ "$1" = "$AR_FORCE_TAB" ] && AR_FORCE_ADOPTED=1
@@ -569,16 +595,17 @@ ar_state_claim() {
 # or 1 (leave the base alone). May write opt-out state as a side effect. Needs no
 # computed name, so an opted-out tab costs no process-info call.
 #
-# The two fields it reads are published as AR_STATE_ENABLED / AR_STATE_AUTO for
-# the tab just examined, so a caller about to record ownership can tell an
-# unchanged claim (the steady state, every pass, for every named tab) from one
-# worth writing -- ar_state_set rewrites the whole state file.
+# The fields it reads are published as AR_STATE_ENABLED / AR_STATE_AUTO /
+# AR_STATE_WS for the tab just examined, so a caller about to record ownership
+# can tell an unchanged claim (the steady state, every pass, for every named tab)
+# from one worth writing -- ar_state_set rewrites the whole state file. The shell
+# hook reads AR_STATE_WS for the dedupe as well.
 ar_name_eligible() {
-  local tab=$1 slabel=$2 enabled auto
-  enabled=$(ar_state_get "$tab" enabled)
-  auto=$(ar_state_get "$tab" auto)
+  local tab=$1 slabel=$2 enabled auto ws
+  IFS=$AR_ROW_SEP read -r enabled auto ws <<< "$(ar_state_fields "$tab")"
   AR_STATE_ENABLED=$enabled
   AR_STATE_AUTO=$auto
+  AR_STATE_WS=$ws
   if [ -n "${AR_FORCE_TAB:-}" ] && [ "$tab" = "$AR_FORCE_TAB" ]; then
     return 0                                    # reset forces re-adoption
   elif [ -z "$enabled" ]; then
@@ -666,11 +693,12 @@ ar_resolve_pane() {
 # of AGENT_TITLES. herdr keeps an ANSI-stripped copy, and _stripped means exactly
 # that -- a spinner glyph is still on the front of it (see ar_title_clean).
 #
-# AR_PANE_DIR is the directory the pane is in, needed only to recognize a title
-# that is just that directory repeated back.
+# AR_PANE_DIR is the directory the pane is in: the context half of the label is
+# named after it (ar_context_dir), and AR_PANE_DIR_LC -- its basename, folded --
+# is what recognizes a title that is just that directory repeated back.
 ar_pane_facts() {
   local out
-  AR_PANE_AGENT=""; AR_PANE_TITLE=""; AR_PANE_TITLE_LC=""; AR_PANE_DIR_LC=""
+  AR_PANE_AGENT=""; AR_PANE_TITLE=""; AR_PANE_TITLE_LC=""; AR_PANE_DIR_LC=""; AR_PANE_DIR=""
   out=$(printf '%s' "$AR_PANES_JSON" | jq -r --arg p "$1" \
     --arg brands "${AR_TITLE_BRANDS:-}" "$AR_JQ_CLEAN$AR_JQ_TASK"'
     ($brands | brandmap) as $brand
@@ -681,10 +709,12 @@ ar_pane_facts() {
     # Unicode-aware compare would have to move back into jq per tab.
     | ($pane.terminal_title_stripped // $pane.terminal_title
        | taskof($brand; $pane.agent)) as $t
+    | (($pane.foreground_cwd // $pane.cwd) | clean) as $dir
     | [ ($pane.agent | clean), $t, ($t | ascii_downcase),
-        ((($pane.foreground_cwd // $pane.cwd | clean) | split("/") | last) // "" | ascii_downcase) ]
+        (($dir | split("/") | last) // "" | ascii_downcase), $dir ]
     | join([31] | implode)' 2>/dev/null)
-  IFS=$AR_ROW_SEP read -r AR_PANE_AGENT AR_PANE_TITLE AR_PANE_TITLE_LC AR_PANE_DIR_LC <<< "$out"
+  IFS=$AR_ROW_SEP read -r AR_PANE_AGENT AR_PANE_TITLE AR_PANE_TITLE_LC AR_PANE_DIR_LC \
+    AR_PANE_DIR <<< "$out"
 }
 
 # ar_split_program <ar_pane_program output> -> sets AR_PROG / AR_CMD.
@@ -747,7 +777,8 @@ ar_pane_program() {
   ' 2>/dev/null
 }
 
-# ar_tab_name <tab_id> <pane_count> <focused> <layout_pane> -> base name on stdout.
+# ar_tab_name <tab_id> <pane_count> <focused> <layout_pane> [workspace base]
+#   -> base name on stdout.
 # Returns 1 when the name can't be computed (no resolvable pane, process-info
 # failure); a successful HIDE_SHELL computation returns 0 with EMPTY output, so
 # the caller must read the status, not the string, to tell the two apart.
@@ -773,7 +804,7 @@ ar_tab_name() {
   if [ "${AGENT_TITLES:-1}" = "1" ] && [ -n "$AR_PANE_AGENT" ]; then
     title=$(ar_title_clean "$AR_PANE_TITLE" "$AR_PANE_TITLE_LC" "$AR_PANE_DIR_LC" "$AR_PANE_AGENT")
     if [ -n "$title" ]; then
-      ar_format "$AR_PANE_AGENT" "" "$title"
+      ar_label "$AR_PANE_DIR" "${5:-}" "" "$AR_PANE_AGENT" "" "$title"
       return 0
     fi
   fi
@@ -796,7 +827,7 @@ ar_tab_name() {
     prog=$AR_PANE_AGENT
     cmd=$AR_PANE_AGENT
   fi
-  ar_format "$prog" "$cmd"
+  ar_label "$AR_PANE_DIR" "${5:-}" "" "$prog" "$cmd"
 }
 
 # ======================================================================
@@ -1008,8 +1039,7 @@ ar_identity_base() { # <workspace_id>
 # somebody typed. Anything else is somebody's name and is left alone for good.
 ar_ws_track_eligible() {
   local key="ws:$1" slabel=$2 ibase=$3 enabled auto
-  enabled=$(ar_state_get "$key" enabled)
-  auto=$(ar_state_get "$key" auto)
+  IFS=$AR_ROW_SEP read -r enabled auto <<< "$(ar_state_fields "$key")"
   AR_WS_STATE_ENABLED=$enabled
   AR_WS_STATE_AUTO=$auto
   if [ "$slabel" = "$ibase" ]; then
@@ -1101,10 +1131,15 @@ ar_renumber_workspaces() {
 # (naming if owned/eligible, else the stripped current base) and apply the
 # position prefix in a single rename. Arg 1 is the cached `workspace list` JSON.
 ar_reconcile_tabs() {
-  local wsjson=$1 w tjson rows tid label pcount foc base0 base named name i want
+  local wsjson=$1 w wslabel wsbase tjson rows tid label pcount foc base0 base named name i want
   [ -n "$wsjson" ] || return 0
-  while IFS= read -r w; do
+  # The workspace's own label comes down with its id: a tab in the workspace
+  # named after its own directory drops that half of its name (ar_context_dir),
+  # and the numbering prefix comes off first because what it is compared against
+  # is a directory name, which "[1] api" is not.
+  while IFS=$AR_ROW_SEP read -r w wslabel; do
     [ -n "$w" ] || continue
+    wsbase=$(ar_strip_prefix "$wslabel")
     if [ "${AR_HAVE_SNAPSHOT:-0}" = "1" ]; then
       # Slice this workspace's tabs out of the cached snapshot, preserving array
       # order (what cmd+N numbers by). Same shape as `tab list --workspace`, plus
@@ -1121,12 +1156,12 @@ ar_reconcile_tabs() {
           ((.focused // false) | tostring), (._name_pane // ""),
           (((.label // "") != (.label | clean)) | tostring),
           (._name_agent // ""), (._name_title // ""), (._name_title_lc // ""),
-          (._name_dir_lc // "") ]
+          (._name_dir_lc // ""), (._name_dir // "") ]
       | join([31] | implode)' 2>/dev/null)
     [ -n "$rows" ] || continue
     i=0
     while IFS=$AR_ROW_SEP read -r tid label pcount foc lpane dirty \
-      AR_PANE_AGENT AR_PANE_TITLE AR_PANE_TITLE_LC AR_PANE_DIR_LC; do
+      AR_PANE_AGENT AR_PANE_TITLE AR_PANE_TITLE_LC AR_PANE_DIR_LC AR_PANE_DIR; do
       [ -n "$tid" ] || continue
       i=$(( i + 1 ))
       AR_SEEN_TABS="$AR_SEEN_TABS $tid"
@@ -1138,7 +1173,7 @@ ar_reconcile_tabs() {
         # the knob off it is not, because a config can erase a name it did compute
         # (MAX_NAME_LEN=0, a SUBSTITUTE_SETS rule that matches everything) and
         # blanking a tab over that was never the deal. The fast path declines it too.
-        if ar_name_eligible "$tid" "$base0" && name=$(ar_tab_name "$tid" "$pcount" "$foc" "$lpane") \
+        if ar_name_eligible "$tid" "$base0" && name=$(ar_tab_name "$tid" "$pcount" "$foc" "$lpane" "$wsbase") \
            && { [ -n "$name" ] || [ "${HIDE_SHELL:-0}" = "1" ]; }; then
           base=$name
           named=1
@@ -1181,10 +1216,12 @@ ar_reconcile_tabs() {
       # not own keeps whatever the user put there, control characters included.
       if { [ "$want" = "$label" ] && { [ "$named" = "0" ] || [ "$dirty" != "true" ]; }; } \
          || "$HERDR" tab rename "$tid" "$want" >/dev/null 2>&1; then
-        ar_state_claim "$tid" "$name" "$named"
+        ar_state_claim "$tid" "$name" "$named" "$wsbase"
       fi
     done <<< "$rows"
-  done <<< "$(printf '%s' "$wsjson" | jq -r '(.result.workspaces // .workspaces // [])[].workspace_id' 2>/dev/null)"
+  done <<< "$(printf '%s' "$wsjson" | jq -r "$AR_JQ_CLEAN"'
+    (.result.workspaces // .workspaces // [])[]
+    | [ (.workspace_id | clean), (.label | clean) ] | join([31] | implode)' 2>/dev/null)"
 }
 
 # ar_agent_revert <pane_id> <base> <detected>
@@ -1492,12 +1529,13 @@ ar_reconcile() {
            | ($pan | map(select(.pane_id == $pick)) | .[0]) as $p
            | ($p.terminal_title_stripped // $p.terminal_title
               | taskof($brand; $p.agent)) as $ti
+           | (($p.foreground_cwd // $p.cwd) | clean) as $dir
            | . + { _name_pane: $pick,
                    _name_agent: ($p.agent | clean),
                    _name_title: $ti,
                    _name_title_lc: ($ti | ascii_downcase),
-                   _name_dir_lc: ((($p.foreground_cwd // $p.cwd | clean)
-                                   | split("/") | last) // "" | ascii_downcase) } ]}}' 2>/dev/null)
+                   _name_dir_lc: (($dir | split("/") | last) // "" | ascii_downcase),
+                   _name_dir: $dir } ]}}' 2>/dev/null)
     AR_SNAP_AGENTS_JSON=$(printf '%s' "$snap" | jq -c \
       '{result:{agents:((.result.snapshot // .snapshot).agents // [])}}' 2>/dev/null)
     # Lifted whatever the toggles say, because the workspace pass wants them as
@@ -1569,7 +1607,6 @@ ar_fast_once() {
       prog="${cmd%% *}"; prog="${prog##*/}"
     fi
   fi
-  name=$(ar_format "$prog" "$cmd")
   # A failed `tab get` must NOT look like an empty label (which would read as a
   # placeholder and clobber a hand-picked name). Only proceed on a real tab object.
   raw=$("$HERDR" tab get "$tab" 2>/dev/null) || return 0
@@ -1580,6 +1617,12 @@ ar_fast_once() {
   if ar_index_on tabs; then prefix=$(ar_index_prefix "$label"); else prefix=""; fi
   slabel=$(ar_strip_prefix "$label")
   ar_name_eligible "$tab" "$slabel" || return 0
+  # The context is this shell's own $PWD -- the hook backgrounds the engine from
+  # the pane, so the directory arrives for free and a cd shows up at the next
+  # prompt. The workspace it dedupes against is whatever the last reconcile
+  # recorded on the tab: reading it back costs nothing, where asking herdr would
+  # cost a socket round-trip on every command.
+  name=$(ar_label "$PWD" "${AR_STATE_WS:-}" "" "$prog" "$cmd")
   # Empty is a real answer under HIDE_SHELL (name the tab nothing, keeping the
   # number alone when there is one); anywhere else it means we have no name.
   if [ -z "$name" ]; then
@@ -1590,7 +1633,7 @@ ar_fast_once() {
   if [ "$want" != "$label" ]; then
     "$HERDR" tab rename "$tab" "$want" >/dev/null 2>&1 || return 0
   fi
-  ar_state_claim "$tab" "$name" 1
+  ar_state_claim "$tab" "$name" 1 "${AR_STATE_WS:-}"
 }
 
 # Coalesce bursts: only the lock holder works; contenders raise the rerun flag

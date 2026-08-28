@@ -5,10 +5,13 @@
 This plugin makes herdr easier to navigate:
 
 - Like [tmux](https://github.com/tmux/tmux)'s `automatic-rename`, a tab shows its foreground process (`nvim`, `claude`) or the shell (`zsh`) instead of `1`, `2`, `3`. A tab running a coding agent shows the task instead, with names like `Squash merge command`.
+- In front of that sits the context: the directory the pane is in, so five `claude` tabs across three checkouts stop reading alike. `TAB_CONTEXT=0` turns it off.
 - Workspaces and tabs get an `[N]` prefix matching the `1-9` binding for that slot, so you can glance at the sidebar or tab bar and jump straight there.
 - A workspace keeps the name herdr gives it, which follows the directory its panes are in. Numbering it used to freeze that name at whatever the workspace was called when it opened.
 
 Set `NAME_TABS=0` to turn off the naming, `AUTO_INDEX=0` to turn off the numbering.
+
+A label reads `[N] <context> › <activity>`: where the work is, then what is being done there. The directory drops out when it says nothing worth the width, which is your home directory, the filesystem root, or the name of the workspace the tab is already in (herdr shows that above the tabs).
 
 <img width="1200" height="520" alt="Tab bars before and after the plugin names tabs" src="docs/readme-demo.jpg" />
 
