@@ -28,7 +28,7 @@ lint-sh:
 		have=$$(shellcheck --version | sed -n 's/^version: //p'); \
 		[ "$$have" = "$(SHELLCHECK_VERSION)" ] || \
 			echo "warning: shellcheck $$have, CI runs $(SHELLCHECK_VERSION)"; \
-		shellcheck -x -s bash automatic-rename.sh naming.sh icons.sh git.sh config.example.sh \
+		shellcheck -x -s bash automatic-rename.sh naming.sh icons.sh git.sh transcript.sh config.example.sh \
 			shell/hook.bash tests/*.sh tests/mocks/herdr; \
 	else \
 		echo "shellcheck not installed; skipping"; \
@@ -49,7 +49,7 @@ lint-md:
 # and hook.fish are not bash, so each gets its own interpreter, and each is
 # skipped when that shell is absent (CI always has both).
 syntax:
-	@for f in automatic-rename.sh naming.sh icons.sh git.sh config.example.sh shell/hook.bash \
+	@for f in automatic-rename.sh naming.sh icons.sh git.sh transcript.sh config.example.sh shell/hook.bash \
 	          tests/run.sh tests/lib.sh tests/test_*.sh tests/mocks/herdr; do \
 		/bin/bash -n "$$f" || exit 1; \
 	done

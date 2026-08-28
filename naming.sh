@@ -498,6 +498,15 @@ ar_title_ignore_fold() {
 # a switch here, which costs at most the tab saying `ssh` alone for one release.
 _AR_SSH_VALUE_FLAGS='BbcDEeFIiJLlmOoPpQRSWw'
 
+# The `-o` settings whose value is a COMMAND, and so the only ssh arguments that
+# routinely carry spaces. A command line reaches this module flattened, and a
+# value with a space in it has already been split into words that look exactly
+# like arguments of ssh itself -- a ProxyCommand parses as its own bastion, which
+# is a tab confidently naming the wrong machine. Seeing one of these is how that
+# is recognized; the answer is to refuse the line. Written lowercase and compared
+# folded, since ssh does not care how they are spelled.
+_AR_SSH_COMMAND_OPTS=' proxycommand remotecommand localcommand knownhostscommand setenv '
+
 # ar_ssh_host <command line> -> the machine the pane reached, or "" when the
 # command is not ssh or names no destination.
 #
@@ -512,25 +521,36 @@ _AR_SSH_VALUE_FLAGS='BbcDEeFIiJLlmOoPpQRSWw'
 # to say who is logged in.
 ar_ssh_host() {
   [ "${TAB_CONTEXT:-1}" = "1" ] || return 0
-  local word host="" skip=0 done=0 cluster letter words=()
+  local word host="" skip=0 setting=0 done=0 cluster letter words=()
   case ${1%% *} in */ssh | ssh) ;; *) return 0 ;; esac
   case $1 in *' '*) ;; *) return 0 ;; esac    # ssh with no arguments names nobody
-  # A quoted argument cannot be split back out of a flattened command line: its
-  # words look exactly like arguments of ssh itself, and the commonest one --
-  # `-o ProxyCommand="ssh -W %h:%p bastion"` -- names another machine entirely,
-  # which is the one wrong answer worth more than no answer. Refused, and the tab
-  # reads "ssh" as it did before any of this existed.
-  case $1 in *[\"\']*) return 0 ;; esac
+  # Quotes come off before anything is read, so that the same command line reads
+  # the same both ways round. The shell hook is handed the line AS TYPED, quotes
+  # and all; the reconcile is handed a flattened argv, which a shell stripped the
+  # quotes from before it ever ran. A rule that fired on one shape and not the
+  # other would have the two naming paths disagree, which is a tab that flips on
+  # every prompt.
+  local line=$1
+  line=${line//\"/}
+  line=${line//\'/}
   # Splitting IS the parse. A command line reaches here as one string with its
   # quoting already gone (herdr joins argv, and the shell hook is handed the line
   # as typed), so there is nothing better to split on -- and a hostname has no
   # spaces in it. `read -a` rather than a bare `for word in $1`, because that
   # would expand a glob in the line and would need `set -f` around it, which is a
   # process-wide setting to be flipping under the reconcile that called this.
-  IFS=' ' read -ra words <<< "${1#* }"
+  IFS=' ' read -ra words <<< "${line#* }"
   for word in ${words[@]+"${words[@]}"}; do
     if [ "$skip" = "1" ]; then
       skip=0
+      if [ "$setting" = "1" ]; then
+        setting=0
+        # A setting whose value is a command: the rest of the line is that
+        # command mixed in with ssh's own arguments and there is no telling them
+        # apart, so nothing after this can be trusted.
+        ar_case "${word%%=*}" "$_AR_UPPER" "$_AR_LOWER"
+        case $_AR_SSH_COMMAND_OPTS in *" $AR_CASE "*) return 0 ;; esac
+      fi
       continue
     fi
     if [ "$done" = "0" ]; then
@@ -552,6 +572,7 @@ ar_ssh_host() {
           case $_AR_SSH_VALUE_FLAGS in
           *"$letter"*)
             [ -n "$cluster" ] || skip=1
+            [ "$letter" = "o" ] && setting=1
             break
             ;;
           esac

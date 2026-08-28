@@ -4,7 +4,7 @@
 
 This plugin makes herdr easier to navigate:
 
-- Like [tmux](https://github.com/tmux/tmux)'s `automatic-rename`, a tab shows its foreground process (`nvim`, `claude`) or the shell (`zsh`) instead of `1`, `2`, `3`. A tab running a coding agent shows the task instead, with names like `Squash merge command`.
+- Like [tmux](https://github.com/tmux/tmux)'s `automatic-rename`, a tab shows its foreground process (`nvim`, `claude`) or the shell (`zsh`) instead of `1`, `2`, `3`. A tab running a coding agent shows the task instead, with names like `Squash merge command`. A Claude Code session that never got a title, because you opened it with a slash command, is named from the session itself (`AGENT_TRANSCRIPT=0` turns that off).
 - In front of that sits the context: the directory the pane is in and the branch it has checked out, so five `claude` tabs across three checkouts stop reading alike. `TAB_CONTEXT=0` turns it off.
 - Workspaces and tabs get an `[N]` prefix matching the `1-9` binding for that slot, so you can glance at the sidebar or tab bar and jump straight there.
 - A workspace keeps the name herdr gives it, which follows the directory its panes are in. Numbering it used to freeze that name at whatever the workspace was called when it opened.
@@ -20,6 +20,8 @@ A pane running `ssh` is named after the machine instead, `prod-01 › ssh`, sinc
 ## Requirements
 
 herdr `>= 0.7.1`, `jq`, and bash, on Linux or macOS.
+
+For agent tabs, `herdr integration install claude` is worth running: it tells herdr which session each pane holds, which is what lets a session with no title be named from its own transcript.
 
 Prefer herdr `>= 0.7.4`. Below that a new name still lands, but the tab bar shows it only on the next redraw, such as a focus change.
 

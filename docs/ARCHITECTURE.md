@@ -156,6 +156,18 @@ The reconcile is not the only thing that names a tab. The shell hook's fast path
 
 It gets both halves without a herdr call. The directory is the hook's own `$PWD`: the hook backgrounds the engine from the pane, so it arrives for free, and a `cd` shows up at the next prompt rather than waiting for an unrelated herdr event. The workspace name to dedupe against is recorded on the tab, in the `ws` field of its state record, by whichever reconcile last named it -- asking herdr for it would be a socket round-trip on every command. A workspace renamed since then leaves that field stale for one pass, and the pass that notices is the one that changes the label anyway, since a dedupe that flips changes what the label should be.
 
+### A session with no title
+
+`ar_title_clean` refusing a title is common and not an error: Claude Code derives its terminal title from what the user typed, so a session opened with a slash command and answered by the agent alone is never given one. That tab read `claude` for as long as it ran.
+
+`transcript.sh` answers there. herdr's own integration hook (`herdr integration install claude`) reports the session id through `pane.report_agent_session`, and it arrives on the pane as `agent_session.value` — no extra request. The transcript is then read from disk: the last `ai-title` line, which is the title Claude Code generated and keeps current, or failing that the first prompt the user actually typed, which is what Claude Code's own session list shows for an untitled session. A prompt that is a slash command yields the command and its arguments, since the argument is usually what tells one run of a command from the next.
+
+Three things bound it. It runs only where a pane has an agent, has a session id, and produced no usable terminal title, so a titled agent pays nothing. Each read takes the end of the file it needs — the tail for the title, the head for the opening — rather than the file, because a long session's transcript runs to megabytes. And the session id becomes part of a path, so it is refused unless it is shaped like a UUID rather than cleaned.
+
+Telling the user's own prompt from the rest is not cosmetic: a slash command expands into the conversation as further user messages, a tool answers with its output, and a resumed session opens with a caveat the tool wrote. Naming a tab after any of those names it after the plumbing. Newer transcripts mark what the user typed with `origin.kind`; older ones mark nothing, and there a message whose content is a plain string is the same thing by another road, since everything the tool injects arrives as blocks.
+
+Two costs are worth stating plainly. It reads what the user said to their agent, which is why `AGENT_TRANSCRIPT=0` exists and why nothing else in this plugin reads a file it was not pointed at. And the format is undocumented: `ai-title` and `origin.kind` are Claude Code internals and can change in any release, so a transcript that no longer carries them yields nothing and the tab is named as it was before this existed — the failure mode to have.
+
 ## Which pane names a tab
 
 A tab's name comes from one of its panes, so the pass has to pick that pane. The snapshot's `layouts` array makes the choice possible: one entry per tab, each carrying the `focused_pane_id` of that tab's own focus. It holds for tabs nobody is looking at, which the pane list cannot report (no pane of a background tab carries `.focused`), and it is per-tab, so it never picks up the globally focused pane, which belongs to whichever client moved focus last and may sit in another tab entirely (herdr supports several clients and remote attach).

@@ -699,6 +699,7 @@ ar_resolve_pane() {
 ar_pane_facts() {
   local out
   AR_PANE_AGENT=""; AR_PANE_TITLE=""; AR_PANE_TITLE_LC=""; AR_PANE_DIR_LC=""; AR_PANE_DIR=""
+  AR_PANE_SESSION=""
   out=$(printf '%s' "$AR_PANES_JSON" | jq -r --arg p "$1" \
     --arg brands "${AR_TITLE_BRANDS:-}" "$AR_JQ_CLEAN$AR_JQ_TASK"'
     ($brands | brandmap) as $brand
@@ -711,10 +712,11 @@ ar_pane_facts() {
        | taskof($brand; $pane.agent)) as $t
     | (($pane.foreground_cwd // $pane.cwd) | clean) as $dir
     | [ ($pane.agent | clean), $t, ($t | ascii_downcase),
-        (($dir | split("/") | last) // "" | ascii_downcase), $dir ]
+        (($dir | split("/") | last) // "" | ascii_downcase), $dir,
+        ($pane.agent_session.value | clean) ]
     | join([31] | implode)' 2>/dev/null)
   IFS=$AR_ROW_SEP read -r AR_PANE_AGENT AR_PANE_TITLE AR_PANE_TITLE_LC AR_PANE_DIR_LC \
-    AR_PANE_DIR <<< "$out"
+    AR_PANE_DIR AR_PANE_SESSION <<< "$out"
 }
 
 # ar_split_program <ar_pane_program output> -> sets AR_PROG / AR_CMD.
@@ -814,6 +816,17 @@ ar_tab_name() {
   # process-info reply).
   if [ "${AGENT_TITLES:-1}" = "1" ] && [ -n "$AR_PANE_AGENT" ]; then
     title=$(ar_title_clean "$AR_PANE_TITLE" "$AR_PANE_TITLE_LC" "$AR_PANE_DIR_LC" "$AR_PANE_AGENT")
+    # The agent has not titled its terminal, or titled it with something that
+    # says nothing. Claude Code derives that title from what the user typed, so a
+    # session opened with a slash command and answered by the agent alone never
+    # gets one -- and its own transcript is where it says what it is doing. Only
+    # reached when there is a session to read and a title that was not enough, so
+    # a titled agent pays nothing for this.
+    if [ -z "$title" ] && [ -n "$AR_PANE_SESSION" ] \
+       && ar_transcript_topic "$AR_PANE_SESSION" "$AR_PANE_DIR"; then
+      title=$(ar_title_clean "$AR_TRANSCRIPT_TOPIC" "$AR_TRANSCRIPT_TOPIC_LC" \
+        "$AR_PANE_DIR_LC" "$AR_PANE_AGENT")
+    fi
     if [ -n "$title" ]; then
       ar_label "$AR_PANE_DIR" "${5:-}" "$(ar_branch_of "$AR_PANE_DIR")" \
         "$AR_PANE_AGENT" "" "$title"
@@ -1202,12 +1215,13 @@ ar_reconcile_tabs() {
           ((.focused // false) | tostring), (._name_pane // ""),
           (((.label // "") != (.label | clean)) | tostring),
           (._name_agent // ""), (._name_title // ""), (._name_title_lc // ""),
-          (._name_dir_lc // ""), (._name_dir // "") ]
+          (._name_dir_lc // ""), (._name_dir // ""), (._name_session // "") ]
       | join([31] | implode)' 2>/dev/null)
     [ -n "$rows" ] || continue
     i=0
     while IFS=$AR_ROW_SEP read -r tid label pcount foc lpane dirty \
-      AR_PANE_AGENT AR_PANE_TITLE AR_PANE_TITLE_LC AR_PANE_DIR_LC AR_PANE_DIR; do
+      AR_PANE_AGENT AR_PANE_TITLE AR_PANE_TITLE_LC AR_PANE_DIR_LC AR_PANE_DIR \
+      AR_PANE_SESSION; do
       [ -n "$tid" ] || continue
       i=$(( i + 1 ))
       AR_SEEN_TABS="$AR_SEEN_TABS $tid"
@@ -1581,7 +1595,8 @@ ar_reconcile() {
                    _name_title: $ti,
                    _name_title_lc: ($ti | ascii_downcase),
                    _name_dir_lc: (($dir | split("/") | last) // "" | ascii_downcase),
-                   _name_dir: $dir } ]}}' 2>/dev/null)
+                   _name_dir: $dir,
+                   _name_session: ($p.agent_session.value | clean) } ]}}' 2>/dev/null)
     AR_SNAP_AGENTS_JSON=$(printf '%s' "$snap" | jq -c \
       '{result:{agents:((.result.snapshot // .snapshot).agents // [])}}' 2>/dev/null)
     # Lifted whatever the toggles say, because the workspace pass wants them as
@@ -1745,6 +1760,8 @@ ar_main() {
   # than from it, which keeps that file's string-in / string-out contract.
   # shellcheck source=git.sh
   . "$AR_ROOT/git.sh"
+  # shellcheck source=transcript.sh
+  . "$AR_ROOT/transcript.sh"
 
   # TITLE_BRANDS as one argument for the two title lifts, joined here so neither
   # pays for it per pane. Both look a brand up by the pane's agent kind, and the

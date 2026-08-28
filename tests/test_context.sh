@@ -30,7 +30,8 @@ setup() {
   unset HERDR_MOCK_VERSION HERDR_MOCK_NO_VERSION HERDR_MOCK_FAIL_RENAME
   unset HIDE_SHELL AUTO_INDEX_WORKSPACES AUTO_INDEX_TABS AUTO_INDEX_AGENTS
   unset AGENT_TITLES SHOW_PROGRAM_ARGS TAB_CONTEXT MAX_CONTEXT_LEN
-  unset SHOW_BRANCH MAX_BRANCH_LEN AGENT_TRANSCRIPT CLAUDE_CONFIG_DIR
+  unset SHOW_BRANCH MAX_BRANCH_LEN AGENT_TRANSCRIPT
+  export CLAUDE_CONFIG_DIR="$SB/claude"   # never the real one
   unset HERDR_TAB_ID HERDR_PANE_ID HERDR_PLUGIN_CONTEXT_JSON
 }
 fixture() { cat >"$HERDR_MOCK_DIR/$1"; }
@@ -347,6 +348,85 @@ fixture tab_t1.json <<'JSON'
 JSON
 /usr/bin/env bash "$ENGINE" preexec 'ssh prod-01'
 check_contains "the hook names the machine too" "$(log)" "tab rename t1 prod-01${SEP}ssh"
+teardown
+
+# ======================================================================
+# Scenario 11: an agent that has not titled its terminal is named from its own
+#   session. Claude Code derives that title from what the user typed, so a
+#   session opened with a slash command and answered by the agent alone never
+#   gets one, and the tab read "claude" for as long as it ran.
+#
+#   t1 has no terminal title at all and a session to read.
+#   t2 has one, so the transcript is never opened -- its session id points at a
+#      transcript saying something else, which is how the test can tell.
+# ======================================================================
+setup
+SESSION=647693ed-d633-4871-b7ee-5f5e4b5728ea
+OTHER=11111111-2222-3333-4444-555555555555
+mkdir -p "$CLAUDE_CONFIG_DIR/projects/-home-u-dev-api"
+cat >"$CLAUDE_CONFIG_DIR/projects/-home-u-dev-api/$SESSION.jsonl" <<'JSON'
+{"type":"user","message":{"role":"user","content":"<command-name>/code-review</command-name>\n<command-args>spec.md</command-args>"},"origin":{"kind":"human"}}
+JSON
+cat >"$CLAUDE_CONFIG_DIR/projects/-home-u-dev-api/$OTHER.jsonl" <<'JSON'
+{"type":"ai-title","aiTitle":"Never read this","sessionId":"x"}
+JSON
+cat >"$HERDR_MOCK_DIR/snapshot.json" <<JSON
+{"result":{"snapshot":{
+  "workspaces":[{"workspace_id":"w1","label":"api"}],
+  "tabs":[
+    {"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true,"workspace_id":"w1"},
+    {"tab_id":"w1:t2","label":"2","pane_count":1,"focused":false,"workspace_id":"w1"}
+  ],
+  "panes":[
+    {"pane_id":"p1","tab_id":"w1:t1","focused":true,"cwd":"/home/u/dev/api",
+     "agent":"claude","agent_status":"working",
+     "agent_session":{"agent":"claude","kind":"id","value":"$SESSION"}},
+    {"pane_id":"p2","tab_id":"w1:t2","focused":true,"cwd":"/home/u/dev/api",
+     "agent":"claude","agent_status":"working","terminal_title_stripped":"Squash merge command",
+     "agent_session":{"agent":"claude","kind":"id","value":"$OTHER"}}
+  ],
+  "layouts":[
+    {"tab_id":"w1:t1","focused_pane_id":"p1"},
+    {"tab_id":"w1:t2","focused_pane_id":"p2"}
+  ]
+}}}
+JSON
+HOME=/home/u run_event tab.focused
+out=$(log)
+check_contains "the session names the untitled tab" "$out" "tab rename w1:t1 code-review spec.md"
+check_contains "a titled agent is named from its title" "$out" "tab rename w1:t2 Squash merge command"
+check_absent   "and its transcript is never opened"     "$out" "Never read this"
+teardown
+
+# ======================================================================
+# Scenario 12: AGENT_TRANSCRIPT=0 leaves the transcript unread, and the tab is
+#   named after the program as it was before this existed.
+# ======================================================================
+setup
+export AGENT_TRANSCRIPT=0
+SESSION=647693ed-d633-4871-b7ee-5f5e4b5728ea
+mkdir -p "$CLAUDE_CONFIG_DIR/projects/-home-u-dev-api"
+cat >"$CLAUDE_CONFIG_DIR/projects/-home-u-dev-api/$SESSION.jsonl" <<'JSON'
+{"type":"ai-title","aiTitle":"Not to be read","sessionId":"x"}
+JSON
+cat >"$HERDR_MOCK_DIR/snapshot.json" <<JSON
+{"result":{"snapshot":{
+  "workspaces":[{"workspace_id":"w1","label":"api"}],
+  "tabs":[{"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true,"workspace_id":"w1"}],
+  "panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true,"cwd":"/home/u/dev/api",
+     "agent":"claude","agent_status":"working",
+     "agent_session":{"agent":"claude","kind":"id","value":"$SESSION"}}],
+  "layouts":[{"tab_id":"w1:t1","focused_pane_id":"p1"}]
+}}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"claude","cmdline":"claude"}]}}}
+JSON
+HOME=/home/u run_event tab.focused
+out=$(log)
+check_contains "the program names the tab instead" "$out" "tab rename w1:t1 claude"
+check_absent   "the transcript is not read"        "$out" "Not to be read"
 teardown
 
 t_summary

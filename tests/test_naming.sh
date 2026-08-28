@@ -660,12 +660,29 @@ check "a cluster of switches only" "prod-01" "$(ar_ssh_host 'ssh -46 prod-01')"
 check "a bracketed IPv6 host" "[2001:db8::1]" "$(MAX_CONTEXT_LEN=20 ar_ssh_host 'ssh [2001:db8::1]')"
 check "... with a port after it" "[2001:db8::1]" \
   "$(MAX_CONTEXT_LEN=20 ar_ssh_host 'ssh [2001:db8::1]:2222')"
-# A quoted argument cannot be split back out of a flattened command line: the
-# words inside it look exactly like arguments of ssh itself, and a ProxyCommand
-# names another machine entirely. Refused rather than guessed at -- the tab then
-# reads "ssh", which is what it read before any of this existed.
-check "a quoted argument is refused" "" \
+# An option whose value is a COMMAND cannot be split back out of a flattened
+# command line: the words inside it look exactly like arguments of ssh itself,
+# and a ProxyCommand names another machine entirely -- the parse would take the
+# bastion for the destination. Refused rather than guessed at, so the tab reads
+# "ssh", which is what it read before any of this existed.
+check "a quoted proxy command is refused" "" \
   "$(ar_ssh_host 'ssh -o ProxyCommand="ssh -W %h:%p bastion" prod-01')"
+# ... and refused the same way when the quotes are already gone, which is how the
+# reconcile sees it: a shell strips them before exec, so herdr joins an argv that
+# no longer has them. The two naming paths have to reach the same label from the
+# two shapes, or the tab flips between them on every prompt.
+check "an unquoted proxy command is refused too" "" \
+  "$(ar_ssh_host 'ssh -o ProxyCommand=ssh -W %h:%p bastion prod-01')"
+check "and by whatever case it was written in" "" \
+  "$(ar_ssh_host 'ssh -o proxycommand=ssh -W %h:%p bastion prod-01')"
+check "a remote command is refused as well" "" \
+  "$(ar_ssh_host 'ssh -o RemoteCommand=tail -f /var/log/syslog prod-01')"
+# An ordinary -o option has a value that cannot hold a space, so it parses.
+check "an ordinary -o option still parses" "prod-01" \
+  "$(ar_ssh_host 'ssh -o StrictHostKeyChecking=no prod-01')"
+# ... quoted or not, again because the two paths see it both ways.
+check "quoted or not, the same answer" "prod-01" \
+  "$(ar_ssh_host 'ssh -o "StrictHostKeyChecking=no" prod-01')"
 check "a long option's value" "prod-01" "$(ar_ssh_host 'ssh -o StrictHostKeyChecking=no prod-01')"
 # The user is dropped: root@prod-01 and deploy@prod-01 are the same machine, and
 # a tab bar has no room to say who is logged in.

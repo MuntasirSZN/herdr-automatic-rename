@@ -103,6 +103,20 @@
 # included). 0 names every agent tab after its program.
 # AGENT_TITLES=1
 
+# 1 = when a coding agent has NOT titled its terminal, read what its own session
+# says it is about. Claude Code derives that title from what you typed, so a
+# session you opened with a slash command and never typed a prompt into is never
+# given one, and its tab reads "claude" for as long as it runs. Only Claude Code
+# is read; any other agent is named from its terminal title exactly as before.
+#
+# What it reads is the title Claude Code generated for the session, or failing
+# that your first prompt -- which is what Claude Code's own session list shows
+# for an untitled session. It reads that out of the transcript file on disk, so
+# set this to 0 if you would rather nothing read it. herdr has to have told the
+# plugin which session the pane holds, which is what `herdr integration install
+# claude` sets up; without it there is nothing to read and this does nothing.
+# AGENT_TRANSCRIPT=1
+
 # Truncate a title to this many characters, at a word boundary when that leaves
 # most of the budget. A title is a sentence rather than a command name, so it
 # needs more room than MAX_NAME_LEN gives -- and with numbering on the "[N] "
