@@ -754,6 +754,10 @@ check "an option with nothing after it" "" "$(ar_ssh_host 'ssh -p')"
 check "not ssh at all" "" "$(ar_ssh_host 'nvim README.md')"
 check "a long host is cut to the context budget" "aaaaaaaaaaaa" \
   "$(ar_ssh_host 'ssh aaaaaaaaaaaaaaaaaaaa')"
+# ... and ends on a whole word where the name has one, like a directory or a
+# branch: "quans-ssh-ma" says less about a machine than "quans-ssh" does.
+check "a long host ends on a whole word" "quans-ssh" \
+  "$(ar_ssh_host 'ssh -t quannguyen@quans-ssh-macbook tmux new-session')"
 check "TAB_CONTEXT=0 names no machine" "" "$(TAB_CONTEXT=0 ar_ssh_host 'ssh prod-01')"
 
 # ---- ar_label: an ssh pane is named after the machine ----

@@ -643,7 +643,10 @@ ar_ssh_host() {
     ;;
   esac
   [ -n "$host" ] || return 0
-  AR_SSH_HOST=$(ar_trunc "$host" "${MAX_CONTEXT_LEN:-12}")
+  # Shortened the way a directory is, not cut where the budget ends: a machine
+  # called quans-ssh-macbook reads as "quans-ssh", where the plain cut leaves
+  # "quans-ssh-ma" and a column spent on half a word.
+  AR_SSH_HOST=$(ar_shorten "$host" "${MAX_CONTEXT_LEN:-12}")
   printf '%s' "$AR_SSH_HOST"
 }
 
