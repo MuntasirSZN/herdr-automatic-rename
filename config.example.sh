@@ -51,12 +51,12 @@
 # (herdr shows that above the tabs already, so repeating it there spends half the
 # width on what is on screen anyway). A worktree counts as the same place as its
 # workspace: herdr names one after the branch with the convention in front
-# stripped, so a "bugfix-fh-9865-fix" directory under an "fh-9865-fix" workspace
+# stripped, so a "bugfix-proj-482-fix" directory under a "proj-482-fix" workspace
 # says nothing new.
 #
 # A directory too long for MAX_CONTEXT_LEN is reduced the way a branch is, not
 # cut through the middle: worktrees and branches are named the same way by the
-# same people, so "bugfix-fh-9865-fix-rev-discrepancy" reads as "FH-9865".
+# same people, so "bugfix-proj-482-fix-rev-discrepancy" reads as "PROJ-482".
 # TAB_CONTEXT=1
 #
 # A pane running ssh is named after the machine it reached instead ("prod-01 ›
