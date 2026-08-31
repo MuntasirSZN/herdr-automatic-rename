@@ -243,7 +243,7 @@ teardown
 # ======================================================================
 setup
 mkdir -p "$SB/dev/api/.git/refs/remotes/origin" "$SB/dev/web/.git/refs/remotes/origin"
-printf 'ref: refs/heads/feature/fh-9627-qa-bot\n' >"$SB/dev/api/.git/HEAD"
+printf 'ref: refs/heads/feature/proj-517-qa-bot\n' >"$SB/dev/api/.git/HEAD"
 printf 'ref: refs/remotes/origin/main\n' >"$SB/dev/api/.git/refs/remotes/origin/HEAD"
 printf 'ref: refs/heads/main\n' >"$SB/dev/web/.git/HEAD"
 printf 'ref: refs/remotes/origin/main\n' >"$SB/dev/web/.git/refs/remotes/origin/HEAD"
@@ -274,7 +274,7 @@ fixture procinfo_p2.json <<'JSON'
 JSON
 HOME=/home/u run_event tab.focused
 out=$(log)
-check_contains "the branch is reduced to its issue key" "$out" "tab rename w1:t1 FH-9627${SEP}nvim"
+check_contains "the branch is reduced to its issue key" "$out" "tab rename w1:t1 PROJ-517${SEP}nvim"
 check_contains "the trunk contributes nothing"          "$out" "tab rename w1:t2 web${SEP}nvim"
 check_absent   "... and is not shown beside it"         "$out" "web${SEP}main"
 teardown

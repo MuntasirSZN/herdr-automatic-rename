@@ -2,24 +2,26 @@
 
 [![tests](https://github.com/qu8n/herdr-automatic-rename/actions/workflows/ci.yml/badge.svg)](https://github.com/qu8n/herdr-automatic-rename/actions/workflows/ci.yml)
 
-herdr labels tabs `1`, `2`, `3`. This plugin names them after what is in them, and puts the `1-9` key that jumps to a row in front of every workspace and tab.
+<img width="1200" height="520" alt="Tab bars before and after the plugin names tabs" src="docs/readme-demo.jpg" />
+
+herdr labels tabs `1`, `2`, `3`. This plugin names them after what is in them. Every workspace and tab also carries the `1-9` key that jumps to it.
+
+Examples:
 
 ```text
-[1] FH-9865 › Fix the revenue query    a coding agent, and the work it reports
-[2] api › feat/oauth › nvim            an editor, where you are editing
-[3] prod-01 › ssh                      a machine you reached
-[4] zsh                                a shell, in its workspace's own directory
+[1] PROJ-482 › Fix the revenue query    a coding agent, and the work it reports
+[2] api › feat/oauth › nvim             an editor, where you are editing
+[3] prod-01 › ssh                       a machine you reached
+[4] zsh                                 a shell, in its workspace's own directory
 ```
 
 A label reads `[N] <where> › <what>`, and each part drops out when it says nothing: the directory when the workspace above the tabs already shows it, the branch when it is the repository's trunk. `NAME_TABS=0` turns off the naming, `AUTO_INDEX=0` the numbering, `TAB_CONTEXT=0` the `<where>` half.
-
-<img width="1200" height="520" alt="Tab bars before and after the plugin names tabs" src="docs/readme-demo.jpg" />
 
 ## Requirements
 
 herdr `>= 0.7.1`, `jq`, and bash, on Linux or macOS. On herdr below `0.7.4` a new name lands but shows only on the next redraw, such as a focus change.
 
-Run `herdr integration install claude` too if you use Claude Code: it tells herdr which session each pane holds, which is what names a session you opened with a slash command and never titled.
+Run `herdr integration install claude` too if you use Claude Code. It tells herdr which session each pane holds, so a session you opened with a slash command and never titled still gets a name.
 
 ## Install
 
@@ -73,7 +75,7 @@ Keep `prompt_new_workspace_name` if you use it. A name typed there is a name the
 
 ## Configuration
 
-Every setting has a working default, so start with no config at all. To change one, write `~/.config/herdr-automatic-rename/config.sh` (or point `HERDR_AUTOMATIC_RENAME_CONFIG` elsewhere). [config.example.sh](config.example.sh) documents them all: what each half of a label is allowed to say, how long it may be, the program lists, and Nerd Font icons.
+Every setting has a working default, so start with no config at all. To change one, write `~/.config/herdr-automatic-rename/config.sh` (or point `HERDR_AUTOMATIC_RENAME_CONFIG` elsewhere). [config.example.sh](config.example.sh) documents them all: which parts of a label may appear, how long each may be, the program lists, and Nerd Font icons.
 
 ## Actions
 
@@ -100,7 +102,7 @@ herdr plugin uninstall herdr-automatic-rename
 
 - **Manual renames win.** Rename a tab yourself and naming leaves it alone, though numbering still applies. Run `reset` to hand it back.
 - **Numbering stops at 9.** No binding reaches a 10th row, so the rest keep their plain names.
-- **Naming needs a foreground process.** Some Linux container and sandbox setups leave herdr unable to see one, which stops tab naming and leaves numbering working. On herdr `>= 0.8.0`, set `HERDR_PROCESS_DETECTION=child-groups` in its environment.
+- **Naming needs a foreground process.** Some Linux container and sandbox setups leave herdr unable to see one, so tab naming stops while numbering keeps working. On herdr `>= 0.8.0`, set `HERDR_PROCESS_DETECTION=child-groups` in its environment.
 
 ## Contributing
 

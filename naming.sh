@@ -392,7 +392,7 @@ ar_branch_label() {
 # branch in a repository shares -- and what is left is cut at a whole word.
 #
 # Branches and worktree directories are named the same way by the same people
-# ("bugfix-fh-9865-fix-rev-discrepancy" is both), so both are reduced here rather
+# ("bugfix-proj-482-fix-rev-discrepancy" is both), so both are reduced here rather
 # than one being cut through the middle.
 ar_shorten() {
   local branch=$1 max=$2 cut next

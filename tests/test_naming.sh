@@ -570,12 +570,12 @@ for _loc in C en_US.UTF-8; do
 done
 # herdr names a worktree workspace after the branch with the convention in front
 # of it stripped, so its directory ends with the workspace's name and the two are
-# the same place: "bugfix-fh-9865-fix" under a workspace called
-# "fh-9865-fix" is not a tab that has gone anywhere.
+# the same place: "bugfix-proj-482-fix" under a workspace called
+# "proj-482-fix" is not a tab that has gone anywhere.
 check "a worktree prefix is the same place" "" \
-  "$(ar_context_dir '/Users/tester/dev/wt/bugfix-fh-9865-fix' 'fh-9865-fix')"
-check "and the separator is required" "aaafh-9865-fix" \
-  "$(MAX_CONTEXT_LEN=20 ar_context_dir '/Users/tester/dev/wt/aaafh-9865-fix' 'fh-9865-fix')"
+  "$(ar_context_dir '/Users/tester/dev/wt/bugfix-proj-482-fix' 'proj-482-fix')"
+check "and the separator is required" "aaaproj-482-fix" \
+  "$(MAX_CONTEXT_LEN=20 ar_context_dir '/Users/tester/dev/wt/aaaproj-482-fix' 'proj-482-fix')"
 # The other direction is a different directory, not a prefix convention: a tab in
 # api-docs under a workspace called api has genuinely gone somewhere.
 check "a longer name is not a prefix convention" "api-docs" \
@@ -594,9 +594,9 @@ check "a long directory is cut to MAX_CONTEXT_LEN" "aaaaaaaaaaaa" \
   "$(ar_context_dir '/Users/tester/dev/aaaaaaaaaaaaaaaaaaaa' 'web')"
 # A directory is reduced the way a branch is, and for the same reason: a worktree
 # is usually named after the work in it, so a cut through the middle of one
-# ("bugfix-fh-98") throws away the part that identifies it.
-check "an over-long directory yields its issue key" "FH-9865" \
-  "$(ar_context_dir '/Users/tester/dev/wt/bugfix-fh-9865-fix-rev-discrepancy' 'web')"
+# ("bugfix-proj-") throws away the part that identifies it.
+check "an over-long directory yields its issue key" "PROJ-482" \
+  "$(ar_context_dir '/Users/tester/dev/wt/bugfix-proj-482-fix-rev-discrepancy' 'web')"
 check "and otherwise ends on a whole word" "herdr-prompt" \
   "$(ar_context_dir '/Users/tester/dev/herdr-prompt-picker' 'web')"
 check "MAX_CONTEXT_LEN is configurable" "aaaa" \
@@ -629,8 +629,8 @@ check "the trunk compare is exact" "Main" "$(ar_branch_label 'Main' 'main')"
 # because half a key identifies nothing.
 check "an over-long branch yields its issue key" "MC-13675" \
   "$(ar_branch_label 'bugfix-asa-cpanel-uapi-mc-13675' 'main')"
-check "the key is upper-cased" "FH-9627" \
-  "$(ar_branch_label 'feature/fh-9627-qa-bot-programmatic' 'main')"
+check "the key is upper-cased" "PROJ-517" \
+  "$(ar_branch_label 'feature/proj-517-qa-bot-programmatic' 'main')"
 # Failing a key, the namespace goes first (it is the half every branch shares)
 # and what is left is cut at a whole word.
 check "a long branch loses its namespace and its tail" "filter" \
@@ -671,7 +671,7 @@ check "a multibyte branch is not sliced in half" "über-lange" \
   "$(ar_branch_label 'über-lange-namen' 'main')"
 # ar_upper raises ASCII letters and leaves everything else alone.
 check "upper: a key" "MC-13675" "$(ar_upper 'mc-13675')"
-check "upper: mixed already" "FH-9627" "$(ar_upper 'Fh-9627')"
+check "upper: mixed already" "PROJ-517" "$(ar_upper 'Proj-517')"
 check "upper: non-letters survive" "A.B_C/D" "$(ar_upper 'a.b_c/d')"
 check "nothing checked out, nothing shown" "" "$(ar_branch_label '' 'main')"
 
@@ -681,8 +681,8 @@ check "nothing checked out, nothing shown" "" "$(ar_branch_label '' 'main')"
 # already see. A worktree named after its branch is the common case.
 check "a branch the workspace already says is dropped" "Herdr auto title" \
   "$(ar_label '/Users/tester/dev/wt/auto-title' 'auto-title' 'auto-title' 'claude' '' 'Herdr auto title')"
-check "a branch the directory already says is dropped" "FH-9865 › claude" \
-  "$(ar_label '/Users/tester/dev/wt/bugfix-fh-9865-fix' 'other' 'FH-9865' 'claude' '')"
+check "a branch the directory already says is dropped" "PROJ-482 › claude" \
+  "$(ar_label '/Users/tester/dev/wt/bugfix-proj-482-fix' 'other' 'PROJ-482' 'claude' '')"
 check "the compare ignores ASCII case" "auto-title › claude" \
   "$(ar_label '/Users/tester/dev/wt/auto-title' 'other' 'AUTO-TITLE' 'claude' '')"
 check "a branch that says something new stays" "api › feat/oauth › claude" \
