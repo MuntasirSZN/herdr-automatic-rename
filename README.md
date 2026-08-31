@@ -10,12 +10,14 @@ Examples:
 
 ```text
 [1] zsh                                 a plain shell
-[2] api › feat/oauth › nvim             directory, branch, program
+[2] api › feat/oauth › nvim             current directory › branch › program
 [3] prod-01 › ssh                       a machine you reached over ssh
-[4] PROJ-482 › Fix the revenue query    branch, then what an agent is doing
+[4] PROJ-482 › Fix the revenue query    current branch › what an agent is doing
 ```
 
-A label reads `[N] <where> › <what>`, and each part drops out when it says nothing: the directory when the workspace above the tabs already shows it, the branch when it is the repository's trunk. `NAME_TABS=0` turns off the naming, `AUTO_INDEX=0` the numbering, `TAB_CONTEXT=0` the `<where>` half.
+This plugin is highly configurable. See the Configuration section below for more info. For example:
+
+`NAME_TABS=0` turns off the naming, `AUTO_INDEX=0` the numbering, `TAB_CONTEXT=0` the `<where>` half.
 
 ## Requirements
 
@@ -75,7 +77,9 @@ Keep `prompt_new_workspace_name` if you use it. A name typed there is a name the
 
 ## Configuration
 
-Every setting has a working default, so start with no config at all. To change one, write `~/.config/herdr-automatic-rename/config.sh` (or point `HERDR_AUTOMATIC_RENAME_CONFIG` elsewhere). [config.example.sh](config.example.sh) documents them all: which parts of a label may appear, how long each may be, the program lists, and Nerd Font icons.
+Every setting has a working default, so you don't need a config file to get started. To customize something, write to `~/.config/herdr-automatic-rename/config.sh` (or point `HERDR_AUTOMATIC_RENAME_CONFIG` elsewhere).
+
+See [config.example.sh](config.example.sh) to see the entire configurate suite of settings.
 
 ## Actions
 
