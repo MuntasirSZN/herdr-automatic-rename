@@ -85,7 +85,7 @@ cp "$(dirname "$(herdr plugin list --json | jq -r '.result.plugins[]|select(.plu
   ~/.config/herdr-automatic-rename/config.sh
 ```
 
-`HERDR_AUTOMATIC_RENAME_CONFIG` overrides that path. [config.example.sh](config.example.sh) documents every knob: numbering per row kind, agent titles, label length, the program lists (shells, ignored commands, custom labels), and Nerd Font icons.
+`HERDR_AUTOMATIC_RENAME_CONFIG` overrides that path. [config.example.sh](config.example.sh) documents every setting: numbering per row kind, the context (directory, branch, ssh host, and the separator between them), agent titles and the transcript fallback, label lengths, the program lists (shells, ignored commands, custom labels), and Nerd Font icons.
 
 ## Actions
 
@@ -126,7 +126,7 @@ herdr plugin uninstall herdr-automatic-rename
 
 ## Development
 
-The engine is `automatic-rename.sh`, with the naming rules in `naming.sh` and icons in `icons.sh`. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) covers the non-obvious decisions, and [CONTRIBUTING.md](CONTRIBUTING.md) covers the tests.
+The engine is `automatic-rename.sh`, which is the only file that talks to herdr. Beside it sit four modules: the naming rules in `naming.sh` (strings in, strings out), the glyph table in `icons.sh`, the checked-out branch in `git.sh`, and an agent's own session in `transcript.sh`. The last two are the ones that read the filesystem. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) covers the non-obvious decisions, and [CONTRIBUTING.md](CONTRIBUTING.md) covers the tests.
 
 ## License
 
