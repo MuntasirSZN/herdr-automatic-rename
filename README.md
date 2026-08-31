@@ -9,10 +9,10 @@ herdr labels tabs `1`, `2`, `3`. This plugin names them after what is in them. E
 Examples:
 
 ```text
-[1] PROJ-482 › Fix the revenue query    a coding agent, and the work it reports
-[2] api › feat/oauth › nvim             an editor, where you are editing
-[3] prod-01 › ssh                       a machine you reached
-[4] zsh                                 a shell, in its workspace's own directory
+[1] zsh                                 a plain shell
+[2] api › feat/oauth › nvim             directory, branch, program
+[3] prod-01 › ssh                       a machine you reached over ssh
+[4] PROJ-482 › Fix the revenue query    branch, then what an agent is doing
 ```
 
 A label reads `[N] <where> › <what>`, and each part drops out when it says nothing: the directory when the workspace above the tabs already shows it, the branch when it is the repository's trunk. `NAME_TABS=0` turns off the naming, `AUTO_INDEX=0` the numbering, `TAB_CONTEXT=0` the `<where>` half.
