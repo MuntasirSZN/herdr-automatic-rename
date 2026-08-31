@@ -4,6 +4,24 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-28
+
+### Added
+
+- A tab is named after where the work is, not only after what is running there. The label reads `[N] <directory> › <branch> › <activity>`, so five `claude` tabs across three checkouts stop reading alike. Each part drops out when it says nothing worth the width: the directory when it is your home directory, the filesystem root, or the name of the workspace the tab is already in, since herdr shows that above the tabs. `TAB_CONTEXT=0` turns the whole half off, and every part keeps a budget of its own rather than sharing one total.
+
+  A directory too long for `MAX_CONTEXT_LEN` is reduced rather than cut through the middle. Worktrees and branches are named the same way by the same people, so `bugfix-proj-482-fix-rev-discrepancy` reads as `PROJ-482` where a plain cut leaves `bugfix-proj-`, which identifies nothing.
+
+- The branch the pane's repository has checked out, read from the files under `.git` and never by running git. `git rev-parse` is a process where `HEAD` is one open, and this runs per named tab on every herdr event and again on every shell prompt. The repository's own default branch is left out, read from `refs/remotes/origin/HEAD` rather than from a list of names, so a team whose trunk is `develop` gets the same silence a `main` one does. A repository that records no default falls back to `TRUNK_BRANCHES`, because otherwise every tab of a local-only repo carries `main` alike.
+
+  Worktrees and submodules are followed through their `gitdir:` pointer to their own HEAD and through `commondir` to the shared refs. A rebase keeps the branch it set aside, so a tab does not take a new hash on every step; any other detached HEAD shows the short hash, which is where commits get lost. A branch that repeats the directory or the workspace is dropped, since a worktree named after its branch would otherwise say one thing three times. `SHOW_BRANCH=0` and `MAX_BRANCH_LEN=0` both leave branches out.
+
+- A pane running `ssh` is named after the machine it reached, `prod-01 › ssh`. The directory it was launched from is local and the branch checked out there would read as the remote machine's, so both are dropped. The destination is parsed rather than taken as the first word after `ssh`, which is as often an option's value as a host: clustered short options, attached values, the url form, and bracketed IPv6 addresses all resolve, the user and the port are dropped, and a `-o` setting whose value is a command is refused outright rather than guessed at, because a `ProxyCommand` parses as its own bastion.
+
+- A coding agent that has not titled its terminal is named from its own session. Claude Code derives that title from what the user typed, so a session opened with a slash command and answered by the agent alone is never given one, and its tab read `claude` for as long as it ran. The transcript is read for the title the agent generated, or failing that the first prompt the user actually typed, which is what Claude Code's own session list shows for an untitled session.
+
+  Only Claude Code is read, and only where herdr reports that pane's session, which `herdr integration install claude` is what sets up. Reads are bounded to the end of the file each answer needs. `AGENT_TRANSCRIPT=0` leaves the file unread, and a transcript that stops carrying these fields yields nothing, so the tab is named as it was before this existed.
+
 ### Fixed
 
 - A numbered workspace goes on following its directory ([#13](https://github.com/qu8n/herdr-automatic-rename/issues/13)). herdr names a workspace after `identity_cwd`, its own tracked directory, and the first `workspace rename` freezes that name for good: herdr keeps the directory current and never labels from it again. Numbering a workspace pinned it to whatever it was called when it opened, and no smaller rename would have helped, because there is no rename that leaves the derivation alive.
@@ -220,7 +238,8 @@ First public release.
 - Configuration via `~/.config/herdr-automatic-rename/config.sh` (or `$HERDR_AUTOMATIC_RENAME_CONFIG`), with a documented `config.example.sh`.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers, the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.3...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.0...v0.7.1
