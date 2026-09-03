@@ -131,10 +131,19 @@
 # the program name appeared. In a session running one agent that costs nothing; in
 # one running three, "cc:" and "oc:" are what tell two tabs apart.
 #
-# The name is charged to MAX_TITLE_LEN like everything else, so the task gives up
-# the characters rather than the tab growing. A refused title is not prefixed --
-# the tab falls back to the program name and "cc:cc" says nothing twice.
+# The name is charged to MAX_TITLE_LEN like everything else, so it comes out of
+# what the task may spend rather than making the tab wider -- though a label that
+# was under the budget does get longer: "auth flow" becomes "cc:auth flow".
+#
+# The prefix is all or nothing. Where the budget cannot seat the name, its colon
+# and MIN_TASK_LEN characters of task, the NAME goes: this asks for the task with
+# the name added, not the other way about, and a tab reading only "cursor-agent"
+# would be the one thing it must not do. A refused title is not prefixed either --
+# the tab falls back to the program name, and "cc:cc" says nothing twice.
 # TITLE_STYLE=task
+
+# The least task worth printing beside a name, used by the rule above.
+# MIN_TASK_LEN=7
 
 # 1 = when a coding agent has NOT titled its terminal, read what its own session
 # says it is about. Claude Code derives that title from what you typed, so a

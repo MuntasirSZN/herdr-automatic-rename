@@ -534,8 +534,29 @@ check "the name is priced into the budget" "cc:Investigate" \
   "$(PROGRAM_ALIASES=("claude=cc"); MAX_TITLE_LEN=18 TITLE_STYLE=name_and_task ar_format 'claude' '' 'Investigate why the nightly job fails')"
 check "and the same title without it keeps more" "Investigate why" \
   "$(MAX_TITLE_LEN=18 ar_format 'claude' '' 'Investigate why the nightly job fails')"
+# A REFUSED title, not an absent one: ar_title_clean turns the agent naming
+# itself into the empty string, and only then does the program name path run.
 check "a refused title is not prefixed" "cc" \
-  "$(PROGRAM_ALIASES=("claude=cc"); TITLE_STYLE=name_and_task ar_format 'claude' 'claude' '')"
+  "$(PROGRAM_ALIASES=("claude=cc"); TITLE_STYLE=name_and_task ar_format 'claude' 'claude' \
+     "$(ar_title_clean 'Claude Code' 'claude code' 'api' 'claude')")"
+
+# The prefix is all or nothing. Truncation treats the label as prose, so a name
+# with no room for a task was kept INSTEAD of one -- name_and_task rendering as
+# name only, which is the single thing it must not do. Below the floor the name
+# goes; above it both appear.
+check "no room for a task drops the name" "auth flow" \
+  "$(MAX_TITLE_LEN=13 TITLE_STYLE=name_and_task ar_format 'cursor-agent' '' 'auth flow rewrite')"
+check "room for both keeps both" "cursor-agent:auth" \
+  "$(MAX_TITLE_LEN=20 TITLE_STYLE=name_and_task ar_format 'cursor-agent' '' 'auth flow rewrite')"
+check "MIN_TASK_LEN moves the floor" "cursor-agent:auth" \
+  "$(MIN_TASK_LEN=4 MAX_TITLE_LEN=17 TITLE_STYLE=name_and_task ar_format 'cursor-agent' '' 'auth flow rewrite')"
+# A name with a space in it was cut at the space and shown alone; it is dropped now.
+check "a name too wide is dropped, not cut" "auth flow" \
+  "$(PROGRAM_ALIASES=("claude=Claude Code"); MAX_TITLE_LEN=12 TITLE_STYLE=name_and_task ar_format 'claude' '' 'auth flow')"
+# An alias of nothing but blanks left a bare colon in front of the task, the
+# scrub that would have removed it running after the prefix was decided.
+check "an alias that scrubs to nothing is no prefix" "auth flow" \
+  "$(PROGRAM_ALIASES=("claude= "); TITLE_STYLE=name_and_task ar_format 'claude' '' 'auth flow')"
 check "an unknown style reads as task" "auth flow" \
   "$(TITLE_STYLE=sideways ar_format 'claude' '' 'auth flow')"
 # The title is taken ahead of PROGRAM_ALIASES on purpose. An alias shortening
