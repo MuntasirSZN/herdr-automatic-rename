@@ -49,6 +49,23 @@ unset _ar_icons_dir
 # the program, PROGRAM_ALIASES included.
 : "${AGENT_TITLES:=1}"
 
+# What an agent tab shows once AGENT_TITLES has a task to show. "task" is the
+# released answer: the task alone, the agent having been replaced by it.
+# "name_and_task" keeps both, joined by a colon -- "claude:auth-flow", or through
+# PROGRAM_ALIASES "cc:auth-flow".
+#
+# Which agent is on a task is not otherwise recoverable from the tab. The icon map
+# gives every agent herdr detects the same robot glyph, deliberately so, and a
+# title then replaces the one place the program name appeared. That is fine for a
+# session of one agent and loses something in a session of three, where "cc:" and
+# "oc:" are the difference between two tabs that otherwise read alike.
+#
+# The name is priced into MAX_TITLE_LEN with everything else, so it is the task
+# that gives up the characters, not the tab that grows. Where a title is refused
+# nothing is prefixed: the tab falls back to the program name, and "cc:cc" says
+# nothing twice. Any other value reads as "task".
+: "${TITLE_STYLE:=task}"
+
 # Truncate a title to this many characters, at a word boundary where one is close
 # enough. Titles are sentences, not command names, so they get more room than a
 # command name -- but derived from MAX_NAME_LEN, so narrowing that for a narrow
@@ -769,6 +786,15 @@ ar_format() {
     # It still gets the icon for the program below, and its own length budget.
     name=$title
     max=${MAX_TITLE_LEN:-28}
+    # TITLE_STYLE=name_and_task puts the agent back in front of its task. $prog is
+    # the agent kind on this path -- the caller passes herdr detection rather than
+    # the pane foreground -- so the alias lookup needs nothing new. Here an alias
+    # IS wanted, which is the difference from the rule above: asking for the name
+    # is asking for the name you chose for it.
+    if [ "${TITLE_STYLE:-task}" = "name_and_task" ] && [ -n "$prog" ]; then
+      aliased=$(ar_alias "$prog")
+      name="${aliased:-$prog}:$name"
+    fi
   elif [ -z "$prog" ]; then
     name=$SHELL_NAME
     is_shell=1
