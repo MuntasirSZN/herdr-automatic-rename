@@ -174,9 +174,11 @@
 # leading verb and the filler and joins what is left, so the same budget carries
 # "nightly-ETL-job-drops-rows" instead.
 #
-# It selects and never generates: the words are the agent's own, in the order it
+# It selects rather than generates: the words are the agent's own, in the order it
 # wrote them, on the reasoning that it put the salient ones first. A title it
-# cannot shorten to anything (all filler) is left as the sentence.
+# cannot shorten to anything (all filler) is left as the sentence. The one
+# exception is a first word longer than the whole budget, which is cut rather than
+# dropped, since dropping it would leave no label at all.
 #
 # Off by default, so a config that does not name it gets exactly what
 # AGENT_TITLES has always rendered.
@@ -186,11 +188,13 @@
 # "Add ..." spends its first word on something the tab beside it also says. Only
 # at the front, so "the auth rewrite needs review" keeps its "review".
 #
-# Measured against every title Claude Code generated on one machine over three
-# weeks, 65 of them: this list fires on 36 and 31 of those gain a content word in
-# the same budget, with no two of the 65 colliding whether the rule is on or off.
-# Where a session was never titled the engine condenses the first typed prompt
-# instead, and that population is not covered by those numbers.
+# Measured against the last title Claude Code generated in each of 65 titled
+# sessions on one machine over three weeks, which is the title the engine reads:
+# this list fires on 35 and 30 of those gain a content word in the same budget,
+# with no two DIFFERENT titles among the 65 colliding whether the rule is on or
+# off (two sessions share a title, and those condense alike). Where a session
+# was never titled the engine condenses the first typed prompt instead, and that
+# population is not covered by those numbers.
 #
 # It matches spelling rather than part of speech, so a title whose subject shares
 # a listed spelling loses it ("Plan needs approval" -> "needs-approval"), and

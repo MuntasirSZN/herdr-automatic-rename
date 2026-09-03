@@ -82,6 +82,17 @@ check "OR survives it too" "OR-parser-precedence" \
   "$(ar_condense_title 'Fix OR parser precedence')"
 check "lowercase filler still goes" "screensaver-timeout" \
   "$(ar_condense_title 'Adjust the screensaver timeout')"
+# Listing the word in capitals is how you ask for it to go anyway; lower case in
+# the list does not reach an all-caps token.
+check "a capitalised entry drops it" "wording" \
+  "$(TITLE_FILLER_WORDS=(RFC the); ar_condense_title 'Fix the RFC wording')"
+check "a lowercase entry does not" "RFC-wording" \
+  "$(TITLE_FILLER_WORDS=(rfc the); ar_condense_title 'Fix the RFC wording')"
+# Two documented costs of the rule, pinned so they are noticed if they change.
+check "shouted prose keeps its capitals" "THE-parser" \
+  "$(ar_condense_title 'Fix THE parser')"
+check "a one-letter identifier is not covered" "record-resolution" \
+  "$(ar_condense_title 'Fix A record resolution')"
 
 # ---- casing ----
 check "fold spares an identifier" "RFC7-wording-clarity" \
@@ -158,6 +169,18 @@ setup() {
   unset TITLE_CONDENSE ICONS_ENABLED ICON_STYLE ICON_MAP ICON_FALLBACK
   unset MAX_TITLE_LEN MAX_NAME_LEN TITLE_WORD_SEPARATOR TITLE_CASE
 }
+# check_rename <name> <log> <tab id> <the WHOLE label>
+#
+# check_contains is a substring test, and every assertion here that mattered was
+# written with it: a check for "XYZZ nightly-ETL-job-drops" passes just as well on
+# a broken "XYZZ nightly-ETL-job-drops-m", so the tests written to catch a budget
+# off by two characters all passed against the bug they were written for. This
+# compares the label whole.
+check_rename() {
+  local want="tab rename $3 $4" got
+  got=$(printf '%s\n' "$2" | grep -F "tab rename $3 " | head -1)
+  check "$1" "$want" "$got"
+}
 fixture() { cat >"$HERDR_MOCK_DIR/$1"; }
 run_event() { /usr/bin/env bash "$ENGINE" "$1"; }
 log() { cat "$HERDR_MOCK_LOG"; }
@@ -204,11 +227,11 @@ fixture procinfo_p2.json <<'JSON'
   "foreground_processes":[{"pid":2,"argv0":"claude","cmdline":"claude"}]}}}
 JSON
 out=$(run_event tab.created >/dev/null 2>&1; log)
-check_contains "the title is condensed onto the tab" "$out" "tab rename w1:t1 squash-merge-command"
+check_rename   "the title is condensed onto the tab" "$out" w1:t1 "squash-merge-command"
 check_absent   "the sentence never reaches herdr"    "$out" "Squash merge command"
-check_contains "a refused title still falls back"    "$out" "tab rename w1:t2 claude"
+check_rename   "a refused title still falls back"    "$out" w1:t2 "claude"
 check_absent   "and is not condensed either"         "$out" "claude-code"
-check_contains "a title needs no process lookup"     "$out" "tab rename w1:t3 nightly-ETL-job-drops-rows"
+check_rename   "a title needs no process lookup"     "$out" w1:t3 "nightly-ETL-job-drops-rows"
 teardown
 
 # ----------------------------------------------------------------------
@@ -231,7 +254,7 @@ fixture panes.json <<'JSON'
 ]}}
 JSON
 out=$(run_event tab.created >/dev/null 2>&1; log)
-check_contains "off by default: the sentence survives" "$out" "tab rename w1:t1 Squash merge command"
+check_rename   "off by default: the sentence survives" "$out" w1:t1 "Squash merge command"
 teardown
 
 # ----------------------------------------------------------------------
@@ -255,9 +278,11 @@ fixture panes.json <<'JSON'
 ]}}
 JSON
 out=$(run_event tab.created >/dev/null 2>&1; log)
-# Two fewer characters than the glyphless label above: "drops-rows" no longer fits.
-check_contains "the glyph is reserved out of the budget" "$out" "nightly-ETL-job-drops"
-check_absent   "so nothing is cut off the end"           "$out" "drops-row "
+# The glyph and its space bring the label to exactly the 28 available, so nothing
+# is dropped: an earlier comment here claimed "drops-rows" no longer fitted, which
+# was arithmetic that did not hold. Asserted whole, so a label short by any amount
+# fails rather than passing on a prefix.
+check_rename "the glyph is reserved out of the budget" "$out" w1:t1 "$(printf '\363\260\232\251') nightly-ETL-job-drops-rows"
 teardown
 
 # ----------------------------------------------------------------------
@@ -300,11 +325,8 @@ out=$(run_event tab.created >/dev/null 2>&1; log)
 # reserving two would have condensed to 26 and left ar_format to cut "many" in
 # half. The whole label is asserted, not a prefix of it: a substring check here
 # passes on any longer cut and proves nothing about where the budget landed.
-check_contains "a wide glyph is reserved whole"  "$out" "tab rename w1:t1 XYZZ nightly-ETL-job-drops"
-# Anchored to the tab: the log carries every rename, and t2 legitimately ends in
-# "drops-many", so a bare needle matches the correct label on the other tab.
-check_absent   "and the word after it is gone"   "$out" "w1:t1 XYZZ nightly-ETL-job-drops-man"
-check_contains "no glyph reserves nothing"       "$out" "tab rename w1:t2 nightly-ETL-job-drops-many"
+check_rename   "a wide glyph is reserved whole"  "$out" w1:t1 "XYZZ nightly-ETL-job-drops"
+check_rename   "no glyph reserves nothing"       "$out" w1:t2 "nightly-ETL-job-drops-many"
 teardown
 
 # ----------------------------------------------------------------------
@@ -337,9 +359,9 @@ fixture panes.json <<'JSON'
 ]}}
 JSON
 out=$(run_event tab.created >/dev/null 2>&1; log)
-check_contains "a configured brand comes off"    "$out" "tab rename w1:t1 reviewing-unpushed-commits"
+check_rename   "a configured brand comes off"    "$out" w1:t1 "reviewing-unpushed-commits"
 check_absent   "and does not reach the tab"      "$out" "OC-reviewing"
-check_contains "another agent keeps those chars" "$out" "tab rename w1:t2 API-authentication-migration"
+check_rename   "another agent keeps those chars" "$out" w1:t2 "API-authentication-migration"
 teardown
 
 # ----------------------------------------------------------------------
@@ -363,7 +385,7 @@ fixture panes.json <<'JSON'
 ]}}
 JSON
 out=$(run_event tab.created >/dev/null 2>&1; log)
-check_contains "unconfigured, the badge stays"   "$out" "tab rename w1:t1 OC-reviewing-unpushed"
+check_rename   "unconfigured, the badge stays"   "$out" w1:t1 "OC-reviewing-unpushed"
 teardown
 
 t_summary

@@ -211,15 +211,23 @@ declare -p TITLE_BRANDS >/dev/null 2>&1 || TITLE_BRANDS=("pi="$'\317\200' "omp="
 # spends its first word saying what the tab beside it also says, so a LEADING one
 # is dropped. Leading only, so "the auth rewrite needs review" keeps its "review".
 #
-# Measured rather than imagined. The corpus is every title Claude Code generated
-# on one machine over three weeks: 65 of them. It is not a sample of the 1800
-# transcripts there, which are mostly headless "sdk-cli" runs and subagents that
-# are never titled; interactive sessions are titled, and an interactive session
-# is the only kind that occupies a tab.
+# Measured rather than imagined. The corpus is the LAST title Claude Code
+# generated in each of the 65 titled sessions on one machine over three weeks,
+# which is the title the engine itself reads (transcript.sh takes last(inputs)).
+# Measuring the first title instead gives 36 and 31, one session having been
+# retitled while it ran; the numbers below are the selection that ships.
 #
-# THIS list fires on 36 of the 65, and 31 of those get a content word back inside
-# the same budget. No two of the 65 condense to the same label with the list on or
-# off, so the drop buys information without costing distinctness. "analyze" was
+# The other 1735 transcripts there are subagent runs and headless "sdk-cli"
+# invocations, neither of which Claude Code titles at all. Those are unlikely to
+# be sitting in a tab somebody is reading, though nothing stops one being launched
+# in a terminal, so read this as "titled sessions" rather than "every tab".
+#
+# THIS list fires on 35 of the 65, and 30 of those get a content word back inside
+# the same budget. No two DIFFERENT titles among the 65 condense to the same
+# label with the list on or off, so the drop buys information without costing
+# distinctness. (Two of the 65 are the same title from two sessions, and those
+# do condense alike, which is the corpus repeating itself rather than the rule
+# losing anything.) "analyze" was
 # the most frequent opener the first hand-written list had missed, seven of the
 # 65; "troubleshoot", "optimize" and "show" one each.
 #
@@ -689,6 +697,11 @@ ar_condense_title() {
       ([$max - ($reserved | length), 0] | max) as $m
     | ($verbs  | ascii_downcase | split(" ")) as $verb
     | ($filler | ascii_downcase | split(" ")) as $fill
+    # The filler list as WRITTEN, alongside the folded one, and the identifier
+    # shape defined once for the two rules that share it. Duplicating the pattern
+    # was called a guarantee that they could not drift, which it was not.
+    | ($filler | split(" ")) as $fillraw
+    | "^[A-Z0-9]{2,}$" as $ident
     # Separators inside the title are word breaks, not characters, so
     # "tab/workspace" is two words rather than one long one.
     #
@@ -704,20 +717,31 @@ ar_condense_title() {
     | (if ($words | length) > 0 and ($verb | index($words[0] | ascii_downcase))
        then $words[1:] else $words end)
     # An all-caps token is an identifier, and the casing rule below spares it for
-    # exactly that reason. Filler is matched case-insensitively, so without this
-    # the two rules disagree and the identifier loses: "Investigate IT outage"
-    # became "outage" and "Fix OR parser precedence" became "parser-precedence",
-    # because "it" and "or" are filler. The same {2,} test as the casing rule, so
-    # the two cannot drift; a one-letter identifier is not covered, and the only
-    # single letter in the default filler list is "a".
-    | map(. as $w | select(($w | test("^[A-Z0-9]{2,}$")) or ($fill | index($w | ascii_downcase) | not)))
+    # exactly that reason. Filler is matched without regard to case, so without
+    # this the two rules disagree and the identifier loses: "Investigate IT
+    # outage" became "outage" and "Fix OR parser precedence" became
+    # "parser-precedence", because "it" and "or" are filler.
+    #
+    # Listing the word in capitals overrides that and drops it again, which is
+    # the escape hatch for a project whose filler really is an all-caps token.
+    # Lower case in the list does not, so a title carrying "RFC" keeps it whether
+    # or not somebody wrote "rfc" there. Emphatic prose keeps its capitals too:
+    # "Fix THE parser" reads as "THE-parser", the rule having no way to tell a
+    # shouted article from a short identifier.
+    #
+    # Two characters at least, matching the casing rule. A single letter is not
+    # covered, so "Fix A record resolution" loses its "A".
+    | map(. as $w | select(
+        (($fill | index($w | ascii_downcase)) | not)
+        or (($w | test($ident)) and (($fillraw | index($w)) | not))
+      ))
     # Casing: a sentence-case capital is the agent writing a sentence, not
     # signal; an all-caps-and-digits token is an identifier whose shape means
     # something. "fold" spares only the identifiers, "lower" folds those too,
     # "keep" touches nothing. Anything else behaves as the "fold" default.
     | map(if $case == "keep" then .
           elif $case == "lower" then ascii_downcase
-          elif test("^[A-Z0-9]{2,}$") then .
+          elif test($ident) then .
           else ascii_downcase end)
     | reduce .[] as $w ({out: "", done: false};
         if .done then .
