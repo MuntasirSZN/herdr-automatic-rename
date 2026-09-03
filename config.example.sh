@@ -161,11 +161,11 @@
 # front and only when a non-alphanumeric follows it, so a title that merely starts
 # with the same letter keeps it, and the case of ASCII letters is ignored.
 # opencode brands with letters rather than a glyph ("OC | Reviewing unpushed
-# commits"), and the entry handles it the same way: the brand comes off and the
-# strip takes the separator behind it. Keying it to the agent is what keeps it
-# off everyone else, where "API | authentication migration" is content.
+# commits"); adding "opencode=OC" strips that. It is not in the default, because
+# a brand is removed wherever a non-alphanumeric or the end of the string follows
+# it: the entry would also turn "OC-192 incident" into "192 incident".
 # Assigning the array replaces the default.
-# TITLE_BRANDS=("pi=π" "omp=π" "opencode=OC")
+# TITLE_BRANDS=("pi=π" "omp=π")
 
 # 1 = condense a title into its keywords instead of showing the agent's sentence
 # with the tail cut off. MAX_TITLE_LEN takes the END off a title, which is where
@@ -186,9 +186,11 @@
 # "Add ..." spends its first word on something the tab beside it also says. Only
 # at the front, so "the auth rewrite needs review" keeps its "review".
 #
-# Measured against 65 titles Claude Code wrote across 1800 real sessions: the
-# list fires on 26 of them and 21 of those gain a content word in the same
-# budget, with no two of the 65 colliding whether the rule is on or off.
+# Measured against every title Claude Code generated on one machine over three
+# weeks, 65 of them: this list fires on 36 and 31 of those gain a content word in
+# the same budget, with no two of the 65 colliding whether the rule is on or off.
+# Where a session was never titled the engine condenses the first typed prompt
+# instead, and that population is not covered by those numbers.
 #
 # It matches spelling rather than part of speech, so a title whose subject shares
 # a listed spelling loses it ("Plan needs approval" -> "needs-approval"), and

@@ -73,6 +73,16 @@ check "nor is leading punctuation" ">>>-parser-rewrite" \
 check "a pipe is a word break" "auth-login-flow" \
   "$(ar_condense_title 'auth | login flow')"
 
+# ---- an all-caps identifier is not filler ----
+# Filler is matched case-insensitively and the casing rule spares all-caps tokens,
+# so without an exemption the two disagree and the identifier is the one that goes.
+check "IT survives the filler list" "IT-outage" \
+  "$(ar_condense_title 'Investigate IT outage')"
+check "OR survives it too" "OR-parser-precedence" \
+  "$(ar_condense_title 'Fix OR parser precedence')"
+check "lowercase filler still goes" "screensaver-timeout" \
+  "$(ar_condense_title 'Adjust the screensaver timeout')"
+
 # ---- casing ----
 check "fold spares an identifier" "RFC7-wording-clarity" \
   "$(TITLE_CASE='fold' ar_condense_title 'Review RFC7 wording for clarity')"
@@ -286,9 +296,15 @@ fixture panes.json <<'JSON'
 ]}}
 JSON
 out=$(run_event tab.created >/dev/null 2>&1; log)
-check_contains "a wide glyph is reserved whole"  "$out" "XYZZ nightly-ETL-job-drops"
-check_absent   "so no word is cut to fit it"     "$out" "XYZZ nightly-ETL-job-drops-m"
-check_contains "no glyph reserves nothing"       "$out" "nightly-ETL-job-drops-many"
+# "XYZZ " is five, so the task gets 23 of the 28 and stops at "drops";
+# reserving two would have condensed to 26 and left ar_format to cut "many" in
+# half. The whole label is asserted, not a prefix of it: a substring check here
+# passes on any longer cut and proves nothing about where the budget landed.
+check_contains "a wide glyph is reserved whole"  "$out" "tab rename w1:t1 XYZZ nightly-ETL-job-drops"
+# Anchored to the tab: the log carries every rename, and t2 legitimately ends in
+# "drops-many", so a bare needle matches the correct label on the other tab.
+check_absent   "and the word after it is gone"   "$out" "w1:t1 XYZZ nightly-ETL-job-drops-man"
+check_contains "no glyph reserves nothing"       "$out" "tab rename w1:t2 nightly-ETL-job-drops-many"
 teardown
 
 # ----------------------------------------------------------------------
@@ -299,6 +315,10 @@ teardown
 # ----------------------------------------------------------------------
 setup
 export NAME_TABS=1 AUTO_INDEX=0 TITLE_CONDENSE=1
+cat >"$SB/cfg.sh" <<'CFG'
+TITLE_BRANDS=("opencode=OC")
+CFG
+export HERDR_AUTOMATIC_RENAME_CONFIG="$SB/cfg.sh"
 fixture workspaces.json <<'JSON'
 {"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
 JSON
@@ -317,9 +337,33 @@ fixture panes.json <<'JSON'
 ]}}
 JSON
 out=$(run_event tab.created >/dev/null 2>&1; log)
-check_contains "the agent brand comes off"       "$out" "tab rename w1:t1 reviewing-unpushed-commits"
+check_contains "a configured brand comes off"    "$out" "tab rename w1:t1 reviewing-unpushed-commits"
 check_absent   "and does not reach the tab"      "$out" "OC-reviewing"
 check_contains "another agent keeps those chars" "$out" "tab rename w1:t2 API-authentication-migration"
+teardown
+
+# ----------------------------------------------------------------------
+# And the default carries no opencode entry, so the badge stays. Deleting our own
+# badge rule cost this, and the entry that would restore it is wider than the
+# rule was: it would also take "OC" off "OC-192 incident", for somebody who never
+# asked for condensing at all.
+# ----------------------------------------------------------------------
+setup
+export NAME_TABS=1 AUTO_INDEX=0 TITLE_CONDENSE=1
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t1","focused":true,"agent":"opencode","agent_status":"working",
+   "terminal_title_stripped":"OC | Reviewing unpushed commits","foreground_cwd":"/home/u/dev/api"}
+]}}
+JSON
+out=$(run_event tab.created >/dev/null 2>&1; log)
+check_contains "unconfigured, the badge stays"   "$out" "tab rename w1:t1 OC-reviewing-unpushed"
 teardown
 
 t_summary

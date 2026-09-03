@@ -185,12 +185,14 @@ declare -p TITLE_IGNORE >/dev/null 2>&1 || TITLE_IGNORE=("claude code" "codex cl
 # kinds (src/detect/mod.rs, herdr 0.8.2) and both are the same program's brand.
 #
 # opencode brands the same way with letters rather than a glyph, "OC | Reviewing
-# unpushed commits", so five of twenty columns go before the title says anything.
-# It needs no rule of its own: the entry takes "OC" off and the strip that follows
-# takes the separator, exactly as it does for a glyph. Keying it to the agent is
-# what keeps it off everyone else, where "API | authentication migration" is a
-# title somebody wrote and the badge is content.
-declare -p TITLE_BRANDS >/dev/null 2>&1 || TITLE_BRANDS=("pi="$'\317\200' "omp="$'\317\200' "opencode=OC")
+# unpushed commits", and an "opencode=OC" entry does strip it. It is deliberately
+# NOT in the default here. debrand takes a brand off wherever a non-alphanumeric
+# or the end of the string follows it, matching ASCII case-insensitively, which is
+# wider than a badge before a pipe: it also takes "OC" off "OC-192 incident" and
+# "oc" off "oc | access policy". That is a judgement about opencode titles for
+# this project to make, and making it here would change what a tab reads for
+# somebody who never turned condensing on.
+declare -p TITLE_BRANDS >/dev/null 2>&1 || TITLE_BRANDS=("pi="$'\317\200' "omp="$'\317\200')
 
 # 1 = condense a title into its keywords before it becomes a label, instead of
 # showing the agent's sentence with the tail cut off. A title arrives as prose
@@ -209,13 +211,26 @@ declare -p TITLE_BRANDS >/dev/null 2>&1 || TITLE_BRANDS=("pi="$'\317\200' "omp="
 # spends its first word saying what the tab beside it also says, so a LEADING one
 # is dropped. Leading only, so "the auth rewrite needs review" keeps its "review".
 #
-# Measured rather than imagined, against 65 titles Claude Code wrote across 1800
-# real sessions: the list fires on 26 of them, and 21 of those 26 get a content
-# word back in the same budget. No two of the 65 condense to the same label with
-# the list on OR off, so the drop buys information without costing distinctness.
-# "analyze" came out of that count as the most frequent opener not yet listed;
-# "troubleshoot", "optimize" and "show" came out of the same tail. "port" came
-# OUT of the list, being a noun far more often than a verb here.
+# Measured rather than imagined. The corpus is every title Claude Code generated
+# on one machine over three weeks: 65 of them. It is not a sample of the 1800
+# transcripts there, which are mostly headless "sdk-cli" runs and subagents that
+# are never titled; interactive sessions are titled, and an interactive session
+# is the only kind that occupies a tab.
+#
+# THIS list fires on 36 of the 65, and 31 of those get a content word back inside
+# the same budget. No two of the 65 condense to the same label with the list on or
+# off, so the drop buys information without costing distinctness. "analyze" was
+# the most frequent opener the first hand-written list had missed, seven of the
+# 65; "troubleshoot", "optimize" and "show" one each.
+#
+# "port" was taken OUT on judgement, not on evidence: the word appears nowhere in
+# these 65, so this corpus says nothing either way. It reads as a noun far more
+# often than a verb in the work these titles describe.
+#
+# One population is NOT measured here. Where an agent never titled its session,
+# the engine condenses the first prompt the user typed instead, and those are
+# phrased differently from a title an agent wrote. On this machine that group is
+# all headless automation, so it could not be sampled.
 #
 # The list matches spelling, not part of speech, so a title whose subject shares
 # a verb's spelling loses it. The failure that matters is two tabs colliding:
@@ -633,12 +648,19 @@ ar_title_ignore_fold() {
 # and its space), and jq measures it in codepoints, because bash's ${#} counts
 # bytes under a C locale and would overcharge anything non-ASCII.
 #
-# Selects; never generates, with one bounded exception: a single word longer than
-# the whole budget is cut, because dropping it would empty the label and hand the
-# tab back the untouched sentence. That cut is the same one ar_format would make
-# on the sentence a moment later, so the label is identical either way and the
-# exception costs nothing. The agent already wrote the summary, so the work here
-# is only to shorten it: drop a leading verb (TITLE_LEAD_VERBS), drop filler
+# Selects; never generates, with one exception: the FIRST surviving word, when it
+# alone is longer than the budget, is cut rather than dropped, and the cut lands
+# on a codepoint rather than a grapheme, so a word ending in a combining mark or a
+# ZWJ sequence can be left dangling. Dropping it instead would empty the label and
+# hand the tab the untouched sentence.
+#
+# The two are NOT the same label. The sentence keeps the words this function drops
+# and the casing it folds, so "Investigate Supercalifragilisticexpialidocious
+# tail" reaches a 19-character tab as "supercalifragilisti" here and as
+# "Investigate" through the fallback. Which reads better is a judgement; that they
+# differ is not, and an earlier note claiming they were identical was wrong.
+#
+# The agent already wrote the summary, so the work here is only to shorten it: drop a leading verb (TITLE_LEAD_VERBS), drop filler
 # (TITLE_FILLER_WORDS), then take whole words from the front until the budget is
 # spent, stopping at the first word that does not fit rather than skipping ahead
 # (a later short word would read as a non sequitur next to the ones before it).
@@ -681,7 +703,14 @@ ar_condense_title() {
     | . as $words
     | (if ($words | length) > 0 and ($verb | index($words[0] | ascii_downcase))
        then $words[1:] else $words end)
-    | map(. as $w | select($fill | index($w | ascii_downcase) | not))
+    # An all-caps token is an identifier, and the casing rule below spares it for
+    # exactly that reason. Filler is matched case-insensitively, so without this
+    # the two rules disagree and the identifier loses: "Investigate IT outage"
+    # became "outage" and "Fix OR parser precedence" became "parser-precedence",
+    # because "it" and "or" are filler. The same {2,} test as the casing rule, so
+    # the two cannot drift; a one-letter identifier is not covered, and the only
+    # single letter in the default filler list is "a".
+    | map(. as $w | select(($w | test("^[A-Z0-9]{2,}$")) or ($fill | index($w | ascii_downcase) | not)))
     # Casing: a sentence-case capital is the agent writing a sentence, not
     # signal; an all-caps-and-digits token is an identifier whose shape means
     # something. "fold" spares only the identifiers, "lower" folds those too,
