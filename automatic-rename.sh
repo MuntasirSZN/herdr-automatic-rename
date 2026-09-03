@@ -840,12 +840,24 @@ ar_tab_name() {
       #
       # The glyph and the space behind it are prepended BEFORE that truncation
       # and come out of the same budget, so they are reserved here; without that
-      # the tail of a full-length label is what gets cut. ICON_STYLE=name shows
-      # no glyph, so it reserves nothing.
+      # the tail of a full-length label is what gets cut.
+      #
+      # The real glyph, not an allowance for one. ar_condense_title measures what
+      # it is handed, in codepoints, so the reserve has to BE the text that will
+      # share the label: a two-character guess is right only for the one-glyph
+      # case, and wrong in both directions elsewhere. An ICON_MAP entry may be
+      # any string, and its extra characters would cut a word in half at the end
+      # -- the one thing condensing exists to prevent. A program with no glyph
+      # reserves nothing, rather than shortening the label to make room for
+      # something that never arrives. ar_icon is a lookup, no subshell.
       if [ "${TITLE_CONDENSE:-0}" = "1" ]; then
-        local reserve=""
-        if [ "${ICONS_ENABLED:-0}" = "1" ] && [ "${ICON_STYLE:-name_and_icon}" != "name" ]; then
-          reserve="  "
+        local reserve="" style=${ICON_STYLE:-name_and_icon}
+        if [ "${ICONS_ENABLED:-0}" = "1" ] && [ "$style" != "name" ]; then
+          reserve=$(ar_icon "$AR_PANE_AGENT")
+          # ar_format drops a lone fallback glyph under ICON_STYLE=icon, so no
+          # room is kept for one it will not draw.
+          [ "$style" = "icon" ] && [ "$reserve" = "${ICON_FALLBACK:-}" ] && reserve=""
+          [ -n "$reserve" ] && reserve="$reserve "
         fi
         condensed=$(ar_condense_title "$title" "$reserve")
         [ -n "$condensed" ] && title=$condensed

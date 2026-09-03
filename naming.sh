@@ -183,7 +183,14 @@ declare -p TITLE_IGNORE >/dev/null 2>&1 || TITLE_IGNORE=("claude code" "codex cl
 # for the reason icons.sh writes its glyphs that way: a literal one is what an
 # editor eats without saying so. "pi" and "omp" are both canonical herdr agent
 # kinds (src/detect/mod.rs, herdr 0.8.2) and both are the same program's brand.
-declare -p TITLE_BRANDS >/dev/null 2>&1 || TITLE_BRANDS=("pi="$'\317\200' "omp="$'\317\200')
+#
+# opencode brands the same way with letters rather than a glyph, "OC | Reviewing
+# unpushed commits", so five of twenty columns go before the title says anything.
+# It needs no rule of its own: the entry takes "OC" off and the strip that follows
+# takes the separator, exactly as it does for a glyph. Keying it to the agent is
+# what keeps it off everyone else, where "API | authentication migration" is a
+# title somebody wrote and the badge is content.
+declare -p TITLE_BRANDS >/dev/null 2>&1 || TITLE_BRANDS=("pi="$'\317\200' "omp="$'\317\200' "opencode=OC")
 
 # 1 = condense a title into its keywords before it becomes a label, instead of
 # showing the agent's sentence with the tail cut off. A title arrives as prose
@@ -200,10 +207,26 @@ declare -p TITLE_BRANDS >/dev/null 2>&1 || TITLE_BRANDS=("pi="$'\317\200' "omp="
 
 # Verbs an agent opens a title with. Every tab reading "Fix ..." or "Add ..."
 # spends its first word saying what the tab beside it also says, so a LEADING one
-# is dropped. Leading only: "port" in "port forwarding" is the subject.
+# is dropped. Leading only, so "the auth rewrite needs review" keeps its "review".
+#
+# Measured rather than imagined, against 65 titles Claude Code wrote across 1800
+# real sessions: the list fires on 26 of them, and 21 of those 26 get a content
+# word back in the same budget. No two of the 65 condense to the same label with
+# the list on OR off, so the drop buys information without costing distinctness.
+# "analyze" came out of that count as the most frequent opener not yet listed;
+# "troubleshoot", "optimize" and "show" came out of the same tail. "port" came
+# OUT of the list, being a noun far more often than a verb here.
+#
+# The list matches spelling, not part of speech, so a title whose subject shares
+# a verb's spelling loses it. The failure that matters is two tabs colliding:
+# "Review flashcard generation" and "Implement flashcard generation" both reduce
+# to "flashcard-generation". It did not happen across those 65, but the corpus is
+# one person and one agent, which is the argument for a knob rather than a
+# constant. TITLE_LEAD_VERBS=() turns the rule off.
 declare -p TITLE_LEAD_VERBS >/dev/null 2>&1 || TITLE_LEAD_VERBS=(review adjust add fix update
   create make check investigate debug refactor implement write set setup configure explore
-  improve build test run clean remove delete migrate port rename draft plan research diagnose audit)
+  improve build test run clean remove delete migrate rename draft plan research diagnose audit
+  analyze troubleshoot optimize show)
 
 # Words dropped wherever they appear. A tab label is not a sentence, so articles,
 # prepositions and phrasal-verb particles only spend the budget.
@@ -610,7 +633,11 @@ ar_title_ignore_fold() {
 # and its space), and jq measures it in codepoints, because bash's ${#} counts
 # bytes under a C locale and would overcharge anything non-ASCII.
 #
-# Selects; never generates. The agent already wrote the summary, so the work here
+# Selects; never generates, with one bounded exception: a single word longer than
+# the whole budget is cut, because dropping it would empty the label and hand the
+# tab back the untouched sentence. That cut is the same one ar_format would make
+# on the sentence a moment later, so the label is identical either way and the
+# exception costs nothing. The agent already wrote the summary, so the work here
 # is only to shorten it: drop a leading verb (TITLE_LEAD_VERBS), drop filler
 # (TITLE_FILLER_WORDS), then take whole words from the front until the budget is
 # spent, stopping at the first word that does not fit rather than skipping ahead
@@ -640,16 +667,14 @@ ar_condense_title() {
       ([$max - ($reserved | length), 0] | max) as $m
     | ($verbs  | ascii_downcase | split(" ")) as $verb
     | ($filler | ascii_downcase | split(" ")) as $fill
-    # Leading state glyphs: herdr strips some agent title decorations but not
-    # all, and a label must not open with a stray bullet. Separators inside the
-    # title are word breaks, not characters ("tab/workspace" is two words).
-    | sub("^[^\\p{L}\\p{N}]+"; "")
-    # An agent that badges its title ("OC | Reviewing unpushed commits") spends
-    # the budget on its own name before saying anything. Drop a short all-caps
-    # token followed by a pipe: that shape is branding, and the cap plus the
-    # upper-case requirement keeps it off real content ("auth | login flow"
-    # keeps its first word).
-    | sub("^[A-Z0-9]{1,4} *\\| *"; "")
+    # Separators inside the title are word breaks, not characters, so
+    # "tab/workspace" is two words rather than one long one.
+    #
+    # Nothing strips a leading glyph or a leading brand here, though both reach
+    # a title: the engine has already run lead and debrand, the two definitions
+    # in AR_JQ_TASK, on every path that arrives here, which is the two pane lifts
+    # and both transcript reads. Doing either again would be a second copy of a
+    # rule upstream owns, free to drift from it and answering to no test.
     | gsub("[/,;:|]+"; " ")
     | [splits("[[:space:]]+")]
     | map(select(length > 0))

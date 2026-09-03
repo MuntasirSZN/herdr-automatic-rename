@@ -160,8 +160,12 @@
 # label changed on every status change. The brand is removed only at the very
 # front and only when a non-alphanumeric follows it, so a title that merely starts
 # with the same letter keeps it, and the case of ASCII letters is ignored.
+# opencode brands with letters rather than a glyph ("OC | Reviewing unpushed
+# commits"), and the entry handles it the same way: the brand comes off and the
+# strip takes the separator behind it. Keying it to the agent is what keeps it
+# off everyone else, where "API | authentication migration" is content.
 # Assigning the array replaces the default.
-# TITLE_BRANDS=("pi=π" "omp=π")
+# TITLE_BRANDS=("pi=π" "omp=π" "opencode=OC")
 
 # 1 = condense a title into its keywords instead of showing the agent's sentence
 # with the tail cut off. MAX_TITLE_LEN takes the END off a title, which is where
@@ -180,11 +184,19 @@
 
 # Verbs dropped when a title OPENS with one. Every agent tab reading "Fix ..." or
 # "Add ..." spends its first word on something the tab beside it also says. Only
-# at the front, so "the auth rewrite needs review" keeps its "review". The list
-# matches spelling rather than part of speech, so a title whose subject is one of
-# these words ("Port forwarding is broken" -> "forwarding-broken") wants the word
-# taken out of the list. Assigning the array replaces the default.
-# TITLE_LEAD_VERBS=(review adjust add fix update create make check investigate debug refactor implement write set setup configure explore improve build test run clean remove delete migrate port rename draft plan research diagnose audit)
+# at the front, so "the auth rewrite needs review" keeps its "review".
+#
+# Measured against 65 titles Claude Code wrote across 1800 real sessions: the
+# list fires on 26 of them and 21 of those gain a content word in the same
+# budget, with no two of the 65 colliding whether the rule is on or off.
+#
+# It matches spelling rather than part of speech, so a title whose subject shares
+# a listed spelling loses it ("Plan needs approval" -> "needs-approval"), and
+# taking that word out is the answer. The failure worth knowing about is a
+# collision: "Review flashcard generation" and "Implement flashcard generation"
+# both reduce to "flashcard-generation". Assigning the array replaces the
+# default; TITLE_LEAD_VERBS=() drops nothing.
+# TITLE_LEAD_VERBS=(review adjust add fix update create make check investigate debug refactor implement write set setup configure explore improve build test run clean remove delete migrate rename draft plan research diagnose audit analyze troubleshoot optimize show)
 
 # Words dropped wherever they appear: a label is not a sentence, so articles,
 # prepositions and phrasal-verb particles only spend the budget. Assigning the

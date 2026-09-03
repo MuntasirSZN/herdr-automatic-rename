@@ -26,13 +26,24 @@ check "leading verb goes" "screensaver-timeout" \
   "$(ar_condense_title 'Adjust the screensaver timeout')"
 check "filler goes throughout" "nightly-ETL-job-drops-rows" \
   "$(ar_condense_title 'Investigate why the nightly ETL job drops rows')"
-# The list matches spelling, not part of speech, and the leading position is
-# where that bites: "port" is the subject here and is dropped anyway. Taking the
-# word out of TITLE_LEAD_VERBS is the answer where a title needs it.
-check "a leading list word goes, verb or not" "forwarding-broken" \
+# "port" is not in the list: measured against real titles it is a noun far more
+# often than a verb here, and the leading position is exactly where that bites.
+check "port is a subject, not a verb" "port-forwarding-broken" \
   "$(ar_condense_title 'Port forwarding is broken')"
-check "and dropping it from the list restores it" "port-forwarding-broken" \
-  "$(TITLE_LEAD_VERBS=(review adjust fix); ar_condense_title 'Port forwarding is broken')"
+
+# The list still matches spelling rather than part of speech, which is a real
+# limit and not a bug to be fixed by lengthening the list. A title whose subject
+# shares a listed verb spelling loses it, and taking the word out is the answer.
+check "a listed spelling goes, verb or not" "needs-approval" \
+  "$(ar_condense_title 'Plan needs approval')"
+check "and dropping it from the list restores it" "plan-needs-approval" \
+  "$(TITLE_LEAD_VERBS=(review adjust fix); ar_condense_title 'Plan needs approval')"
+
+# The openers the corpus turned up that the hand-written list had missed.
+check "analyze is a lead verb" "flashcard-pipeline-latency" \
+  "$(ar_condense_title 'Analyze flashcard pipeline latency')"
+check "troubleshoot is a lead verb" "waybar-restart-loop" \
+  "$(ar_condense_title 'Troubleshoot the Waybar restart loop')"
 check "a non-leading verb stays" "auth-rewrite-needs-review" \
   "$(ar_condense_title 'The auth rewrite needs review')"
 
@@ -47,19 +58,20 @@ check "slash is a word break" "build-services-payments" \
 check "colon is a word break" "ADR-0028-step-3" \
   "$(ar_condense_title 'ADR 0028: step 3')"
 
-# ---- an agent that badges its own title ----
-# opencode writes "OC | <task>". A short all-caps token before a pipe is the
-# agent naming itself and spends the budget saying nothing.
-check "a badge is dropped" "reviewing-unpushed-commits" \
+# ---- what this function deliberately does NOT do ----
+# A leading glyph and a leading brand are both taken off upstream, by lead and
+# debrand in AR_JQ_TASK, on every path that reaches here. So this function is
+# never handed either, and it strips neither: a second copy of an upstream rule
+# is free to drift from it. These two pin that contract, and the end-to-end
+# scenarios below prove the engine really does strip them before we are called.
+check "a leading brand is not ours to strip" "OC-reviewing-unpushed" \
   "$(ar_condense_title 'OC | Reviewing unpushed commits')"
-check "real content keeps its first word" "auth-login-flow" \
-  "$(ar_condense_title 'auth | login flow')"
-
-# ---- leading decoration ----
-# The engine strips the spinner before ar_title_clean, but a title can lead with
-# punctuation the strip does not reach, and a label must not open with one.
-check "leading punctuation goes" "parser-rewrite" \
+check "nor is leading punctuation" ">>>-parser-rewrite" \
   "$(ar_condense_title '>>> Parser rewrite')"
+# A pipe is still a word break, so a title that reaches us with one is split on
+# it rather than carrying it into the label.
+check "a pipe is a word break" "auth-login-flow" \
+  "$(ar_condense_title 'auth | login flow')"
 
 # ---- casing ----
 check "fold spares an identifier" "RFC7-wording-clarity" \
@@ -130,6 +142,11 @@ setup() {
   unset HERDR_TAB_ID HERDR_PLUGIN_CONTEXT_JSON
   unset HERDR_MOCK_VERSION HERDR_MOCK_NO_VERSION HIDE_SHELL
   unset AUTO_INDEX_WORKSPACES AUTO_INDEX_TABS AUTO_INDEX_AGENTS
+  # Every knob a scenario below turns on, cleared here rather than there: an
+  # export that outlives its scenario is a later one testing something it did
+  # not ask for, and it reads as a real failure in whichever runs next.
+  unset TITLE_CONDENSE ICONS_ENABLED ICON_STYLE ICON_MAP ICON_FALLBACK
+  unset MAX_TITLE_LEN MAX_NAME_LEN TITLE_WORD_SEPARATOR TITLE_CASE
 }
 fixture() { cat >"$HERDR_MOCK_DIR/$1"; }
 run_event() { /usr/bin/env bash "$ENGINE" "$1"; }
@@ -231,6 +248,78 @@ out=$(run_event tab.created >/dev/null 2>&1; log)
 # Two fewer characters than the glyphless label above: "drops-rows" no longer fits.
 check_contains "the glyph is reserved out of the budget" "$out" "nightly-ETL-job-drops"
 check_absent   "so nothing is cut off the end"           "$out" "drops-row "
+teardown
+
+# ----------------------------------------------------------------------
+# The glyph reserve, which has to be the glyph and not an allowance for one.
+# t1 ships an ICON_MAP entry four codepoints wide. Reserving a flat two would
+#    leave the label two over budget, and ar_format would cut the last word in
+#    half -- the one outcome condensing exists to prevent.
+# t2 ships a program with no glyph at all (ICON_FALLBACK empty, program off the
+#    map). Reserving anything there shortens the label to make room for nothing.
+# ----------------------------------------------------------------------
+setup
+export NAME_TABS=1 AUTO_INDEX=0 TITLE_CONDENSE=1 ICONS_ENABLED=1
+cat >"$SB/cfg.sh" <<'CFG'
+ICON_MAP=("claude=XYZZ")
+ICON_FALLBACK=""
+MAX_TITLE_LEN=28
+CFG
+export HERDR_AUTOMATIC_RENAME_CONFIG="$SB/cfg.sh"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[
+  {"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true},
+  {"tab_id":"w1:t2","label":"2","pane_count":1,"focused":false}
+]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t1","focused":true,"agent":"claude","agent_status":"working",
+   "terminal_title_stripped":"Investigate why the nightly ETL job drops many rows",
+   "foreground_cwd":"/home/u/dev/api"},
+  {"pane_id":"p2","tab_id":"w1:t2","focused":false,"agent":"novelagent","agent_status":"working",
+   "terminal_title_stripped":"Investigate why the nightly ETL job drops many rows",
+   "foreground_cwd":"/home/u/dev/api"}
+]}}
+JSON
+out=$(run_event tab.created >/dev/null 2>&1; log)
+check_contains "a wide glyph is reserved whole"  "$out" "XYZZ nightly-ETL-job-drops"
+check_absent   "so no word is cut to fit it"     "$out" "XYZZ nightly-ETL-job-drops-m"
+check_contains "no glyph reserves nothing"       "$out" "nightly-ETL-job-drops-many"
+teardown
+
+# ----------------------------------------------------------------------
+# The brand an agent stamps on its own title comes off upstream, keyed to the
+# agent, before this ever runs. t1 is opencode, whose "OC" is in TITLE_BRANDS.
+# t2 is the same shape written by an agent that brands nothing, where those
+# characters are content somebody typed and must survive.
+# ----------------------------------------------------------------------
+setup
+export NAME_TABS=1 AUTO_INDEX=0 TITLE_CONDENSE=1
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[
+  {"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true},
+  {"tab_id":"w1:t2","label":"2","pane_count":1,"focused":false}
+]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t1","focused":true,"agent":"opencode","agent_status":"working",
+   "terminal_title_stripped":"OC | Reviewing unpushed commits","foreground_cwd":"/home/u/dev/api"},
+  {"pane_id":"p2","tab_id":"w1:t2","focused":false,"agent":"claude","agent_status":"working",
+   "terminal_title_stripped":"API | authentication migration","foreground_cwd":"/home/u/dev/api"}
+]}}
+JSON
+out=$(run_event tab.created >/dev/null 2>&1; log)
+check_contains "the agent brand comes off"       "$out" "tab rename w1:t1 reviewing-unpushed-commits"
+check_absent   "and does not reach the tab"      "$out" "OC-reviewing"
+check_contains "another agent keeps those chars" "$out" "tab rename w1:t2 API-authentication-migration"
 teardown
 
 t_summary
