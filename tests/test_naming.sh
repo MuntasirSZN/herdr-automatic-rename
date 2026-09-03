@@ -243,6 +243,9 @@ check "ICON_MAP override end to end" "$g_agent nosuchprog" \
 # A glyph is one codepoint, so "<glyph> <name>" must be truncated by codepoint,
 # never mid-byte. node is not name-only, so its cmdline is long enough to cut:
 # MAX_NAME_LEN=6 keeps the glyph, the space, and 4 chars of the name.
+# Four bytes, one codepoint: the widest ordinary case, and what makes the floor
+# fail when it counts bytes.
+g_sushi=$(printf '\360\237\215\243')
 check "icon+name truncates on codepoint boundary" "$g_node node" \
   "$(ICONS_ENABLED=1 MAX_NAME_LEN=6 SHOW_PROGRAM_ARGS=1 ar_format 'node' 'nodeandmore')"
 
@@ -252,6 +255,12 @@ check "icon+name truncates on codepoint boundary" "$g_node node" \
 # glyph, leaving the glyph alone on the tab.
 check "a fitting icon+title is untouched" "$g_node nöde" \
   "$(LC_ALL=C ICONS_ENABLED=1 MAX_TITLE_LEN=7 ar_format 'node' '' "$(printf 'n\303\266de')")"
+# A title that IS over budget still has to keep a word. The half-budget floor
+# decides that, and counting it in bytes let a four-byte glyph clear it alone, so
+# an over-budget title came back as the glyph and nothing else.
+# An array cannot be a command prefix, so this one sets up in a subshell.
+check "an over-budget icon+title keeps a word" "$g_sushi abcdef" \
+  "$(LC_ALL=C; ICONS_ENABLED=1; ICON_MAP=("node=$g_sushi"); MAX_TITLE_LEN=8; ar_format 'node' '' 'abcdef ghijkl')"
 
 # ---- HIDE_SHELL: every shell-ish case names the tab nothing (issue #5) ----
 # The empty label is what makes herdr fall back to rendering its own tab number,
@@ -644,6 +653,11 @@ check "a branch that fits is left whole" "feat/oauth" "$(ar_branch_label 'feat/o
 # to the first separator. Eleven codepoints, twenty bytes, budget of twelve.
 check "a fitting multibyte branch is left whole" "абв-где-жзи" \
   "$(LC_ALL=C MAX_BRANCH_LEN=12 ar_branch_label "$(printf '\320\260\320\261\320\262-\320\263\320\264\320\265-\320\266\320\267\320\270')" 'main')"
+# And one that genuinely overflows must be cut at the same place in either
+# locale: deciding to shorten was fixed before the offset the cut uses was.
+# Fifteen codepoints in a budget of twelve, so it reduces either way.
+check "an overlong multibyte branch cuts alike" "абв-где" \
+  "$(LC_ALL=C MAX_BRANCH_LEN=12 ar_branch_label "$(printf '\320\260\320\261\320\262-\320\263\320\264\320\265-\320\266\320\267\320\270\320\272\320\273\320\274\320\275')" 'main')"
 # The trunk says nothing -- every tab in the repository would carry it alike --
 # and which branch that is comes from the repository rather than from a list of
 # names, so a team whose trunk is "develop" gets the same silence.
