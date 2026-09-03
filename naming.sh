@@ -241,6 +241,25 @@ ar_trunc() {
   printf '%s' "$cut"
 }
 
+# ar_fits <string> <max> -> 0 when the string is at most <max> codepoints wide.
+#
+# The same byte test ar_trunc opens with, and it holds in only one direction: a
+# string of no more bytes than max is of no more codepoints either, so passing is
+# proof it fits and costs nothing. FAILING is not proof of the opposite, because
+# under a C locale a multibyte string counts several bytes per character, and
+# that is the half two callers below used to take as a decision.
+#
+# Only a string that fails the cheap test pays for jq, which is a label at or near
+# its budget carrying a character outside ASCII. Every plain one is free. A jq
+# that cannot run answers "does not fit", which is what both callers did before
+# this existed.
+ar_fits() {
+  local n
+  [ "${#1}" -le "$2" ] && return 0
+  n=$(printf '%s' "$1" | jq -Rrs 'length' 2>/dev/null) || return 1
+  [ -n "$n" ] && [ "$n" -le "$2" ]
+}
+
 # ar_context_dir <pane directory> <workspace base label> -> the directory part of
 # the context, or "" when the directory says nothing worth a tab's width.
 #
@@ -396,7 +415,7 @@ ar_branch_label() {
 # than one being cut through the middle.
 ar_shorten() {
   local branch=$1 max=$2 cut next
-  [ "${#branch}" -le "$max" ] && { printf '%s' "$branch"; return 0; }
+  ar_fits "$branch" "$max" && { printf '%s' "$branch"; return 0; }
   if [[ $branch =~ $_AR_BRANCH_KEY ]]; then
     ar_upper "${BASH_REMATCH[2]}"
     return 0
@@ -798,8 +817,13 @@ ar_format() {
   name=${name# }
   name=${name% }
 
-  # Cut to the budget (ar_trunc counts codepoints, not bytes).
-  if [ "${#name}" -gt "$max" ]; then
+  # Cut to the budget, in codepoints. Asking bash for the width instead put a
+  # label that fits into this branch under a C locale: ar_trunc handed it straight
+  # back, having correctly found nothing to cut, and the word-boundary trim below
+  # then took a word off a label that was never over budget. With a wide enough
+  # glyph in front, the only space is the one behind it and the trim left the
+  # glyph alone on the tab.
+  if ! ar_fits "$name" "$max"; then
     name=$(ar_trunc "$name" "$max")
     # A title is a sentence, so cut it at a word boundary rather than mid-word --
     # but only when that leaves most of the budget, since "Investigate" tells you
