@@ -92,6 +92,27 @@ check "truncates to MAX_NAME_LEN" "12345678901234567890" \
 check "multibyte truncation is clean" "ünïcödé" \
   "$(MAX_NAME_LEN=7 ar_format 'x' 'ünïcödéxxxxxxx')"
 
+# And a label that FITS must be left alone, which is a different claim: bash
+# counts bytes under a C locale (herdr may launch a plugin with no LC_*), so a
+# multibyte label inside its budget still looked over it. What followed was not a
+# cut, since ar_trunc correctly found nothing to cut, but the word-boundary trim
+# that runs after one, which took a whole word off a label that fitted. Run under
+# LC_ALL=C, because that is the only place the bug exists.
+# A TITLE, because the word-boundary trim that does the damage runs only for one.
+# Nine codepoints and thirteen bytes, in a budget of nine: it fits, ar_trunc finds
+# nothing to cut, and the trim used to take "x" off anyway.
+check "a fitting multibyte title is untouched" "ünïcödé x" \
+  "$(LC_ALL=C MAX_TITLE_LEN=9 ar_format 'claude' '' "$(printf '\303\274n\303\257c\303\266d\303\251 x')")"
+# ---- ar_fits: the byte test holds in one direction only ----
+check_rc "ascii inside the budget fits" 0 "$(ar_fits 'abcdef' 8; echo $?)"
+check_rc "ascii over the budget does not" 1 "$(ar_fits 'abcdefghij' 8; echo $?)"
+# Eight codepoints, sixteen bytes: the cheap test fails and only a codepoint
+# count can say it fits.
+check_rc "multibyte inside the budget fits under C" 0 \
+  "$(LC_ALL=C ar_fits "$(printf 'àààààààà')" 8; echo $?)"
+check_rc "multibyte over the budget does not" 1 \
+  "$(LC_ALL=C ar_fits "$(printf 'ààààààààà')" 8; echo $?)"
+
 # ---- icons ----
 # Expected glyphs are built from explicit UTF-8 byte escapes rather than pasted
 # literals: bash 3.2 has no $'\uXXXX', and the Private Use Area codepoints these
@@ -222,8 +243,24 @@ check "ICON_MAP override end to end" "$g_agent nosuchprog" \
 # A glyph is one codepoint, so "<glyph> <name>" must be truncated by codepoint,
 # never mid-byte. node is not name-only, so its cmdline is long enough to cut:
 # MAX_NAME_LEN=6 keeps the glyph, the space, and 4 chars of the name.
+# Four bytes, one codepoint: the widest ordinary case, and what makes the floor
+# fail when it counts bytes.
+g_sushi=$(printf '\360\237\215\243')
 check "icon+name truncates on codepoint boundary" "$g_node node" \
   "$(ICONS_ENABLED=1 MAX_NAME_LEN=6 SHOW_PROGRAM_ARGS=1 ar_format 'node' 'nodeandmore')"
+
+# The other half of that claim: a glyph plus a label that FITS must be left
+# whole. Under a C locale the byte count made this look over budget, and the
+# word-boundary trim then cut back to the only space there is, the one behind the
+# glyph, leaving the glyph alone on the tab.
+check "a fitting icon+title is untouched" "$g_node nöde" \
+  "$(LC_ALL=C ICONS_ENABLED=1 MAX_TITLE_LEN=7 ar_format 'node' '' "$(printf 'n\303\266de')")"
+# A title that IS over budget still has to keep a word. The half-budget floor
+# decides that, and counting it in bytes let a four-byte glyph clear it alone, so
+# an over-budget title came back as the glyph and nothing else.
+# An array cannot be a command prefix, so this one sets up in a subshell.
+check "an over-budget icon+title keeps a word" "$g_sushi abcdef" \
+  "$(LC_ALL=C; ICONS_ENABLED=1; ICON_MAP=("node=$g_sushi"); MAX_TITLE_LEN=8; ar_format 'node' '' 'abcdef ghijkl')"
 
 # ---- HIDE_SHELL: every shell-ish case names the tab nothing (issue #5) ----
 # The empty label is what makes herdr fall back to rendering its own tab number,
@@ -611,6 +648,16 @@ HOME=$HOME_SAVE
 # A branch qualifies the context: "api › feat/oauth › nvim" says which slice of
 # the project the tab is on, where the directory alone says only which project.
 check "a branch that fits is left whole" "feat/oauth" "$(ar_branch_label 'feat/oauth' 'main')"
+# The same claim under a C locale, where bash measures the name in bytes: a
+# non-ASCII branch inside its budget looked over it, and the reduction cut it back
+# to the first separator. Eleven codepoints, twenty bytes, budget of twelve.
+check "a fitting multibyte branch is left whole" "абв-где-жзи" \
+  "$(LC_ALL=C MAX_BRANCH_LEN=12 ar_branch_label "$(printf '\320\260\320\261\320\262-\320\263\320\264\320\265-\320\266\320\267\320\270')" 'main')"
+# And one that genuinely overflows must be cut at the same place in either
+# locale: deciding to shorten was fixed before the offset the cut uses was.
+# Fifteen codepoints in a budget of twelve, so it reduces either way.
+check "an overlong multibyte branch cuts alike" "абв-где" \
+  "$(LC_ALL=C MAX_BRANCH_LEN=12 ar_branch_label "$(printf '\320\260\320\261\320\262-\320\263\320\264\320\265-\320\266\320\267\320\270\320\272\320\273\320\274\320\275')" 'main')"
 # The trunk says nothing -- every tab in the repository would carry it alike --
 # and which branch that is comes from the repository rather than from a list of
 # names, so a team whose trunk is "develop" gets the same silence.

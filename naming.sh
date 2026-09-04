@@ -241,6 +241,41 @@ ar_trunc() {
   printf '%s' "$cut"
 }
 
+# ar_fits <string> <max> -> 0 when the string is at most <max> codepoints wide.
+#
+# The same byte test ar_trunc opens with, and it holds in only one direction: a
+# string of no more bytes than max is of no more codepoints either, so passing is
+# proof it fits and costs nothing. FAILING is not proof of the opposite, because
+# under a C locale a multibyte string counts several bytes per character, and
+# that is the half two callers below used to take as a decision.
+#
+# Only a string that fails the cheap test AND carries a byte outside ASCII pays
+# for jq, which is a label at its budget in a language that needs one. A jq that
+# cannot run answers "does not fit", which is what both callers did before this
+# existed.
+#
+# The one-way property holds where bash counts bytes, which is C and POSIX, and
+# where it counts characters of valid UTF-8. A legacy multibyte locale that is not
+# UTF-8 is outside it: bytes there may count as one shell character and more than
+# one jq codepoint, so the cheap accept could pass something jq would refuse. The
+# plugin is not tested in one. Bytes that are not valid UTF-8 have no codepoint
+# length at all; jq decodes them to replacements, so a name made of them may now
+# reach a tab as its own bytes where it once reached it as U+FFFD.
+ar_fits() {
+  local n
+  [ "${#1}" -le "$2" ] && return 0
+  # Where every byte is ASCII the two counts are the same number, so the test
+  # above was exact in both directions and the answer is already known. That is
+  # nearly every label and every branch, and it keeps them at no process at all:
+  # only a value carrying a byte above 0x7F, and only one at its budget, asks jq.
+  case $1 in
+  *[!$'\01'-$'\177']*) : ;;
+  *) return 1 ;;
+  esac
+  n=$(printf '%s' "$1" | jq -Rrs 'length' 2>/dev/null) || return 1
+  [ -n "$n" ] && [ "$n" -le "$2" ]
+}
+
 # ar_context_dir <pane directory> <workspace base label> -> the directory part of
 # the context, or "" when the directory says nothing worth a tab's width.
 #
@@ -396,14 +431,24 @@ ar_branch_label() {
 # than one being cut through the middle.
 ar_shorten() {
   local branch=$1 max=$2 cut next
-  [ "${#branch}" -le "$max" ] && { printf '%s' "$branch"; return 0; }
+  ar_fits "$branch" "$max" && { printf '%s' "$branch"; return 0; }
   if [[ $branch =~ $_AR_BRANCH_KEY ]]; then
     ar_upper "${BASH_REMATCH[2]}"
     return 0
   fi
   branch=${branch##*/}
-  cut=${branch:0:$max}
-  next=${branch:$max:1}
+  # Deciding to shorten is one thing and cutting is another: bash indexes by BYTE
+  # under a C locale, so a name carrying anything outside ASCII was sliced at the
+  # wrong offset and cut back to an earlier separator than it needed. Plain ASCII,
+  # which is nearly every branch, is indexed exactly right by bash and pays no
+  # process; only a name with a byte above 0x7F asks jq. $next is then read at the
+  # width of the head, which is bytes under C and characters elsewhere, and is the
+  # right offset in either.
+  case $branch in
+  *[!$'\01'-$'\177']*) cut=$(ar_trunc "$branch" "$max") ;;
+  *) cut=${branch:0:$max} ;;
+  esac
+  next=${branch:${#cut}:1}
   # When the character that did not fit is itself a separator the head already
   # ends on a whole word, and cutting again would throw one away.
   case $next in
@@ -798,8 +843,13 @@ ar_format() {
   name=${name# }
   name=${name% }
 
-  # Cut to the budget (ar_trunc counts codepoints, not bytes).
-  if [ "${#name}" -gt "$max" ]; then
+  # Cut to the budget, in codepoints. Asking bash for the width instead put a
+  # label that fits into this branch under a C locale: ar_trunc handed it straight
+  # back, having correctly found nothing to cut, and the word-boundary trim below
+  # then took a word off a label that was never over budget. With a wide enough
+  # glyph in front, the only space is the one behind it and the trim left the
+  # glyph alone on the tab.
+  if ! ar_fits "$name" "$max"; then
     name=$(ar_trunc "$name" "$max")
     # A title is a sentence, so cut it at a word boundary rather than mid-word --
     # but only when that leaves most of the budget, since "Investigate" tells you
@@ -807,10 +857,16 @@ ar_format() {
     if [ -n "$title" ]; then
       # ${name% *} is the whole string when there is no space in it, so a single
       # long word is left cut where it was. The half-budget floor is what stops
-      # "Investigate" from becoming "I". Counting bytes is deliberate here: the
-      # floor is a heuristic, not the cut.
+      # "Investigate" from becoming "I".
+      #
+      # Counted the same way the budget is. Calling it a heuristic and leaving it
+      # in bytes was wrong: the floor still compares against half of a CHARACTER
+      # budget, and under a C locale a four-byte glyph cleared it on its own, so a
+      # genuinely over-budget title came back as the glyph and nothing else, which
+      # is the symptom this commit exists to remove. ar_fits is asked the opposite
+      # question, so a floor of n is "does not fit in n-1".
       local short=${name% *}
-      [ "${#short}" -ge $(( max / 2 )) ] && name=$short
+      ar_fits "$short" $(( max / 2 - 1 )) || name=$short
     fi
   fi
   AR_ACTIVITY=$name
