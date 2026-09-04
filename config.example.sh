@@ -160,8 +160,66 @@
 # label changed on every status change. The brand is removed only at the very
 # front and only when a non-alphanumeric follows it, so a title that merely starts
 # with the same letter keeps it, and the case of ASCII letters is ignored.
+# opencode brands with letters rather than a glyph ("OC | Reviewing unpushed
+# commits"); adding "opencode=OC" strips that. It is not in the default, because
+# a brand is removed wherever a non-alphanumeric or the end of the string follows
+# it: the entry would also turn "OC-192 incident" into "192 incident".
 # Assigning the array replaces the default.
 # TITLE_BRANDS=("pi=π" "omp=π")
+
+# 1 = condense a title into its keywords instead of showing the agent's sentence
+# with the tail cut off. MAX_TITLE_LEN takes the END off a title, which is where
+# the words that say WHICH task this is tend to sit: "Investigate why the nightly
+# ETL job drops rows" becomes "Investigate why the nightly". Condensing drops a
+# leading verb and the filler and joins what is left, so the same budget carries
+# "nightly-ETL-job-drops-rows" instead.
+#
+# It selects rather than generates: the words are the agent's own, in the order it
+# wrote them, on the reasoning that it put the salient ones first. A title it
+# cannot shorten to anything (all filler) is left as the sentence. The one
+# exception is a first word longer than the whole budget, which is cut rather than
+# dropped, since dropping it would leave no label at all.
+#
+# Off by default, so a config that does not name it gets exactly what
+# AGENT_TITLES has always rendered.
+# TITLE_CONDENSE=0
+
+# Verbs dropped when a title OPENS with one. Every agent tab reading "Fix ..." or
+# "Add ..." spends its first word on something the tab beside it also says. Only
+# at the front, so "the auth rewrite needs review" keeps its "review".
+#
+# Measured against the last title Claude Code generated in each of 65 titled
+# sessions on one machine over three weeks, which is the title the engine reads:
+# this list fires on 35 and 30 of those gain a content word in the same budget,
+# with no two DIFFERENT titles among the 65 colliding whether the rule is on or
+# off (two sessions share a title, and those condense alike). Where a session
+# was never titled the engine condenses the first typed prompt instead, and that
+# population is not covered by those numbers.
+#
+# It matches spelling rather than part of speech, so a title whose subject shares
+# a listed spelling loses it ("Plan needs approval" -> "needs-approval"), and
+# taking that word out is the answer. The failure worth knowing about is a
+# collision: "Review flashcard generation" and "Implement flashcard generation"
+# both reduce to "flashcard-generation". Assigning the array replaces the
+# default; TITLE_LEAD_VERBS=() drops nothing.
+# TITLE_LEAD_VERBS=(review adjust add fix update create make check investigate debug refactor implement write set setup configure explore improve build test run clean remove delete migrate rename draft plan research diagnose audit analyze troubleshoot optimize show)
+
+# Words dropped wherever they appear: a label is not a sentence, so articles,
+# prepositions and phrasal-verb particles only spend the budget. Assigning the
+# array replaces the default; TITLE_FILLER_WORDS=() drops nothing.
+# TITLE_FILLER_WORDS=(a an the to for of on in at and or with from into via why how what that if whether is are be it its this up out off down over back)
+
+# What joins the surviving words. The default fuses the label into one token, the
+# shape every other tab name has; " " reads as the phrase instead. Its length is
+# charged to MAX_TITLE_LEN like any other character.
+# TITLE_WORD_SEPARATOR=-
+
+# Casing. "fold" downcases every word except an all-caps-and-digits identifier: a
+# sentence-case capital is the agent writing a sentence rather than signal, while
+# the shape of "ETL" carries meaning. "lower" folds the identifiers too, "keep"
+# leaves the agent's casing alone. Only ASCII letters are folded, so a non-ASCII
+# capital reaches the label as written.
+# TITLE_CASE=fold
 
 # Name shown at a bare prompt. Defaults to your $SHELL's basename.
 # SHELL_NAME=zsh

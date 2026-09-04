@@ -799,7 +799,7 @@ ar_branch_of() {
 # failure); a successful HIDE_SHELL computation returns 0 with EMPTY output, so
 # the caller must read the status, not the string, to tell the two apart.
 ar_tab_name() {
-  local pane info prog="" cmd="" title=""
+  local pane info prog="" cmd="" title="" condensed=""
   pane=$(ar_resolve_pane "$1" "$2" "$3" "${4:-}")
   [ -n "$pane" ] || return 1
   # The caller may already hold this pane's facts, lifted onto the tab row -- but
@@ -831,6 +831,37 @@ ar_tab_name() {
         "$AR_PANE_DIR_LC" "$AR_PANE_AGENT")
     fi
     if [ -n "$title" ]; then
+      # What survived is prose, and ar_format truncates it to fit the budget, so
+      # the words that say WHICH task this is are the ones it drops. Condensing
+      # first spends that budget on nouns instead. It selects, never generates:
+      # a title it cannot shorten comes back empty and the sentence is kept.
+      # Both title sources land here, so a topic read out of a transcript is
+      # condensed the same way the terminal title is.
+      #
+      # The glyph and the space behind it are prepended BEFORE that truncation
+      # and come out of the same budget, so they are reserved here; without that
+      # the tail of a full-length label is what gets cut.
+      #
+      # The real glyph, not an allowance for one. ar_condense_title measures what
+      # it is handed, in codepoints, so the reserve has to BE the text that will
+      # share the label: a two-character guess is right only for the one-glyph
+      # case, and wrong in both directions elsewhere. An ICON_MAP entry may be
+      # any string, and its extra characters would cut a word in half at the end
+      # -- the one thing condensing exists to prevent. A program with no glyph
+      # reserves nothing, rather than shortening the label to make room for
+      # something that never arrives. ar_icon is a lookup, no subshell.
+      if [ "${TITLE_CONDENSE:-0}" = "1" ]; then
+        local reserve="" style=${ICON_STYLE:-name_and_icon}
+        if [ "${ICONS_ENABLED:-0}" = "1" ] && [ "$style" != "name" ]; then
+          reserve=$(ar_icon "$AR_PANE_AGENT")
+          # ar_format drops a lone fallback glyph under ICON_STYLE=icon, so no
+          # room is kept for one it will not draw.
+          [ "$style" = "icon" ] && [ "$reserve" = "${ICON_FALLBACK:-}" ] && reserve=""
+          [ -n "$reserve" ] && reserve="$reserve "
+        fi
+        condensed=$(ar_condense_title "$title" "$reserve")
+        [ -n "$condensed" ] && title=$condensed
+      fi
       ar_branch_of "$AR_PANE_DIR" >/dev/null
       ar_label "$AR_PANE_DIR" "${5:-}" "$AR_BRANCH" "$AR_PANE_AGENT" "" "$title"
       return 0

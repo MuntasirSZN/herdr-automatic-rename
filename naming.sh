@@ -183,7 +183,89 @@ declare -p TITLE_IGNORE >/dev/null 2>&1 || TITLE_IGNORE=("claude code" "codex cl
 # for the reason icons.sh writes its glyphs that way: a literal one is what an
 # editor eats without saying so. "pi" and "omp" are both canonical herdr agent
 # kinds (src/detect/mod.rs, herdr 0.8.2) and both are the same program's brand.
+#
+# opencode brands the same way with letters rather than a glyph, "OC | Reviewing
+# unpushed commits", and an "opencode=OC" entry does strip it. It is deliberately
+# NOT in the default here. debrand takes a brand off wherever a non-alphanumeric
+# or the end of the string follows it, matching ASCII case-insensitively, which is
+# wider than a badge before a pipe: it also takes "OC" off "OC-192 incident" and
+# "oc" off "oc | access policy". That is a judgement about opencode titles for
+# this project to make, and making it here would change what a tab reads for
+# somebody who never turned condensing on.
 declare -p TITLE_BRANDS >/dev/null 2>&1 || TITLE_BRANDS=("pi="$'\317\200' "omp="$'\317\200')
+
+# 1 = condense a title into its keywords before it becomes a label, instead of
+# showing the agent's sentence with the tail cut off. A title arrives as prose
+# ("Adjust the screensaver timeout") and MAX_TITLE_LEN takes the end off it, so
+# the words that say WHICH task this is are the first to go. Condensing drops a
+# leading verb and the filler and joins what is left, which fits the same budget
+# while keeping the nouns: "screensaver-timeout".
+#
+# Off by default, so a config that does not name it gets the title exactly as
+# AGENT_TITLES has always rendered it. That is also what keeps this a bolt-on:
+# every released test asserts the sentence, and a default of 1 would rewrite
+# their expectations rather than add to them.
+: "${TITLE_CONDENSE:=0}"
+
+# Verbs an agent opens a title with. Every tab reading "Fix ..." or "Add ..."
+# spends its first word saying what the tab beside it also says, so a LEADING one
+# is dropped. Leading only, so "the auth rewrite needs review" keeps its "review".
+#
+# Measured rather than imagined. The corpus is the LAST title Claude Code
+# generated in each of the 65 titled sessions on one machine over three weeks,
+# which is the title the engine itself reads (transcript.sh takes last(inputs)).
+# Measuring the first title instead gives 36 and 31, one session having been
+# retitled while it ran; the numbers below are the selection that ships.
+#
+# The other 1735 transcripts there are subagent runs and headless "sdk-cli"
+# invocations, neither of which Claude Code titles at all. Those are unlikely to
+# be sitting in a tab somebody is reading, though nothing stops one being launched
+# in a terminal, so read this as "titled sessions" rather than "every tab".
+#
+# THIS list fires on 35 of the 65, and 30 of those get a content word back inside
+# the same budget. No two DIFFERENT titles among the 65 condense to the same
+# label with the list on or off, so the drop buys information without costing
+# distinctness. (Two of the 65 are the same title from two sessions, and those
+# do condense alike, which is the corpus repeating itself rather than the rule
+# losing anything.) "analyze" was
+# the most frequent opener the first hand-written list had missed, seven of the
+# 65; "troubleshoot", "optimize" and "show" one each.
+#
+# "port" was taken OUT on judgement, not on evidence: the word appears nowhere in
+# these 65, so this corpus says nothing either way. It reads as a noun far more
+# often than a verb in the work these titles describe.
+#
+# One population is NOT measured here. Where an agent never titled its session,
+# the engine condenses the first prompt the user typed instead, and those are
+# phrased differently from a title an agent wrote. On this machine that group is
+# all headless automation, so it could not be sampled.
+#
+# The list matches spelling, not part of speech, so a title whose subject shares
+# a verb's spelling loses it. The failure that matters is two tabs colliding:
+# "Review flashcard generation" and "Implement flashcard generation" both reduce
+# to "flashcard-generation". It did not happen across those 65, but the corpus is
+# one person and one agent, which is the argument for a knob rather than a
+# constant. TITLE_LEAD_VERBS=() turns the rule off.
+declare -p TITLE_LEAD_VERBS >/dev/null 2>&1 || TITLE_LEAD_VERBS=(review adjust add fix update
+  create make check investigate debug refactor implement write set setup configure explore
+  improve build test run clean remove delete migrate rename draft plan research diagnose audit
+  analyze troubleshoot optimize show)
+
+# Words dropped wherever they appear. A tab label is not a sentence, so articles,
+# prepositions and phrasal-verb particles only spend the budget.
+declare -p TITLE_FILLER_WORDS >/dev/null 2>&1 || TITLE_FILLER_WORDS=(a an the to for of on in at
+  and or with from into via why how what that if whether is are be it its this up out off down over back)
+
+# What joins the surviving words. The default fuses the label into one token, the
+# shape every other tab name has; " " reads as the phrase instead. Its length is
+# charged to MAX_TITLE_LEN like any other character.
+: "${TITLE_WORD_SEPARATOR:=-}"
+
+# Casing. "fold" downcases every word except an all-caps-and-digits identifier: a
+# sentence-case capital is the agent writing a sentence rather than signal, while
+# the shape of "ETL" carries meaning. "lower" folds the identifiers too, and
+# "keep" leaves the agent's casing alone.
+: "${TITLE_CASE:=fold}"
 
 # Exact program-name renames: "<program>=<label>" pairs. A matching foreground
 # program is shown as <label> regardless of its category (e.g. "clx=hn" makes a
@@ -566,6 +648,109 @@ ar_title_ignore_fold() {
   done
 }
 
+
+# ar_condense_title <title> [<reserved>] -> a task label, or "".
+#
+# The label fits MAX_TITLE_LEN minus <reserved>'s length: the caller passes the
+# literal text that will share the label (a name part and its joint, a glyph
+# and its space), and jq measures it in codepoints, because bash's ${#} counts
+# bytes under a C locale and would overcharge anything non-ASCII.
+#
+# Selects; never generates, with one exception: the FIRST surviving word, when it
+# alone is longer than the budget, is cut rather than dropped, and the cut lands
+# on a codepoint rather than a grapheme, so a word ending in a combining mark or a
+# ZWJ sequence can be left dangling. Dropping it instead would empty the label and
+# hand the tab the untouched sentence.
+#
+# The two are NOT the same label. The sentence keeps the words this function drops
+# and the casing it folds, so "Investigate Supercalifragilisticexpialidocious
+# tail" reaches a 19-character tab as "supercalifragilisti" here and as
+# "Investigate" through the fallback. Which reads better is a judgement; that they
+# differ is not, and an earlier note claiming they were identical was wrong.
+#
+# The agent already wrote the summary, so the work here is only to shorten it: drop a leading verb (TITLE_LEAD_VERBS), drop filler
+# (TITLE_FILLER_WORDS), then take whole words from the front until the budget is
+# spent, stopping at the first word that does not fit rather than skipping ahead
+# (a later short word would read as a non sequitur next to the ones before it).
+#
+# Words are taken in the order the agent wrote them. Selecting by "distinctness"
+# instead -- proper nouns, gerunds, rare words -- measurably reads worse: it
+# prefers where the work happens over what it is ("screensaver Ubuntu" for
+# "Adjust screensaver timeout on the Ubuntu box"), and an -ing word in these
+# summaries is usually a modifier ("streaming pipeline"), so promoting it evicts
+# the noun carrying the meaning. The input is already ordered by an agent that
+# put the salient words first; this trusts that rather than re-ranking it.
+#
+# One jq program rather than a bash loop: jq is already a hard dependency, reads
+# UTF-8 regardless of the ambient locale (see the truncation note in ar_format),
+# and keeps this a single subprocess per tab.
+ar_condense_title() {
+  local title=$1 reserved=${2:-} max=${MAX_TITLE_LEN:-28}
+  [ -n "$title" ] || return 0
+  printf '%s' "$title" | jq -Rrs \
+    --argjson max "$max" \
+    --arg reserved "$reserved" \
+    --arg sep "${TITLE_WORD_SEPARATOR:--}" \
+    --arg case "${TITLE_CASE:-fold}" \
+    --arg verbs "${TITLE_LEAD_VERBS[*]}" \
+    --arg filler "${TITLE_FILLER_WORDS[*]}" '
+      ([$max - ($reserved | length), 0] | max) as $m
+    | ($verbs  | ascii_downcase | split(" ")) as $verb
+    | ($filler | ascii_downcase | split(" ")) as $fill
+    # The filler list as WRITTEN, alongside the folded one, and the identifier
+    # shape defined once for the two rules that share it. Duplicating the pattern
+    # was called a guarantee that they could not drift, which it was not.
+    | ($filler | split(" ")) as $fillraw
+    | "^[A-Z0-9]{2,}$" as $ident
+    # Separators inside the title are word breaks, not characters, so
+    # "tab/workspace" is two words rather than one long one.
+    #
+    # Nothing strips a leading glyph or a leading brand here, though both reach
+    # a title: the engine has already run lead and debrand, the two definitions
+    # in AR_JQ_TASK, on every path that arrives here, which is the two pane lifts
+    # and both transcript reads. Doing either again would be a second copy of a
+    # rule upstream owns, free to drift from it and answering to no test.
+    | gsub("[/,;:|]+"; " ")
+    | [splits("[[:space:]]+")]
+    | map(select(length > 0))
+    | . as $words
+    | (if ($words | length) > 0 and ($verb | index($words[0] | ascii_downcase))
+       then $words[1:] else $words end)
+    # An all-caps token is an identifier, and the casing rule below spares it for
+    # exactly that reason. Filler is matched without regard to case, so without
+    # this the two rules disagree and the identifier loses: "Investigate IT
+    # outage" became "outage" and "Fix OR parser precedence" became
+    # "parser-precedence", because "it" and "or" are filler.
+    #
+    # Listing the word in capitals overrides that and drops it again, which is
+    # the escape hatch for a project whose filler really is an all-caps token.
+    # Lower case in the list does not, so a title carrying "RFC" keeps it whether
+    # or not somebody wrote "rfc" there. Emphatic prose keeps its capitals too:
+    # "Fix THE parser" reads as "THE-parser", the rule having no way to tell a
+    # shouted article from a short identifier.
+    #
+    # Two characters at least, matching the casing rule. A single letter is not
+    # covered, so "Fix A record resolution" loses its "A".
+    | map(. as $w | select(
+        (($fill | index($w | ascii_downcase)) | not)
+        or (($w | test($ident)) and (($fillraw | index($w)) | not))
+      ))
+    # Casing: a sentence-case capital is the agent writing a sentence, not
+    # signal; an all-caps-and-digits token is an identifier whose shape means
+    # something. "fold" spares only the identifiers, "lower" folds those too,
+    # "keep" touches nothing. Anything else behaves as the "fold" default.
+    | map(if $case == "keep" then .
+          elif $case == "lower" then ascii_downcase
+          elif test($ident) then .
+          else ascii_downcase end)
+    | reduce .[] as $w ({out: "", done: false};
+        if .done then .
+        elif .out == "" then {out: ($w[:$m]), done: false}
+        elif ((.out | length) + ($sep | length) + ($w | length)) <= $m then {out: (.out + $sep + $w), done: false}
+        else {out: .out, done: true} end)
+    | .out
+  ' 2>/dev/null
+}
 # ---- helpers ----
 
 # ssh options whose value is a SEPARATE argument, so `ssh -p 2222 prod-01` does
