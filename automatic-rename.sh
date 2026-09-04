@@ -953,6 +953,16 @@ ar_tab_name() {
           [ "$style" = "icon" ] && [ "$reserve" = "${ICON_FALLBACK:-}" ] && reserve=""
           [ -n "$reserve" ] && reserve="$reserve "
         fi
+        # The reserve is unconditional, and one case underfills because of it:
+        # ar_format draws no glyph on a label reading as the shell's own name,
+        # so "Fix zsh integration" reserves two characters and then spends
+        # neither, coming out "zsh" where "zsh-integration" would have fitted.
+        # Mirroring that suppression here is not available -- it tests the
+        # OUTPUT, so condensing again without the reserve returns
+        # "zsh-integration", which is no longer the shell's name, which brings
+        # the glyph back, which no longer fits: "<glyph> zsh-integratio". The
+        # underfilled label is stable and the alternative oscillates, so the
+        # reserve stays.
         condensed=$(ar_condense_title "$title" "$reserve")
         [ -n "$condensed" ] && title=$condensed
       fi
