@@ -559,6 +559,25 @@ check "an alias that scrubs to nothing is no prefix" "auth flow" \
   "$(PROGRAM_ALIASES=("claude= "); TITLE_STYLE=name_and_task ar_format 'claude' '' 'auth flow')"
 check "an unknown style reads as task" "auth flow" \
   "$(TITLE_STYLE=sideways ar_format 'claude' '' 'auth flow')"
+
+# The glyph and its space come out of the same budget, and after the prefix was
+# decided: the floor was short by their width on every iconned tab, so a task of
+# four characters shipped where seven was promised.
+check "the glyph is charged to the prefix floor" "$(printf '\363\260\232\251') auth flow rewrite" \
+  "$(ICONS_ENABLED=1 MAX_TITLE_LEN=20 TITLE_STYLE=name_and_task ar_format 'cursor-agent' '' 'auth flow rewrite')"
+check "and a budget that seats both still does" "$(printf '\363\260\232\251') claude:auth flow" \
+  "$(ICONS_ENABLED=1 MAX_TITLE_LEN=28 TITLE_STYLE=name_and_task ar_format 'claude' '' 'auth flow')"
+# ICON_STYLE=name draws no glyph, so there is nothing to charge for.
+check "no glyph drawn charges nothing" "cursor-agent:auth" \
+  "$(ICONS_ENABLED=1 ICON_STYLE=name MAX_TITLE_LEN=20 TITLE_STYLE=name_and_task ar_format 'cursor-agent' '' 'auth flow rewrite')"
+
+# A multiword name is refused whatever the budget, not only when it is too wide
+# for one: the trim cuts at the LAST space in the label, which is inside such a
+# name, and it took the task with it -- "SuperLongAgent" alone on the tab.
+check "a multiword name is refused" "authenticationflowrefactoring" \
+  "$(PROGRAM_ALIASES=("claude=SuperLongAgent Extra"); MAX_TITLE_LEN=29 TITLE_STYLE=name_and_task ar_format 'claude' '' 'authenticationflowrefactoring')"
+check "even where it would have fitted" "auth flow" \
+  "$(PROGRAM_ALIASES=("claude=Claude Code"); MAX_TITLE_LEN=28 TITLE_STYLE=name_and_task ar_format 'claude' '' 'auth flow')"
 # The title is taken ahead of PROGRAM_ALIASES on purpose. An alias shortening
 # "claude" to "cl" asks for a tidier program name, not for the work to be hidden;
 # AGENT_TITLES=0 is the knob for wanting program names, and the pair below pins

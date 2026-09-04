@@ -1034,7 +1034,34 @@ ar_format() {
       #
       # Asked of ar_fits, which answers in codepoints and answers without a
       # process wherever the value is ASCII.
-      local probe="$aliased:$AR_TITLE_MIN_TASK"
+      #
+      # The glyph and its space are prepended out of this same budget further
+      # down, AFTER this decision, so they go into the probe as the literal text
+      # rather than as a length: ICON_MAP takes any string, and a flat allowance
+      # of two is right for one glyph and wrong for everything else. Over-
+      # reserving is the safe direction here, since it only ever refuses the
+      # prefix and hands the task the room back.
+      #
+      # ICON_STYLE=icon draws the glyph INSTEAD of the label, so nothing decided
+      # here reaches the tab and there is nothing to reserve; "name" draws no
+      # glyph at all. Only the default pays.
+      local probe reserve=""
+      if [ "${ICONS_ENABLED:-0}" = "1" ] &&
+        [ "${ICON_STYLE:-name_and_icon}" != "icon" ] && [ "${ICON_STYLE:-}" != "name" ]; then
+        reserve=$(ar_icon "$prog")
+        [ -n "$reserve" ] && reserve="$reserve "
+      fi
+      # A name carrying a space is refused outright. The word-boundary trim below
+      # cuts at the LAST space in the whole label, which for a multiword name is
+      # inside the name: an alias of "SuperLongAgent Extra" rendered
+      # "SuperLongAgent" on its own, the task gone and the name itself clipped,
+      # which is precisely what the paragraph above says must not happen. A
+      # single-word name cannot be reached that way, the colon joining it to the
+      # task with no space to cut at.
+      case $aliased in
+      *" "*) aliased="" ;;
+      esac
+      probe="$reserve$aliased:$AR_TITLE_MIN_TASK"
       if [ -n "$aliased" ] && ar_fits "$probe" "$max"; then
         name="$aliased:$name"
       fi

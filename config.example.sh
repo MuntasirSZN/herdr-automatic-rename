@@ -138,8 +138,15 @@
 # The prefix is all or nothing. Where the budget cannot seat the name, its colon
 # and MIN_TASK_LEN characters of task, the NAME goes: this asks for the task with
 # the name added, not the other way about, and a tab reading only "cursor-agent"
-# would be the one thing it must not do. A refused title is not prefixed either --
-# the tab falls back to the program name, and "cc:cc" says nothing twice.
+# would be the one thing it must not do. The glyph and its space are part of that
+# budget where icons are on, so an iconned tab seats a shorter name than a plain
+# one. A refused title is not prefixed either -- the tab falls back to the program
+# name, and "cc:cc" says nothing twice.
+#
+# A PROGRAM_ALIASES value carrying a space is never used as a prefix, whatever
+# the budget: truncation cuts at the last space in the label, which for such a
+# name is inside the name, and the tab was left reading a fragment of it with no
+# task at all.
 # TITLE_STYLE=task
 
 # The least task worth printing beside a name, used by the rule above.

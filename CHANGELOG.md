@@ -4,6 +4,20 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- An agent's title is condensed into its keywords instead of shown with the tail cut off. `MAX_TITLE_LEN` takes the END off a title, which is where the words saying WHICH task this is tend to sit: "Investigate why the nightly ETL job drops rows" reached a tab as "Investigate why the nightly". `TITLE_CONDENSE=1` drops a leading verb and the filler and joins what is left, so the same budget carries "nightly-ETL-job-drops-rows".
+
+  It selects rather than generates. The words are the agent's own, in the order it wrote them, on the reasoning that it put the salient ones first. `TITLE_LEAD_VERBS` and `TITLE_FILLER_WORDS` are the two lists, measured against the last title Claude Code generated in each of 65 titled sessions rather than written from imagination, and `TITLE_WORD_SEPARATOR` and `TITLE_CASE` say what the surviving words are joined and cased with. A condensed label is charged to `MAX_TITLE_LEN` like any other, the icon glyph and its space reserved out of it first.
+
+  Off by default, so a config that does not name it renders exactly what `AGENT_TITLES` rendered before. A title that condenses to nothing is left as the sentence, and so is one whose label would come out longer than the prose or wearing a leading "[12]", the shape a tab number has.
+
+- The agent is shown alongside its task, `cc:auth-flow` where a tab read `auth-flow`. Which agent is on a task was not recoverable from an agent tab: every agent herdr detects draws the same robot glyph, deliberately, and a title then replaced the one place the program name appeared. That costs a session running one agent nothing, and in a session running three it is what tells two tabs apart.
+
+  `TITLE_STYLE=name_and_task` asks for it and `PROGRAM_ALIASES` applies, since asking for the name is asking for the name you chose for it. The name and its colon are charged to `MAX_TITLE_LEN`, so the task gives up the characters rather than the tab growing. The prefix is all or nothing: it goes in only where the budget seats the name, its colon and `MIN_TASK_LEN` characters of task, and otherwise the name is what goes, because this asks for the task with the name added rather than the other way about. The glyph and its space are part of that budget where icons are on, and an alias carrying a space is never used as a prefix, truncation having cut such a name in half and left the tab reading a fragment of it.
+
+  Off by default. A refused title is not prefixed either, "cc:cc" saying nothing twice.
+
 ### Fixed
 
 - Two herdr sessions no longer share one state store ([#22](https://github.com/qu8n/herdr-automatic-rename/issues/22)). Every server numbers its tabs from `w1:t1`, so the plugin running under `herdr --session work` and the one under `herdr --session home` wrote the same keys into the same `state.json`, and each full pass pruned the other session's tabs as closed. A tab whose record is gone reads as renamed by hand on the next pass and opts out of naming until reset, which is how a machine running more than one session ended up with every tab frozen on whatever it was called when the other session last ran, and the lock they also shared dropped events on top of that.
