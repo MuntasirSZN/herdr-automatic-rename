@@ -122,6 +122,29 @@
 # included). 0 names every agent tab after its program.
 # AGENT_TITLES=1
 
+# What an agent tab shows once there is a task to show. "task" is the released
+# answer, the task alone. "name_and_task" keeps the agent in front of it,
+# "claude:auth-flow", or through PROGRAM_ALIASES "cc:auth-flow".
+#
+# Which agent is on a task is not otherwise recoverable from the tab: every agent
+# herdr detects draws the same robot glyph, and the title replaces the one place
+# the program name appeared. In a session running one agent that costs nothing; in
+# one running three, "cc:" and "oc:" are what tell two tabs apart.
+#
+# The name is charged to MAX_TITLE_LEN like everything else, so it comes out of
+# what the task may spend rather than making the tab wider -- though a label that
+# was under the budget does get longer: "auth flow" becomes "cc:auth flow".
+#
+# The prefix is all or nothing. Where the budget cannot seat the name, its colon
+# and MIN_TASK_LEN characters of task, the NAME goes: this asks for the task with
+# the name added, not the other way about, and a tab reading only "cursor-agent"
+# would be the one thing it must not do. A refused title is not prefixed either --
+# the tab falls back to the program name, and "cc:cc" says nothing twice.
+# TITLE_STYLE=task
+
+# The least task worth printing beside a name, used by the rule above.
+# MIN_TASK_LEN=7
+
 # 1 = when a coding agent has NOT titled its terminal, read what its own session
 # says it is about. Claude Code derives that title from what you typed, so a
 # session you opened with a slash command and never typed a prompt into is never

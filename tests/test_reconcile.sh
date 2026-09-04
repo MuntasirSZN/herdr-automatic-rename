@@ -39,7 +39,7 @@ setup() {
   unset HERDR_MOCK_FAIL_RENAME                     # per-scenario opt-in; renames succeed by default
   unset HIDE_SHELL                                 # per-scenario opt-in; default is off
   unset AUTO_INDEX_WORKSPACES AUTO_INDEX_TABS AUTO_INDEX_AGENTS   # per-kind opt-in; inherit AUTO_INDEX
-  unset AGENT_TITLES SHOW_PROGRAM_ARGS             # per-scenario opt-in; naming.sh defaults apply
+  unset AGENT_TITLES SHOW_PROGRAM_ARGS TITLE_STYLE # per-scenario opt-in; naming.sh defaults apply
   # The reset action reads these from herdr. They are also set in every pane of a
   # live herdr, so a suite run from inside one would otherwise inherit a tab id
   # that no fixture describes -- and the "nothing to reset" arm could never happen.
