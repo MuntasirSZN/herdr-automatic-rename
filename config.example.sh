@@ -199,9 +199,11 @@
 #
 # It selects rather than generates: the words are the agent's own, in the order it
 # wrote them, on the reasoning that it put the salient ones first. A title it
-# cannot shorten to anything (all filler) is left as the sentence. The one
-# exception is a first word longer than the whole budget, which is cut rather than
-# dropped, since dropping it would leave no label at all.
+# cannot shorten to anything (all filler) is left as the sentence, and so is one
+# whose label would come out LONGER than the prose or wearing a leading "[12]",
+# the shape a tab number has. The one exception is a first word longer than the
+# whole budget, which is cut rather than dropped, since dropping it would leave
+# no label at all.
 #
 # Off by default, so a config that does not name it gets exactly what
 # AGENT_TITLES has always rendered.
@@ -234,7 +236,8 @@
 
 # What joins the surviving words. The default fuses the label into one token, the
 # shape every other tab name has; " " reads as the phrase instead. Its length is
-# charged to MAX_TITLE_LEN like any other character.
+# charged to MAX_TITLE_LEN like any other character, and a separator long enough
+# to make the label outgrow the sentence gets the sentence instead.
 # TITLE_WORD_SEPARATOR=-
 
 # Casing. "fold" downcases every word except an all-caps-and-digits identifier: a

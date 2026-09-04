@@ -717,7 +717,8 @@ ar_condense_title() {
     --arg case "${TITLE_CASE:-fold}" \
     --arg verbs "${TITLE_LEAD_VERBS[*]}" \
     --arg filler "${TITLE_FILLER_WORDS[*]}" '
-      ([$max - ($reserved | length), 0] | max) as $m
+      . as $orig
+    | ([$max - ($reserved | length), 0] | max) as $m
     | ($verbs  | ascii_downcase | split(" ")) as $verb
     | ($filler | ascii_downcase | split(" ")) as $fill
     # The filler list as WRITTEN, alongside the folded one, and the identifier
@@ -772,6 +773,24 @@ ar_condense_title() {
         elif ((.out | length) + ($sep | length) + ($w | length)) <= $m then {out: (.out + $sep + $w), done: false}
         else {out: .out, done: true} end)
     | .out
+    # Two ways a candidate is worse than the sentence it would replace, and both
+    # hand the sentence back rather than shipping the label.
+    #
+    # A label LONGER than the title has inverted the whole point: a separator of
+    # more than one character can spend more budget than the prose it replaced,
+    # and then ar_format cuts a label that would have fitted. Equal length is
+    # fine and is on purpose -- that is the casing folded and the words fused
+    # into the one token every other tab name is -- so only growth is refused.
+    #
+    # A leading "[<digits>]" is the shape ar_index_prefix writes and
+    # ar_strip_prefix reads back. A label wearing it is read at the next
+    # reconcile as a base somebody typed by hand, and the tab opts out of
+    # naming until a reset. Only a separator carrying a space reaches this --
+    # the default "-" cannot -- but the cost when it does is the tab, not the
+    # label.
+    | if . != "" and (length <= ($orig | length))
+         and ((test("^\\[[0-9]+\\]( |$)")) | not)
+      then . else "" end
   ' 2>/dev/null
 }
 # ---- helpers ----

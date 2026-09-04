@@ -140,6 +140,33 @@ check "an empty title condenses to nothing" "" "$(ar_condense_title '')"
 # renaming the tab to an empty string.
 check "an all-filler title condenses to nothing" "" "$(ar_condense_title 'to the of')"
 
+# ---- what it refuses to hand back ----
+# A label longer than the title it replaces has inverted the point: ar_format
+# would then cut prose that fitted. Only a separator of more than one character
+# reaches this.
+check "a label longer than the title is refused" "" \
+  "$(TITLE_WORD_SEPARATOR=--- ar_condense_title 'API migration')"
+# Equal length is not growth and is not refused: the casing is folded and the
+# words are fused into the one token every other tab name is.
+check "equal length is not growth" "squash-merge-command" \
+  "$(ar_condense_title 'Squash merge command')"
+
+# A leading "[<digits>]" is the shape ar_index_prefix writes, so ar_strip_prefix
+# reads such a label back as a base somebody typed and the tab opts out of
+# naming until a reset. The sentence keeps its leading verb and cannot wear the
+# shape, so refusing hands back something safe.
+check "an index-prefix shape is refused" "" \
+  "$(TITLE_WORD_SEPARATOR=' ' ar_condense_title 'Fix [123] parser')"
+check "and a bare bracketed number too" "" \
+  "$(TITLE_WORD_SEPARATOR=' ' ar_condense_title 'Fix the [7]')"
+# The default separator cannot form the shape -- ar_strip_prefix wants a space
+# behind the bracket -- so the label ships.
+check "the default separator does not reach it" "[123]-parser" \
+  "$(ar_condense_title 'Fix [123] parser')"
+# Only a LEADING one is the prefix shape. Elsewhere in the label it is words.
+check "a bracketed number later in the label stays" "parser [123] rewrite" \
+  "$(TITLE_WORD_SEPARATOR=' ' ar_condense_title 'Fix parser [123] rewrite')"
+
 # ======================================================================
 # End to end: the real engine, the fake herdr, TITLE_CONDENSE=1.
 # ======================================================================
