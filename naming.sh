@@ -149,12 +149,14 @@ declare -p SHELLS >/dev/null 2>&1 || SHELLS=(zsh bash sh fish dash ksh)
 # included so an agent tab reads as "claude" rather than its full invocation.
 #
 # The agent entries are the executable names herdr itself detects as interactive
-# agents (src/detect/mod.rs, herdr 0.8.2). Two differ from herdr's --kind id and
-# both spellings are listed: cursor-agent (kind "cursor") and kiro-cli (kind
-# "kiro"). aider is not a herdr agent kind but is a real agent, so it stays.
+# agents (src/detect/mod.rs, herdr 0.9.0). Three differ from herdr's --kind id
+# and every spelling is listed: cursor-agent (kind "cursor"), kiro-cli (kind
+# "kiro"), and muse-cli / muse-code (kind "muse", whose fourth spelling is the
+# versioned binary ar_format folds -- see there). aider is not a herdr agent kind
+# but is a real agent, so it stays.
 declare -p NAME_ONLY_PROGRAMS >/dev/null 2>&1 || NAME_ONLY_PROGRAMS=(nvim vim vi view gvim git lazygit gitui lazydocker
   claude codex aider pi gemini cursor cursor-agent devin agy antigravity cline omp mastracode opencode
-  copilot kimi kiro kiro-cli droid amp grok hermes kilo qodercli qwen maki)
+  copilot kimi kiro kiro-cli droid amp grok hermes kilo qodercli qwen maki muse muse-cli muse-code)
 
 # Quick tools that should not take over the tab name: while one runs the tab
 # keeps showing the shell (SHELL_NAME) so it does not flicker.
@@ -1106,6 +1108,16 @@ ar_label() {
 ar_format() {
   local prog=$1 cmdline=$2 title=${3:-} name="" ic aliased="" is_shell=0 max=${MAX_NAME_LEN:-20}
   AR_ACTIVITY=""
+  # Muse ships as muse-bin-<version> (muse-bin-0.1.0-R708.1) and never runs under
+  # a bare name, so no exact-match list can carry the process a pane actually
+  # shows. herdr folds those onto its "muse" kind (is_muse_versioned_binary,
+  # src/detect/mod.rs), asking for a digit right after the prefix so an unrelated
+  # muse-binary stays unmatched, and this mirrors that rule. Folding here rather
+  # than in each list puts it ahead of all three things that key on the name --
+  # the alias lookup below, the program lists, and the icon map -- so a versioned
+  # install is named, aliased and glyphed the way a named one is. Inline because
+  # every reconcile and every shell prompt runs this function.
+  case "$prog" in muse-bin-[0-9]*) prog=muse ;; esac
   # Only the program-name chain below consults an alias, so a title (or a bare
   # prompt) does not pay for the lookup.
   [ -n "$prog" ] && [ -z "$title" ] && aliased=$(ar_alias "$prog")

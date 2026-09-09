@@ -106,7 +106,7 @@ herdr plugin uninstall herdr-automatic-rename
 
 - **Manual renames win.** Rename a tab yourself and naming leaves it alone, though numbering still applies. Run `reset` to hand it back.
 - **Numbering stops at 9.** No binding reaches a 10th row, so the rest keep their plain names.
-- **An agent answers to either of its names.** `cursor-agent` and `kiro-cli` are known to herdr as `cursor` and `kiro`, and which name a tab is built from depends on how the agent was installed, so a `PROGRAM_ALIASES` entry for one spelling applies to the other too.
+- **An agent answers to either of its names.** `cursor-agent` and `kiro-cli` are known to herdr as `cursor` and `kiro`, and which name a tab is built from depends on how the agent was installed, so a `PROGRAM_ALIASES` entry for one spelling applies to the other too. Muse is the third of these, and it also runs as `muse-bin-<version>`, which is named and aliased as `muse` like the rest.
 - **Naming needs a foreground process.** Some Linux container and sandbox setups leave herdr unable to see one, so tab naming stops while numbering keeps working. On herdr `>= 0.8.0`, set `HERDR_PROCESS_DETECTION=child-groups` in its environment.
 
 ## Contributing
