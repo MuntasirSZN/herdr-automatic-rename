@@ -4,6 +4,14 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Fixed
+
+- Workspace numbers follow a collapsed space again on herdr 0.9.0. That release moved the terminal UI into each client and the sidebar's collapse state with it, so the array the plugin read, `collapsed_space_keys` in `session.json`, is now written empty whatever the sidebar shows. Every collapsed space read as expanded: the hidden rows kept a number no keybind reaches, and every row below one carried a number that jumped somewhere else.
+
+  Collapse is read from the file the client writes it to instead, `client-shell/local-<hash>.json` under herdr's state directory, whose name is the FNV-1a 64 of the client socket path herdr derives from the socket path it already exports to us. An older herdr writes no such file, which is what picks the source: the file that is there, not a version test, so numbering on herdr below 0.9.0 is unchanged. The agent panel's sort order moved the same way and is read the same way, which matters only to a herdr old enough to number agents at all.
+
+  The click now reaches the plugin faster than it did. herdr wrote `session.json` on a five-second debounce and writes this file the instant a space is toggled, so the pass that runs after the click reads the new value rather than the old one. Two limits are new. The file is one per session socket rather than one per client, so two clients on one session share it and the last writer wins. A client narrow enough for herdr's mobile layout ignores collapse altogether, without writing that down anywhere.
+
 ## [0.9.0] - 2026-09-08
 
 ### Added
