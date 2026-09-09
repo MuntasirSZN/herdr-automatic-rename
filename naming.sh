@@ -294,6 +294,10 @@ declare -p TITLE_FILLER_WORDS >/dev/null 2>&1 || TITLE_FILLER_WORDS=(a an the to
 # program is shown as <label> regardless of its category (e.g. "clx=hn" makes a
 # clx tab read "hn"). Takes priority over every rule except the bare-prompt shell
 # name. Set this in config.sh, e.g. PROGRAM_ALIASES=("clx=hn" "lazygit=lg").
+#
+# An agent known by two names (cursor-agent, kind "cursor") answers to either of
+# them, since which one reaches naming says only how it was installed. See
+# ar_other_spelling.
 declare -p PROGRAM_ALIASES >/dev/null 2>&1 || PROGRAM_ALIASES=()
 
 # ---- helpers ----
@@ -306,13 +310,52 @@ ar_in_list() {
   return 1
 }
 
+# ar_other_spelling <name> -> the same agent's other spelling, or empty.
+#
+# Two agents are known by two names: the executable (cursor-agent, kiro-cli) and
+# herdr's --kind id (cursor, kiro). Which of the two reaches naming is an
+# installation detail -- a natively installed agent arrives as its executable,
+# an npm-fronted one as the kind the WRAPPER_PROGRAMS unwrap substitutes -- so a
+# lookup keyed by name has to answer for both. NAME_ONLY_PROGRAMS already lists
+# both spellings of every such agent, so the pair is read off that list rather
+# than out of a second table that would have to be kept in step with it: strip
+# the suffix, or add it, and take the answer only when the list carries it too.
+ar_other_spelling() {
+  local n=$1 alt suffix
+  for suffix in -agent -cli; do
+    case "$n" in
+    *"$suffix") alt=${n%"$suffix"} ;;
+    *) alt="$n$suffix" ;;
+    esac
+    if ar_in_list "$alt" "${NAME_ONLY_PROGRAMS[@]}"; then
+      printf '%s' "$alt"
+      return 0
+    fi
+  done
+}
+
 # ar_alias <program> -> its PROGRAM_ALIASES label, or empty when unaliased.
+#
+# An agent is matched under either of its spellings (see ar_other_spelling), so
+# one entry covers it however it was installed. The exact name is tried first,
+# so a config naming both spellings separately still gets each one.
 ar_alias() {
-  local n=$1 pair
+  local n=$1 pair alt=""
   [ -n "$n" ] || return 0
+  [ ${#PROGRAM_ALIASES[@]} -gt 0 ] || return 0
   for pair in "${PROGRAM_ALIASES[@]}"; do
     case "$pair" in
     "$n="*)
+      printf '%s' "${pair#*=}"
+      return 0
+      ;;
+    esac
+  done
+  alt=$(ar_other_spelling "$n")
+  [ -n "$alt" ] || return 0
+  for pair in "${PROGRAM_ALIASES[@]}"; do
+    case "$pair" in
+    "$alt="*)
       printf '%s' "${pair#*=}"
       return 0
       ;;
@@ -1080,10 +1123,9 @@ ar_format() {
     #
     # It also means the alias is looked up by agent KIND here, where a tab named
     # by program looks it up by program name. Those differ for two agents,
-    # cursor-agent (kind cursor) and kiro-cli (kind kiro). That split is already
-    # in the released code: WRAPPER_PROGRAMS substitutes the kind for the program
-    # before this same lookup, so a node-fronted cursor-agent already aliases by
-    # "cursor" while a natively installed one aliases by "cursor-agent".
+    # cursor-agent (kind cursor) and kiro-cli (kind kiro), and ar_alias answers
+    # to either spelling for exactly that reason, so one entry covers the agent
+    # whichever name reaches it (issue #19).
     if [ "${TITLE_STYLE:-task}" = "name_and_task" ]; then
       aliased=$(ar_title_name_prefix "$prog" "$max")
       [ -n "$aliased" ] && name="$aliased$name"

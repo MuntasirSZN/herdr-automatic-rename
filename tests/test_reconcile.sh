@@ -1974,4 +1974,49 @@ check "the opt-out is recorded, not lost" " false" \
 check "and the file parses again"          "object" "$(jq -r 'type' "$STATE" 2>/dev/null)"
 teardown
 
+# ======================================================================
+# Scenario 43: one PROGRAM_ALIASES entry covers an agent under both spellings.
+#   cursor-agent is known to herdr as kind "cursor", and which of the two names
+#   reaches naming is an installation detail: a natively installed one arrives as
+#   its executable, an npm-fronted one as the kind the WRAPPER_PROGRAMS unwrap
+#   substitutes. Keyed exactly, the same config labelled the two panes
+#   differently (issue #19). The alias comes from a real config file, arrays not
+#   being able to travel through the environment.
+#   t1: cursor-agent behind node, detected by herdr as "cursor".
+#   t2: cursor-agent run natively.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+printf 'PROGRAM_ALIASES=("cursor-agent=cx")\n' >"$HERDR_AUTOMATIC_RENAME_CONFIG"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[
+  {"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true},
+  {"tab_id":"w1:t2","label":"2","pane_count":1,"focused":false}
+]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t1","focused":true,"agent":"cursor","agent_status":"idle"},
+  {"pane_id":"p2","tab_id":"w1:t2","focused":false,"agent":"cursor","agent_status":"idle"}
+]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv":["node","/home/u/.npm/_npx/x/node_modules/.bin/cursor-agent"],
+  "name":"MainThread","cmdline":"node /home/u/.npm/_npx/x/node_modules/.bin/cursor-agent"}]}}}
+JSON
+fixture procinfo_p2.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"cursor-agent","cmdline":"cursor-agent"}]}}}
+JSON
+run_event tab.focused
+out=$(log)
+check_contains "the kind takes the alias too" "$out" "tab rename w1:t1 cx"
+check_contains "and so does the executable"   "$out" "tab rename w1:t2 cx"
+check_absent   "neither spelling reaches a tab" "$out" "cursor"
+teardown
+
 t_summary
