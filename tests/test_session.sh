@@ -28,6 +28,19 @@ in_env() {
 resolve() { in_env "$1" "$2" "printf %s \"\$$3\""; }
 state_dir_for() { resolve "$1" "${2:-}" STATE_DIR; }
 
+# ---- a name that is not one path segment names no session ----
+# The socket route takes the segment after the last separator and so cannot
+# carry one, but $HERDR_SESSION is whatever the variable says: interpolated, a
+# value with a slash in it put the store outside `sessions/` entirely.
+check "a name with a separator resolves to the root store" \
+  "$LEGACY" "$(state_dir_for "" "../../evil")"
+check "and so does one that is only a separator" \
+  "$LEGACY" "$(state_dir_for "" "a/b")"
+check "the session dir refuses it too" \
+  "$CFG" "$(in_env "" "../../evil" 'ar_herdr_session_dir')"
+check "while a plain name still resolves" \
+  "$CFG/sessions/work" "$(in_env "" work 'ar_herdr_session_dir')"
+
 # ---- resolution off the socket path ----
 check "no socket path: the store stays where it was" \
   "$LEGACY" "$(state_dir_for "")"

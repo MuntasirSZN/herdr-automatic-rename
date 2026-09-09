@@ -84,8 +84,14 @@ else
 fi
 # A name is one path segment, never a dot entry: herdr refuses those as session
 # names, and a hand-set socket path must not alias the store onto another dir.
+# The socket route cannot carry a separator, taking the segment after the last
+# one, but $HERDR_SESSION is whatever the variable says: a value with a slash in
+# it put the store outside `sessions/` altogether, so it is refused here rather
+# than interpolated. Nothing is protected from its own owner by that -- anyone
+# who can set the variable can set XDG_STATE_HOME too -- it is that a name which
+# is not one segment names no session, and the two routes should agree.
 case "$_ar_session" in
-  "" | default | . | ..) ;;
+  "" | default | . | .. | */*) ;;
   *) STATE_DIR="$STATE_DIR/sessions/$_ar_session" ;;
 esac
 unset _ar_sock_dir _ar_sock_parent _ar_session
@@ -996,8 +1002,10 @@ ar_herdr_session_dir() {
     # No socket path: the CLI picks its server from $HERDR_SESSION next, so the
     # files read here have to come from the same session, or a hand run with
     # only the name set would talk to one server and read another's session.json.
+    # A name that is not one path segment names no session, the same reading the
+    # store's own resolution takes.
     case "${HERDR_SESSION:-}" in
-      "" | default | . | ..) printf '%s/herdr' "${XDG_CONFIG_HOME:-$HOME/.config}" ;;
+      "" | default | . | .. | */*) printf '%s/herdr' "${XDG_CONFIG_HOME:-$HOME/.config}" ;;
       *) printf '%s/herdr/sessions/%s' "${XDG_CONFIG_HOME:-$HOME/.config}" "$HERDR_SESSION" ;;
     esac
   fi
