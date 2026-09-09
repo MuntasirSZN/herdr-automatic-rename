@@ -1043,15 +1043,78 @@ ar_herdr_session_dir() {
   fi
 }
 
+# ar_fnv1a64 <string> -> its FNV-1a 64 hash, as 16 lowercase hex digits.
+#
+# herdr names each client's preference file after this hash of the client socket
+# path (path_for_local_endpoint, src/client/shell/preferences.rs), so reading the
+# file means reproducing the hash. Bash arithmetic is 64-bit and wraps on
+# overflow, which is exactly the multiply FNV wants, and LC_ALL=C makes
+# ${s:i:1} a byte rather than a character so a path outside ASCII hashes the way
+# Rust's bytes do.
+ar_fnv1a64() {
+  local LC_ALL=C s=$1 i=0 n h=$((0xcbf29ce484222325)) b
+  n=${#s}
+  while [ "$i" -lt "$n" ]; do
+    printf -v b '%d' "'${s:i:1}"
+    h=$(((h ^ (b & 0xff)) * 0x100000001b3))
+    i=$((i + 1))
+  done
+  printf '%016x' "$h"
+}
+
+# ar_herdr_client_prefs -> the file herdr's terminal UI keeps this session's
+# presentation state in.
+#
+# herdr 0.9.0 moved the terminal UI into each client and took that state with it:
+# sidebar collapse and the agent panel's sort order left session.json and
+# config.toml for <state dir>/client-shell/local-<hash>.json, written atomically
+# the moment either changes. The name is the FNV-1a 64 of the CLIENT socket path,
+# which herdr derives from the API socket path by inserting "-client" before the
+# extension (derive_client_socket_from_api_socket, src/server/socket_paths.rs) --
+# so the whole path comes from what herdr already exports to us, in a named
+# session as well as the default one.
+#
+# One file per socket rather than per client: two local clients attached to one
+# session share it and the last writer wins. Nothing here creates the file, and
+# an older herdr writes none, which is what ar_collapsed_spaces reads as "look in
+# session.json instead".
+ar_herdr_client_prefs() {
+  local sock base stem dir csock
+  sock="${HERDR_SOCKET_PATH:-$(ar_herdr_session_dir)/herdr.sock}"
+  base=${sock##*/}
+  case "$sock" in */*) dir=${sock%/*} ;; *) dir="" ;; esac
+  # herdr takes the stem the way Rust's file_stem does: the last extension comes
+  # off a name that has one, and a leading dot is not one.
+  case "$base" in ?*.*) stem=${base%.*} ;; *) stem=$base ;; esac
+  case "$dir" in "") csock="$stem-client.sock" ;; *) csock="$dir/$stem-client.sock" ;; esac
+  printf '%s/herdr/client-shell/local-%s.json' \
+    "${XDG_STATE_HOME:-$HOME/.local/state}" "$(ar_fnv1a64 "$csock")"
+}
+
 # ar_collapsed_spaces -> JSON array of the space keys (repo_key strings) whose
-# sidebar group is collapsed right now. herdr exposes collapse NOWHERE in the API
-# (no field on workspace list / api snapshot, no event, protocol 17), and stores
-# it only as session.json's top-level collapsed_space_keys, so we read that file
-# the way ar_agent_sort reads config.toml. See docs/ARCHITECTURE.md for why that
-# leaves the numbers up to herdr's 5-second save debounce behind a collapse. A
-# missing or unreadable file means "nothing collapsed", which is how the plugin
-# behaved before it read this at all.
+# sidebar group is collapsed right now. herdr exposes collapse NOWHERE in its API
+# (no field on `workspace list` or `api snapshot`, no request method, and none of
+# the events a plugin can subscribe to, re-checked against protocol 22), so the
+# answer comes off disk. Which file it comes off depends on the herdr:
+#
+#   * 0.9.0 and up: collapsed_groups in the client's own preference file
+#     (ar_herdr_client_prefs). The server stopped recording collapse entirely --
+#     capture_snapshot writes an empty collapsed_space_keys unconditionally --
+#     so the old read answered "nothing collapsed" for every collapsed space,
+#     which numbered hidden rows and left every row below one off by as many.
+#   * below 0.9.0: session.json's top-level collapsed_space_keys, where the
+#     server kept it. That herdr writes no client file at all, which is what
+#     picks between the two: the file that is there, not a version test.
+#
+# The keys are the same repo_key strings either way (ClientShellWorktree.key is
+# WorktreeInfo.repo_key). Neither file being readable means "nothing collapsed",
+# which is how the plugin behaved before it read this at all.
 ar_collapsed_spaces() {
+  local prefs
+  prefs=$(ar_herdr_client_prefs)
+  if [ -r "$prefs" ]; then
+    jq -c '[ .collapsed_groups[]? | strings ]' "$prefs" 2>/dev/null && return 0
+  fi
   jq -c '[ .collapsed_space_keys[]? | strings ]' \
     "$(ar_herdr_session_dir)/session.json" 2>/dev/null || printf '[]'
 }
@@ -1120,13 +1183,13 @@ ar_workspace_positions() {
 # substitute: herdr updates identity_cwd for the FOCUSED pane only, and a pass
 # would have to decide which pane speaks for a split.
 #
-# Same file, and the same two caveats, as ar_collapsed_spaces: herdr publishes the
-# value nowhere in its API (no field on `workspace list` or `api snapshot`,
-# checked against protocol 17), and session.json is saved on a 5-second debounce,
-# so a cd lands on the label an event or two later rather than instantly. A
-# missing, unreadable, or older-herdr file yields no rows, which is what makes
-# the caller fall back to the label it wrote last pass -- the behavior before
-# this existed.
+# This one is still session.json's, and still carries both of that file's
+# caveats: herdr publishes the value nowhere in its API (no field on `workspace
+# list` or `api snapshot`, re-checked against protocol 22), and the file is saved
+# on a 5-second debounce, so a cd lands on the label an event or two later rather
+# than instantly. A missing, unreadable, or older-herdr file yields no rows,
+# which is what makes the caller fall back to the label it wrote last pass -- the
+# behavior before this existed.
 ar_workspace_identities() {
   jq -r "$AR_JQ_CLEAN"'
     .workspaces[]? | select(type == "object")
@@ -1612,15 +1675,26 @@ ar_agent_prefix_ok() {
 # exposes neither the panel's displayed order nor a resort event, so in "priority"
 # mode we cannot know the order a static "[N]" would have to match. We therefore
 # number agents only in grouped mode (where agent-list order IS the panel order)
-# and strip the prefixes in "priority" mode (see ar_renumber_agents). herdr
-# rewrites agent_panel_sort into config.toml the instant the sort is toggled, so
-# the file is the live source of truth; default (key unset) is "spaces".
-# A named session keeps its own config.toml beside its session.json, so the path
-# comes from ar_herdr_session_dir; HERDR_CONFIG_FILE overrides it for testing.
+# and strip the prefixes in "priority" mode (see ar_renumber_agents). The sort
+# comes off the same two files, in the same order, as ar_collapsed_spaces reads
+# collapse from. On 0.9.0 and up the live value is agent_panel_sort in the
+# client's preference file, written the instant the sort is toggled and absent
+# until it is, and config.toml is only the value the client started from. Below
+# 0.9.0 the server rewrote config.toml on every toggle and there is no client
+# file, so config.toml is the live value there. Default (neither says) is
+# "spaces". A named session keeps its own config.toml beside its session.json, so
+# the path comes from ar_herdr_session_dir; HERDR_CONFIG_FILE overrides it for
+# testing.
 ar_agent_sort() {
-  local cfg="${HERDR_CONFIG_FILE:-$(ar_herdr_session_dir)/config.toml}" line
-  line=$(grep -E '^[[:space:]]*agent_panel_sort[[:space:]]*=' "$cfg" 2>/dev/null | tail -n1)
-  case "${line#*=}" in
+  local prefs cfg line sort=""
+  prefs=$(ar_herdr_client_prefs)
+  [ -r "$prefs" ] && sort=$(jq -r '.agent_panel_sort // empty | strings' "$prefs" 2>/dev/null)
+  if [ -z "$sort" ]; then
+    cfg="${HERDR_CONFIG_FILE:-$(ar_herdr_session_dir)/config.toml}"
+    line=$(grep -E '^[[:space:]]*agent_panel_sort[[:space:]]*=' "$cfg" 2>/dev/null | tail -n1)
+    sort=${line#*=}
+  fi
+  case "$sort" in
     *priority*) printf 'priority' ;;
     *)          printf 'spaces' ;;
   esac

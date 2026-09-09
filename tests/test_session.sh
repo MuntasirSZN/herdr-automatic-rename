@@ -275,5 +275,32 @@ session_fixtures upg nvim htop
 check_contains "an upgraded session keeps the tab it had named" \
   "$(run_in upg tab.focused)" "tab rename w1:t1 htop"
 
+# ---- the client preference file herdr 0.9.0 keeps presentation state in ----
+# Its name is the FNV-1a 64 of the CLIENT socket path, so the hash has to match
+# herdr's byte for byte or the file is simply never found. The three strings
+# below are FNV's own published vectors, and the paths afterwards were checked
+# against the file a live herdr 0.9.0 had written.
+check "empty string hashes to the offset basis" \
+  "cbf29ce484222325" "$(in_env "" "" 'ar_fnv1a64 ""')"
+check "one byte matches the published vector" \
+  "af63dc4c8601ec8c" "$(in_env "" "" 'ar_fnv1a64 a')"
+check "and so does a longer one" \
+  "85944171f73967e8" "$(in_env "" "" 'ar_fnv1a64 foobar')"
+
+# herdr derives the client socket from the API socket by inserting "-client"
+# before the extension, in the same directory, so the plugin reads one file
+# whether herdr invoked it or a shell hook did.
+check "the prefs file sits under the state dir, named for the client socket" \
+  "$XDG_STATE_HOME/herdr/client-shell/local-703527de6d516edd.json" \
+  "$(in_env /tmp/hs/herdr.sock "" 'ar_herdr_client_prefs')"
+check "a named session's client socket is its own" \
+  "$XDG_STATE_HOME/herdr/client-shell/local-5a5bb25d8c092f59.json" \
+  "$(in_env /tmp/hs/sessions/work/herdr.sock "" 'ar_herdr_client_prefs')"
+# No socket path exported: the same derivation off the session directory, so a
+# hand run reads the file the running client writes rather than nothing.
+check "no socket path: derived from the session dir" \
+  "local-$(in_env "" work "ar_fnv1a64 $CFG/sessions/work/herdr-client.sock").json" \
+  "$(basename "$(in_env "" work 'ar_herdr_client_prefs')")"
+
 rm -rf "$SB" 2>/dev/null || true
 t_summary
