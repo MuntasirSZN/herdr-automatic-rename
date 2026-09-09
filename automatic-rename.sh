@@ -716,7 +716,21 @@ ar_name_eligible() {
     fi
   else
     # We own it; keep updating while the base still matches what we last set.
-    if [ "$slabel" = "$auto" ]; then return 0
+    if [ "$slabel" = "$auto" ]; then
+      # The label has confirmed a seeded claim, so the record is ours outright
+      # from here and the mark goes. Nothing else would clear it: ar_state_claim
+      # skips its write whenever state already says what the pass computed,
+      # which is the steady state for every named tab, so the mark would outlive
+      # the migration it describes -- and it changes what a later hand rename
+      # means. A numeric label is deliberate against an owned record and opts
+      # out, where a marked one is dropped and re-examined, and the first-seen
+      # path reads that number as herdr's own placeholder and takes the tab
+      # back. One write, on the one pass that confirms it.
+      if [ "$seeded" = "true" ]; then
+        ar_state_set "$tab" "$auto" true "$ws"
+        AR_STATE_ENABLED=true
+      fi
+      return 0
     elif [ -z "$slabel" ]; then return 0        # user cleared it -> re-adopt
     # A HIDE_SHELL tab is owned with an EMPTY auto name, and herdr may hand a
     # label-less tab its generated number back (a restored session, its own
@@ -963,6 +977,14 @@ ar_tab_name() {
         # the glyph back, which no longer fits: "<glyph> zsh-integratio". The
         # underfilled label is stable and the alternative oscillates, so the
         # reserve stays.
+        # The name prefix is charged here too. ar_format prepends it AFTER this,
+        # out of this same budget, so a label condensed to fill the budget was
+        # then prefixed and cut -- and being fused with separators it has no
+        # space for the word-boundary trim to fall back on, so the cut landed
+        # mid-keyword, which is the one thing condensing exists to prevent.
+        # ar_title_name_prefix is the same answer ar_format will act on, asked
+        # once rather than derived twice.
+        reserve="$reserve$(ar_title_name_prefix "$AR_PANE_AGENT" "${MAX_TITLE_LEN:-28}")"
         condensed=$(ar_condense_title "$title" "$reserve")
         [ -n "$condensed" ] && title=$condensed
       fi
