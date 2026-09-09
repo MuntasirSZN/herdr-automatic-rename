@@ -4,6 +4,8 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-08
+
 ### Added
 
 - An agent's title is condensed into its keywords instead of shown with the tail cut off. `MAX_TITLE_LEN` takes the END off a title, which is where the words saying WHICH task this is tend to sit: "Investigate why the nightly ETL job drops rows" reached a tab as "Investigate why the nightly". `TITLE_CONDENSE=1` drops a leading verb and the filler and joins what is left, so the same budget carries "nightly-ETL-job-drops-rows".
@@ -270,7 +272,8 @@ First public release.
 - Configuration via `~/.config/herdr-automatic-rename/config.sh` (or `$HERDR_AUTOMATIC_RENAME_CONFIG`), with a documented `config.example.sh`.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers, the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.1...v0.7.2
