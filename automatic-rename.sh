@@ -50,8 +50,9 @@
 # exclusion is tracked here: a JSON state file remembers the last base we set
 # per tab_id and whether auto-naming is still enabled for it. Config and state
 # live at FIXED paths (not $HERDR_PLUGIN_{CONFIG,STATE}_DIR) so the herdr-invoked
-# and shell-invoked runs share one store: the preexec/precmd runs are launched by
-# the shell, not herdr, and never receive the HERDR_PLUGIN_* env vars. Needs jq.
+# and shell-invoked runs share the same store, one per herdr session: the
+# preexec/precmd runs are launched by the shell, not herdr, and never receive
+# the HERDR_PLUGIN_* env vars. Needs jq.
 #
 # Targets bash 3.2 (macOS /bin/bash): no associative arrays, no namerefs.
 
@@ -62,6 +63,38 @@
 AR_ROOT="${HERDR_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)}"
 HERDR="${HERDR_BIN_PATH:-herdr}"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/herdr-automatic-rename"
+AR_LEGACY_STATE_FILE="$STATE_DIR/state.json"
+# One store per herdr session, because every server numbers its tabs from w1:t1
+# (docs/ARCHITECTURE.md, "Why config and state sit at fixed paths"). The name is
+# read the way the herdr CLI picks its server: from the `sessions/<name>/`
+# directory in $HERDR_SOCKET_PATH whenever that is set, the same directory
+# ar_herdr_session_dir reads, and from $HERDR_SESSION only when it is not. herdr
+# injects the socket path into plugin commands and pane shells on purpose; the
+# name reaches both by inheritance from the server. A socket path that names no
+# session directory is the default session's, whatever name the shell inherited.
+# The default session, which herdr also calls `default`, keeps the store here.
+_ar_sock_dir="${HERDR_SOCKET_PATH:+${HERDR_SOCKET_PATH%/*}}"
+_ar_sock_parent="${_ar_sock_dir%/*}"
+if [ -z "$_ar_sock_dir" ]; then
+  _ar_session="${HERDR_SESSION:-}"
+elif [ "$_ar_sock_parent" != "$_ar_sock_dir" ] && [ "${_ar_sock_parent##*/}" = "sessions" ]; then
+  _ar_session="${_ar_sock_dir##*/}"
+else
+  _ar_session=""
+fi
+# A name is one path segment, never a dot entry: herdr refuses those as session
+# names, and a hand-set socket path must not alias the store onto another dir.
+# The socket route cannot carry a separator, taking the segment after the last
+# one, but $HERDR_SESSION is whatever the variable says: a value with a slash in
+# it put the store outside `sessions/` altogether, so it is refused here rather
+# than interpolated. Nothing is protected from its own owner by that -- anyone
+# who can set the variable can set XDG_STATE_HOME too -- it is that a name which
+# is not one segment names no session, and the two routes should agree.
+case "$_ar_session" in
+  "" | default | . | .. | */*) ;;
+  *) STATE_DIR="$STATE_DIR/sessions/$_ar_session" ;;
+esac
+unset _ar_sock_dir _ar_sock_parent _ar_session
 STATE_FILE="$STATE_DIR/state.json"
 LOCK_DIR="$STATE_DIR/lock"
 RERUN_FLAG="$STATE_DIR/rerun"
@@ -433,6 +466,48 @@ ar_unlock() {
   rmdir "$LOCK_DIR" 2>/dev/null || true
 }
 
+# ar_state_seed - a named session's first store starts from the ownership records
+# of the shared store it replaces. Without this an upgrade opts every named tab
+# out: the tab carries a label the empty store never wrote, which is what a hand
+# rename looks like. Only enabled records are copied. A matching one keeps the
+# tab named, a mismatched one opts out exactly as no record would, and an
+# opted-out one is left behind so a placeholder label is adopted as it would be
+# from nothing. Ids this session lacks go on the first prune. The link is what
+# makes the copy safe under a burst of first events: it refuses an existing
+# file, so a pass that already wrote is never covered over.
+#
+# Every copied record is marked `seeded`, and the mark is what makes the second
+# sentence above true. The root store is not only the store an upgrade leaves
+# behind: it is the DEFAULT session's live store, and it stays populated for as
+# long as anybody uses that session. So a session created later seeds from it
+# too, and because every herdr server numbers its tabs from w1:t1 the copied
+# record lands on a tab that has nothing to do with it. That tab still carries
+# herdr's generated number, and an owned record against a placeholder label is
+# what a hand rename looks like -- so the session's own first tab opted itself
+# out for good, needing the reset action per tab, which is this bug one layer
+# along. A seeded record is a claim about another store's tab rather than a
+# write of ours, so ar_name_eligible confirms it against the label and drops it
+# when the label disagrees, leaving the tab exactly as unseen as it really is.
+#
+# Nothing has to clear the mark: ar_state_set writes a record whole, so the
+# first write of ours replaces it. A seeded record that MATCHES its label keeps
+# the mark, and costs nothing for it -- the label agrees, so the record is ours
+# in everything but provenance, and a later hand rename reaches the same
+# opted-out end state by the drop-and-re-examine path instead of directly.
+ar_state_seed() {
+  [ "$STATE_FILE" != "$AR_LEGACY_STATE_FILE" ] || return 0
+  [ -e "$STATE_FILE" ] && return 0
+  [ -f "$AR_LEGACY_STATE_FILE" ] || return 0
+  local tmp
+  tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 0
+  if jq -c 'with_entries(select(.value.enabled == true) | .value += {seeded: true})' \
+       "$AR_LEGACY_STATE_FILE" > "$tmp" 2>/dev/null \
+     && jq -es 'length == 1 and (.[0] | type == "object")' "$tmp" >/dev/null 2>&1; then
+    ln "$tmp" "$STATE_FILE" 2>/dev/null || true
+  fi
+  rm -f "$tmp"
+}
+
 # ======================================================================
 # naming state (atomic temp+mv; jq keyed by tab_id; only NAME_TABS uses it)
 # ======================================================================
@@ -502,10 +577,14 @@ ar_state_get() { # <tab_id> <field>
 # another one, leaves it stale until the next reconcile. That pass is the one
 # that changes the label anyway -- a dedupe that flips is a different label --
 # so the staleness costs at most the label a tab already had.
-# ar_state_fields <key> -> "<enabled><SEP><auto><SEP><ws>" for that key, empty
-# throughout when nothing is known about it. One jq for the three fields the
-# opt-out machine reads together: they are read on every tab of every pass, and
-# a fork each is a fork per field per tab.
+# ar_state_fields <key> -> "<enabled><SEP><auto><SEP><ws><SEP><seeded>" for that
+# key, empty throughout when nothing is known about it. One jq for the four
+# fields the opt-out machine reads together: they are read on every tab of every
+# pass, and a fork each is a fork per field per tab.
+#
+# `seeded` goes last so a reader that names fewer variables collects it in its
+# own final one and discards it there, rather than appending it to a field it
+# compares against.
 #
 # `enabled` is emitted as its own text rather than through `//`, which treats a
 # boolean false as absent: an opted-out tab would read back as first-seen on
@@ -514,7 +593,8 @@ ar_state_fields() { # <key>
   [ -f "$STATE_FILE" ] || return 0
   jq -r --arg t "$1" '.[$t] as $r
     | [ ($r.enabled | if . == null then "" else tostring end),
-        ($r.auto // ""), ($r.ws // "") ] | join([31] | implode)' \
+        ($r.auto // ""), ($r.ws // ""),
+        ($r.seeded | if . == true then "true" else "" end) ] | join([31] | implode)' \
     "$STATE_FILE" 2>/dev/null
 }
 ar_state_set() { # <tab_id> <auto-name> <enabled true|false> [ws]
@@ -601,8 +681,22 @@ ar_state_claim() {
 # from one worth writing -- ar_state_set rewrites the whole state file. The shell
 # hook reads AR_STATE_WS for the dedupe as well.
 ar_name_eligible() {
-  local tab=$1 slabel=$2 enabled auto ws
-  IFS=$AR_ROW_SEP read -r enabled auto ws <<< "$(ar_state_fields "$tab")"
+  local tab=$1 slabel=$2 enabled auto ws seeded
+  IFS=$AR_ROW_SEP read -r enabled auto ws seeded <<< "$(ar_state_fields "$tab")"
+  # A seeded record is ar_state_seed's guess that this tab is one the shared
+  # store already owned, and the label is the only thing that can confirm it.
+  # Where it does not, the guess was about another session's tab of the same id
+  # -- every server numbers from w1:t1 -- so the record is dropped and the tab
+  # is examined as the unseen one it is. Reading the mismatch as a hand rename
+  # instead opted out the first tab of every session created after the upgrade.
+  #
+  # An empty label is excluded because the machine below already re-adopts on
+  # one, whatever the record says, so there is nothing a drop would change.
+  if [ "$seeded" = "true" ] && [ "$enabled" = "true" ] \
+     && [ -n "$slabel" ] && [ "$slabel" != "$auto" ]; then
+    ar_state_del "$tab"
+    enabled="" auto="" ws=""
+  fi
   AR_STATE_ENABLED=$enabled
   AR_STATE_AUTO=$auto
   AR_STATE_WS=$ws
@@ -905,7 +999,15 @@ ar_herdr_session_dir() {
   if [ -n "${HERDR_SOCKET_PATH:-}" ]; then
     printf '%s' "${HERDR_SOCKET_PATH%/*}"
   else
-    printf '%s/herdr' "${XDG_CONFIG_HOME:-$HOME/.config}"
+    # No socket path: the CLI picks its server from $HERDR_SESSION next, so the
+    # files read here have to come from the same session, or a hand run with
+    # only the name set would talk to one server and read another's session.json.
+    # A name that is not one path segment names no session, the same reading the
+    # store's own resolution takes.
+    case "${HERDR_SESSION:-}" in
+      "" | default | . | .. | */*) printf '%s/herdr' "${XDG_CONFIG_HOME:-$HOME/.config}" ;;
+      *) printf '%s/herdr/sessions/%s' "${XDG_CONFIG_HOME:-$HOME/.config}" "$HERDR_SESSION" ;;
+    esac
   fi
 }
 
@@ -1101,14 +1203,26 @@ ar_identity_base() { # <workspace_id>
 # moved on and ours has not, and only the record tells that apart from a name
 # somebody typed. Anything else is somebody's name and is left alone for good.
 ar_ws_track_eligible() {
-  local key="ws:$1" slabel=$2 ibase=$3 enabled auto unused
+  local key="ws:$1" slabel=$2 ibase=$3 enabled auto unused seeded
   # Every field gets a name, including the one a workspace record never carries:
   # bash hands the LAST variable the rest of the line, delimiters and all, so a
   # reader short of one name would append the next field to $auto the day a
   # workspace record grows one -- and the compare below could then never be true
   # again, which is this workspace opting itself out of directory tracking.
   # shellcheck disable=SC2034  # `unused` is named so it can be discarded
-  IFS=$AR_ROW_SEP read -r enabled auto unused <<< "$(ar_state_fields "$key")"
+  IFS=$AR_ROW_SEP read -r enabled auto unused seeded <<< "$(ar_state_fields "$key")"
+  # A seeded record is dropped where the label confirms neither derivation, for
+  # the reason ar_name_eligible drops one: "ws:w1" collides across sessions the
+  # same way "w1:t1" does. The first branch below covers most of it already, a
+  # new session's workspace usually carrying herdr's own derivation, so this is
+  # the narrower case of one whose derivation has since moved on. Opting out is
+  # permanent here and there is no reset action for a workspace, which is why it
+  # matters more than the odds suggest.
+  if [ "$seeded" = "true" ] && [ "$enabled" = "true" ] \
+     && [ "$slabel" != "$ibase" ] && [ "$slabel" != "$auto" ]; then
+    ar_state_del "$key"
+    enabled="" auto=""
+  fi
   AR_WS_STATE_ENABLED=$enabled
   AR_WS_STATE_AUTO=$auto
   if [ "$slabel" = "$ibase" ]; then
@@ -1784,6 +1898,7 @@ ar_main() {
   command -v jq >/dev/null 2>&1 || exit 0
   command -v "$HERDR" >/dev/null 2>&1 || exit 0
   mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
+  ar_state_seed
 
   # Config overrides must load BEFORE naming.sh (its defaults only fill unset vars).
   # The config path is the user's, resolved at runtime, so shellcheck has no file
