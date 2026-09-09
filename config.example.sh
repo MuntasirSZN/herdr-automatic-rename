@@ -135,6 +135,10 @@
 # what the task may spend rather than making the tab wider -- though a label that
 # was under the budget does get longer: "auth flow" becomes "cc:auth flow".
 #
+# Where TITLE_CONDENSE is also on, the name is reserved before the keywords are
+# chosen, so condensing knows the prefix is coming and keeps whole words either
+# way.
+#
 # The prefix is all or nothing. Where the budget cannot seat the name, its colon
 # and MIN_TASK_LEN characters of task, the NAME goes: this asks for the task with
 # the name added, not the other way about, and a tab reading only "cursor-agent"
@@ -245,6 +249,15 @@
 # shape every other tab name has; " " reads as the phrase instead. Its length is
 # charged to MAX_TITLE_LEN like any other character, and a separator long enough
 # to make the label outgrow the sentence gets the sentence instead.
+#
+# TITLE_STYLE=name_and_task is charged to that budget as well, so the two knobs
+# together spend it on fewer keywords rather than cutting the last one: a tab
+# reads "<glyph> claude:nightly-ETL-job" where the task alone would have carried
+# "nightly-ETL-job-drops-rows".
+#
+# A separator of whitespace or a control character is squeezed to one space
+# before the label is stored, so a title that would then read as a tab number
+# ("Fix [12] parser") is left as the sentence rather than condensed.
 # TITLE_WORD_SEPARATOR=-
 
 # Casing. "fold" downcases every word except an all-caps-and-digits identifier: a

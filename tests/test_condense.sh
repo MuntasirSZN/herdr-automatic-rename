@@ -140,6 +140,34 @@ check "an empty title condenses to nothing" "" "$(ar_condense_title '')"
 # renaming the tab to an empty string.
 check "an all-filler title condenses to nothing" "" "$(ar_condense_title 'to the of')"
 
+# ---- the name prefix is priced in too ----
+# TITLE_STYLE=name_and_task prepends "<name>:" out of this same budget, AFTER
+# condensing. Unpriced, a label condensed to fill the budget was prefixed and
+# then cut, and being fused with separators it has no space for the
+# word-boundary trim to fall back on, so the cut landed mid-keyword.
+check "the name prefix comes out of the budget" "nightly-ETL-job-drops" \
+  "$(TITLE_STYLE=name_and_task ar_condense_title \
+     'Investigate why the nightly ETL job drops rows' \
+     "$(TITLE_STYLE=name_and_task ar_title_name_prefix claude 28)")"
+# "claude:" plus that label is the 28 available exactly. Add the glyph and its
+# space and one more word has to go, rather than the last one being cut. Both
+# reserves are asked for the way ar_tab_name asks for them.
+reserve_for() { # <program> <budget> -> the text the label will share
+  printf '%s%s' "$(ar_icon_reserve "$1")" "$(ar_title_name_prefix "$1" "$2")"
+}
+check "and so does the glyph beside it" "nightly-ETL-job" \
+  "$(export TITLE_STYLE=name_and_task ICONS_ENABLED=1
+     ar_condense_title 'Investigate why the nightly ETL job drops rows' \
+       "$(reserve_for claude 28)")"
+# The prefix ar_format will actually draw is the one charged: refused there, it
+# costs the label nothing here.
+check "a prefix that will not be drawn charges nothing" "" \
+  "$(MAX_TITLE_LEN=12 TITLE_STYLE=name_and_task ar_title_name_prefix cursor-agent 12)"
+check "and the plain style charges nothing either" "" \
+  "$(ar_title_name_prefix claude 28)"
+check "an alias is what gets charged" "cc:" \
+  "$(PROGRAM_ALIASES=("claude=cc"); TITLE_STYLE=name_and_task ar_title_name_prefix claude 28)"
+
 # ---- what it refuses to hand back ----
 # A label longer than the title it replaces has inverted the point: ar_format
 # would then cut prose that fitted. Only a separator of more than one character
@@ -163,6 +191,20 @@ check "and a bare bracketed number too" "" \
 # behind the bracket -- so the label ships.
 check "the default separator does not reach it" "[123]-parser" \
   "$(ar_condense_title 'Fix [123] parser')"
+# The shape is judged on what ar_format will STORE, not on what is written
+# here: its scrub turns a run of whitespace or control characters into one
+# space, so a separator of a tab passed a check looking for a literal space and
+# the shape arrived at the tab one step later.
+check "a tab separator does not slip the shape past" "" \
+  "$(TITLE_WORD_SEPARATOR=$'\t' ar_condense_title 'Fix [12] parser')"
+check "nor does a newline" "" \
+  "$(TITLE_WORD_SEPARATOR=$'\n' ar_condense_title 'Fix [12] parser')"
+check "nor a control character" "" \
+  "$(TITLE_WORD_SEPARATOR=$'\001' ar_condense_title 'Fix [12] parser')"
+# And a title that cannot wear the shape keeps such a separator regardless.
+check "a title with no shape keeps the separator" "$(printf 'parser\trewrite')" \
+  "$(TITLE_WORD_SEPARATOR=$'\t' ar_condense_title 'Fix the parser rewrite')"
+
 # Only a LEADING one is the prefix shape. Elsewhere in the label it is words.
 check "a bracketed number later in the label stays" "parser [123] rewrite" \
   "$(TITLE_WORD_SEPARATOR=' ' ar_condense_title 'Fix parser [123] rewrite')"
@@ -413,6 +455,32 @@ fixture panes.json <<'JSON'
 JSON
 out=$(run_event tab.created >/dev/null 2>&1; log)
 check_rename   "unconfigured, the badge stays"   "$out" w1:t1 "OC-reviewing-unpushed"
+
+# ----------------------------------------------------------------------
+# Both title knobs at once, through the engine. ar_tab_name reserves what the
+# label will share before condensing, and the name prefix is part of that: left
+# out, a label condensed to fill the budget was prefixed by ar_format and then
+# cut, and a fused label has no space for the word-boundary trim to fall back
+# on, so the cut landed mid-keyword. Nothing tested the two together before.
+# ----------------------------------------------------------------------
+setup
+export NAME_TABS=1 AUTO_INDEX=0 TITLE_CONDENSE=1 TITLE_STYLE=name_and_task ICONS_ENABLED=1
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t1","focused":true,"agent":"claude","agent_status":"working",
+   "terminal_title_stripped":"Investigate why the nightly ETL job drops rows",
+   "foreground_cwd":"/home/u/dev/api"}
+]}}
+JSON
+out=$(run_event tab.created >/dev/null 2>&1; log)
+check_rename "the name and the glyph are both reserved" "$out" w1:t1 \
+  "$(printf '\363\260\232\251') claude:nightly-ETL-job"
 teardown
 
 t_summary

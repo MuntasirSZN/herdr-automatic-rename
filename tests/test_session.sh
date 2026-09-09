@@ -131,17 +131,18 @@ check_rc "and the unseeded one adopts a placeholder" 0 \
 # upgrade leaves behind, so a session created later seeds from it too: every
 # server numbers from w1:t1, and without the mark that session's own first tab
 # read as hand-renamed and opted out for good.
-check "a seeded record is marked" "true" "$(in_session work 'ar_state_get w1:t1 seeded')"
+# reseeded <name> <command> -> the command against a store freshly seeded from
+# the shared one, since each case below consumes the record it examines: a
+# confirming pass clears the mark, and a disagreeing one drops the record.
+reseeded() { rm -rf "$LEGACY/sessions/$1"; in_session "$1" "ar_state_seed; $2"; }
+
+check "a seeded record is marked" "true" "$(reseeded work 'ar_state_get w1:t1 seeded')"
 check "and an owned workspace record too" "true" \
-  "$(in_session work 'ar_state_get ws:w1 seeded')"
+  "$(reseeded work 'ar_state_get ws:w1 seeded')"
 
 # The label disagrees, so the record was about another session's tab of that id.
 # It goes, and the tab is examined as the unseen one it is: a placeholder label
 # is adopted, exactly as it would be from nothing.
-# reseeded <name> <command> -> the command against a store freshly seeded from
-# the shared one, since each case below consumes the record it examines.
-reseeded() { rm -rf "$LEGACY/sessions/$1"; in_session "$1" "ar_state_seed; $2"; }
-
 check_rc "a seeded record loses to a placeholder label" 0 \
   "$(reseeded work 'ar_name_eligible w1:t1 1; echo $?')"
 check "and is dropped rather than opted out" "" \
@@ -157,9 +158,22 @@ check_rc "a label that confirms it keeps the tab" 0 \
   "$(reseeded work 'ar_name_eligible w1:t1 nvim; echo $?')"
 check "and the record survives" "nvim" \
   "$(reseeded work 'ar_name_eligible w1:t1 nvim >/dev/null; ar_state_get w1:t1 auto')"
-# Nothing clears the mark on its own: our own write replaces the record whole.
+# Our own write replaces the record whole, so it drops the mark.
 check "our own write drops the mark" "" \
   "$(reseeded work 'ar_state_set w1:t1 nvim true; ar_state_get w1:t1 seeded')"
+# A confirming pass drops it too, and has to: ar_state_claim writes nothing when
+# state already says what the pass computed, which is every named tab's steady
+# state, so the mark would outlive the migration it describes.
+check "and so does the pass that confirms it" "" \
+  "$(reseeded work 'ar_name_eligible w1:t1 nvim >/dev/null; ar_state_get w1:t1 seeded')"
+# Which is what keeps a later rename meaning the same thing on both. A numeric
+# label is deliberate, not a reset -- but a marked record is dropped and
+# re-examined, and the first-seen path would read that number as herdr's own
+# placeholder and take the tab back.
+check_rc "a numeric rename after confirmation opts out" 1 \
+  "$(reseeded work 'ar_name_eligible w1:t1 nvim >/dev/null; ar_name_eligible w1:t1 3; echo $?')"
+check_rc "as it does for a record that was never seeded" 1 \
+  "$(in_session hand 'ar_state_set w1:t1 nvim true; ar_name_eligible w1:t1 3; echo $?')"
 
 # The workspace record collides the same way, and opting out is permanent there
 # with no reset action to undo it.

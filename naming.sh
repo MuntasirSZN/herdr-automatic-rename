@@ -381,6 +381,72 @@ ar_fits() {
   [ -n "$n" ] && [ "$n" -le "$2" ]
 }
 
+# ar_icon_reserve <program> -> the text ar_format prepends for this program's
+# icon, or "". The literal text rather than an allowance for it: ICON_MAP takes
+# any string, so a flat two is right for one glyph and wrong for everything
+# else, and a caller pricing a budget needs what will actually be spent.
+#
+# ICON_STYLE=icon draws the glyph INSTEAD of the label, so nothing a title
+# caller decides reaches the tab and there is nothing to reserve; "name" draws
+# no glyph at all. Only the default pays.
+ar_icon_reserve() {
+  [ "${ICONS_ENABLED:-0}" = "1" ] || return 0
+  case "${ICON_STYLE:-name_and_icon}" in
+  icon | name) return 0 ;;
+  esac
+  local ic
+  ic=$(ar_icon "$1")
+  [ -n "$ic" ] && printf '%s ' "$ic"
+}
+
+# ar_title_name_prefix <program> <budget> -> "<name>:", the prefix ar_format
+# puts in front of a task under TITLE_STYLE=name_and_task, or "" where it will
+# not. One answer, read by both the formatter that prepends it and the condenser
+# that has to price it, because two derivations of the same decision are free to
+# drift and only one of them would be under test.
+#
+# Here an alias IS wanted, which is the difference from the plain-title rule:
+# asking for the name is asking for the name you chose for it.
+#
+# The prefix is all or nothing. Truncation treats a label as prose, so a name
+# that does not leave room for a task would be kept INSTEAD of one: at a budget
+# of twelve "cursor-agent" filled the tab on its own. That renders name_and_task
+# as name only, which is the one thing it must not do, so the task keeps what it
+# needs and the name goes when it cannot be afforded -- this asks for the task
+# with the name added, not the other way about.
+#
+# A name carrying a space is refused whatever the budget. The word-boundary trim
+# cuts at the LAST space in the whole label, which for a multiword name is
+# inside the name: an alias of "SuperLongAgent Extra" rendered "SuperLongAgent"
+# alone, the task gone and the name itself clipped. A single-word name cannot be
+# reached that way, the colon joining it to the task with no space to cut at.
+#
+# An alias of nothing but spaces or control characters is scrubbed to nothing
+# and refused, rather than leaving a bare colon in front of the task.
+#
+# The glyph is charged here too, being prepended out of this same budget after
+# this decision. Over-reserving is the safe direction: it only ever refuses the
+# prefix and hands the task the room back.
+#
+# Asked of ar_fits, which answers in codepoints and answers without a process
+# wherever the value is ASCII.
+ar_title_name_prefix() {
+  [ "${TITLE_STYLE:-task}" = "name_and_task" ] && [ -n "$1" ] || return 0
+  local aliased pad
+  aliased=$(ar_alias "$1")
+  aliased=${aliased:-$1}
+  case $aliased in
+  *[[:cntrl:]]* | *" "*) aliased=$(printf '%s' "$aliased" | tr -s '[:cntrl:] ' ' ')
+                         aliased=${aliased# }; aliased=${aliased% } ;;
+  esac
+  case $aliased in
+  "" | *" "*) return 0 ;;
+  esac
+  printf -v pad '%*s' "${MIN_TASK_LEN:-7}" ""
+  ar_fits "$(ar_icon_reserve "$1")$aliased:$pad" "$2" || return 0
+  printf '%s:' "$aliased"
+}
+
 # ar_context_dir <pane directory> <workspace base label> -> the directory part of
 # the context, or "" when the directory says nothing worth a tab's width.
 #
@@ -785,11 +851,17 @@ ar_condense_title() {
     # A leading "[<digits>]" is the shape ar_index_prefix writes and
     # ar_strip_prefix reads back. A label wearing it is read at the next
     # reconcile as a base somebody typed by hand, and the tab opts out of
-    # naming until a reset. Only a separator carrying a space reaches this --
+    # naming until a reset. Only a separator carrying whitespace reaches this --
     # the default "-" cannot -- but the cost when it does is the tab, not the
     # label.
+    #
+    # Whitespace OR a control character, because the shape is judged on what
+    # ar_format will STORE rather than on what is written here: its scrub turns
+    # any run of either into one space, so a separator of a tab produced
+    # "[12]\tparser" here, passed a check looking for a literal space, and
+    # reached the tab as "[12] parser" -- the shape, arriving one step later.
     | if . != "" and (length <= ($orig | length))
-         and ((test("^\\[[0-9]+\\]( |$)")) | not)
+         and ((test("^\\[[0-9]+\\]([[:space:][:cntrl:]]|$)")) | not)
       then . else "" end
   ' 2>/dev/null
 }
@@ -985,8 +1057,6 @@ ar_label() {
 #   program == "" means a bare prompt (name by the shell).
 ar_format() {
   local prog=$1 cmdline=$2 title=${3:-} name="" ic aliased="" is_shell=0 max=${MAX_NAME_LEN:-20}
-  local AR_TITLE_MIN_TASK
-  printf -v AR_TITLE_MIN_TASK '%*s' "${MIN_TASK_LEN:-7}" ""
   AR_ACTIVITY=""
   # Only the program-name chain below consults an alias, so a title (or a bare
   # prompt) does not pay for the lookup.
@@ -1014,57 +1084,9 @@ ar_format() {
     # in the released code: WRAPPER_PROGRAMS substitutes the kind for the program
     # before this same lookup, so a node-fronted cursor-agent already aliases by
     # "cursor" while a natively installed one aliases by "cursor-agent".
-    if [ "${TITLE_STYLE:-task}" = "name_and_task" ] && [ -n "$prog" ]; then
-      aliased=$(ar_alias "$prog")
-      aliased=${aliased:-$prog}
-      # Scrub the name the way the label is scrubbed further down, and before
-      # deciding there is one: an alias of nothing but spaces or control
-      # characters would otherwise leave a bare colon in front of the task.
-      case $aliased in
-      *[[:cntrl:]]* | *" "*) aliased=$(printf '%s' "$aliased" | tr -s '[:cntrl:] ' ' ')
-                             aliased=${aliased# }; aliased=${aliased% } ;;
-      esac
-      # The prefix is all or nothing. Truncation treats a label as prose, so a
-      # name that does not leave room for a task gets kept INSTEAD of one: at a
-      # budget of twelve "cursor-agent" filled the tab on its own, and a name
-      # with a space in it was cut in half at the space. Both render name_and_task
-      # as name only, which is the one thing it must not do. So the task keeps
-      # what it needs and the name goes when it cannot be afforded -- this asks
-      # for the task with the name added, not the other way about.
-      #
-      # Asked of ar_fits, which answers in codepoints and answers without a
-      # process wherever the value is ASCII.
-      #
-      # The glyph and its space are prepended out of this same budget further
-      # down, AFTER this decision, so they go into the probe as the literal text
-      # rather than as a length: ICON_MAP takes any string, and a flat allowance
-      # of two is right for one glyph and wrong for everything else. Over-
-      # reserving is the safe direction here, since it only ever refuses the
-      # prefix and hands the task the room back.
-      #
-      # ICON_STYLE=icon draws the glyph INSTEAD of the label, so nothing decided
-      # here reaches the tab and there is nothing to reserve; "name" draws no
-      # glyph at all. Only the default pays.
-      local probe reserve=""
-      if [ "${ICONS_ENABLED:-0}" = "1" ] &&
-        [ "${ICON_STYLE:-name_and_icon}" != "icon" ] && [ "${ICON_STYLE:-}" != "name" ]; then
-        reserve=$(ar_icon "$prog")
-        [ -n "$reserve" ] && reserve="$reserve "
-      fi
-      # A name carrying a space is refused outright. The word-boundary trim below
-      # cuts at the LAST space in the whole label, which for a multiword name is
-      # inside the name: an alias of "SuperLongAgent Extra" rendered
-      # "SuperLongAgent" on its own, the task gone and the name itself clipped,
-      # which is precisely what the paragraph above says must not happen. A
-      # single-word name cannot be reached that way, the colon joining it to the
-      # task with no space to cut at.
-      case $aliased in
-      *" "*) aliased="" ;;
-      esac
-      probe="$reserve$aliased:$AR_TITLE_MIN_TASK"
-      if [ -n "$aliased" ] && ar_fits "$probe" "$max"; then
-        name="$aliased:$name"
-      fi
+    if [ "${TITLE_STYLE:-task}" = "name_and_task" ]; then
+      aliased=$(ar_title_name_prefix "$prog" "$max")
+      [ -n "$aliased" ] && name="$aliased$name"
     fi
   elif [ -z "$prog" ]; then
     name=$SHELL_NAME
