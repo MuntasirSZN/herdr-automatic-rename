@@ -1194,13 +1194,17 @@ ar_workspace_pane_dirs() {
     | (.workspace_id | clean) as $w
     | (.active_tab_id | clean) as $at
     | [ $panes[] | select((.workspace_id | clean) == $w) ] as $mine
-    | ( ( [ $mine[] | select(.focused == true) ] | .[0] )
-        // ( [ $mine[] | select((.tab_id | clean) == $at) ] | .[0] )
-        // ( $mine | .[0] ) ) as $p
+    | [ $mine[] | select(.focused == true) ] as $foc
+    | [ $mine[] | select((.tab_id | clean) == $at) ] as $act
+    | ( ($foc | .[0]) // ($act | .[0]) // ($mine | .[0]) ) as $p
     | select($p != null)
     | ((($p.foreground_cwd // $p.cwd) | clean)) as $c
     | select($c != "")
-    | [ $w, $c ] | join([31] | implode)' \
+    | ( if ($foc | length) > 0 then "1"
+        elif ($act | length) == 1 then "1"
+        elif ($mine | length) == 1 then "1"
+        else "0" end ) as $sure
+    | [ $w, $c, $sure ] | join([31] | implode)' \
     --argjson ws "$wsjson" --argjson pn "$AR_PANES_JSON" 2>/dev/null || printf ''
 }
 
@@ -1211,11 +1215,39 @@ ar_workspace_pane_dirs() {
 # not the same answer as an empty base: no row means nothing is known.
 # A loop rather than a jq per row, because a pass sees every workspace and each
 # map is one read.
+# ar_panedir_base <workspace_id> -> the base its own panes give, or empty. The
+# pane rows alone, where ar_identity_base prefers herdr's file and falls back to
+# them, because the debounce rule below has to be able to tell the two apart.
+#
+# Only a row whose pane was not a guess answers here. A background workspace
+# whose active tab is split has no focused pane to read, and the row then names
+# whichever pane came first: letting that override herdr's own identity would
+# not be a stale file corrected, it would be an arbitrary pane preferred over
+# the real one for as long as the two disagreed, which is the one thing the
+# identity rule exists to prevent. The stand-in stays available to
+# ar_identity_base, where a guess beats knowing nothing at all.
+ar_panedir_base() {
+  local wid=$1 k v sure
+  [ -n "${AR_WS_PANEDIR:-}" ] || return 0
+  while IFS=$AR_ROW_SEP read -r k v sure; do
+    if [ "$k" = "$wid" ]; then
+      [ "$sure" = "1" ] || return 0
+      ar_project_base "$v"
+      return 0
+    fi
+  done <<< "$AR_WS_PANEDIR"
+}
+
 ar_identity_base() { # <workspace_id>
-  local wid=$1 k v rows
+  # A pane row carries a third field saying whether the pane it names was known
+  # rather than guessed (see ar_panedir_base), which is nothing to this function:
+  # naming it keeps it out of the directory, since bash hands the last variable
+  # the rest of the line.
+  # shellcheck disable=SC2034  # `sure` is named so it can be discarded
+  local wid=$1 k v sure rows
   for rows in "${AR_WS_IDENTITY:-}" "${AR_WS_PANEDIR:-}"; do
     [ -n "$rows" ] || continue
-    while IFS=$AR_ROW_SEP read -r k v; do
+    while IFS=$AR_ROW_SEP read -r k v sure; do
       if [ "$k" = "$wid" ]; then ar_project_base "$v"; return 0; fi
     done <<< "$rows"
   done
@@ -1235,7 +1267,7 @@ ar_identity_base() { # <workspace_id>
 # moved on and ours has not, and only the record tells that apart from a name
 # somebody typed. Anything else is somebody's name and is left alone for good.
 ar_ws_track_eligible() {
-  local key="ws:$1" slabel=$2 ibase=$3 enabled auto unused seeded
+  local key="ws:$1" slabel=$2 ibase=$3 pbase=${4:-} enabled auto unused seeded
   # Every field gets a name, including the one a workspace record never carries:
   # bash hands the LAST variable the rest of the line, delimiters and all, so a
   # reader short of one name would append the next field to $auto the day a
@@ -1255,6 +1287,21 @@ ar_ws_track_eligible() {
     ar_state_del "$key"
     enabled="" auto=""
   fi
+  # herdr saves session.json on a 5-second debounce, so a cd the shell hook has
+  # already applied reads back here as the directory the workspace LEFT, and the
+  # pass would rename it back -- once per prompt, for as long as the file lags,
+  # since our own rename is an event we subscribe to. Where the panes still say
+  # what we last wrote, the file is simply behind: herdr derives identity_cwd
+  # from the workspace's active pane, so the pane's directory is the value the
+  # file is about to carry. Only that exact agreement counts, so a pane guess
+  # that matches neither the file nor our record changes nothing and the file
+  # stays the answer -- which is the case a live session paid for (see the
+  # identity_cwd note in docs/ARCHITECTURE.md).
+  if [ -n "$pbase" ] && [ "$pbase" != "$ibase" ] \
+     && [ "$enabled" = "true" ] && [ "$auto" = "$pbase" ]; then
+    ibase=$pbase
+  fi
+  AR_WS_IBASE=$ibase
   AR_WS_STATE_ENABLED=$enabled
   AR_WS_STATE_AUTO=$auto
   if [ "$slabel" = "$ibase" ]; then
@@ -1323,8 +1370,9 @@ ar_renumber_workspaces() {
     seen="$seen $wid"
     base=$(ar_strip_prefix "$label")
     track=0
-    if ibase=$(ar_identity_base "$wid") && ar_ws_track_eligible "$wid" "$base" "$ibase"; then
-      base=$ibase
+    if ibase=$(ar_identity_base "$wid") \
+       && ar_ws_track_eligible "$wid" "$base" "$ibase" "$(ar_panedir_base "$wid")"; then
+      base=$AR_WS_IBASE
       track=1
     fi
     [ -n "$base" ] || continue          # empty label: nothing to number, leave it
@@ -1791,7 +1839,12 @@ ar_reconcile() {
     fi
   else
     wsjson=$("$HERDR" workspace list 2>/dev/null) || wsjson=""
-    if [ "$CLEAR" != "1" ] && [ "$NAME_TABS" = "1" ]; then
+    # The workspace pass wants the panes too, and wants them whatever NAME_TABS
+    # says: they are how a workspace herdr has not persisted yet is named at all,
+    # and how a rename the prompt just applied is told from one session.json is
+    # merely late in reporting. Here that is a round-trip rather than a jq over
+    # the snapshot, so it is still asked for only where a pass will read it.
+    if [ "$CLEAR" != "1" ] && { [ "$NAME_TABS" = "1" ] || ar_index_pass workspaces; }; then
       AR_PANES_JSON=$("$HERDR" pane list 2>/dev/null) || AR_PANES_JSON='{"result":{"panes":[]}}'
     fi
   fi
@@ -1834,10 +1887,16 @@ ar_reconcile() {
 # flicker); a construct wrapping nvim samples as nvim. On sampling failure
 # rename nothing -- never guess.
 ar_fast_once() {
-  [ "$NAME_TABS" = "1" ] && ar_fast_tab
+  # The workspace goes first so the tab can dedupe against the name the
+  # workspace ends the prompt with. The other order leaves the tab repeating the
+  # workspace's own name (a tab reading "project-b > zsh" inside project-b) at
+  # every prompt until a full reconcile refreshes the base recorded on the tab.
+  #
   # A cd has landed by the time the prompt is drawn, and preexec's $PWD is the
   # one the last precmd already saw, so the workspace half is precmd's alone.
+  AR_FAST_WS=""
   [ "$MODE" = "precmd" ] && ar_fast_workspace
+  [ "$NAME_TABS" = "1" ] && ar_fast_tab
   return 0
 }
 
@@ -1845,7 +1904,7 @@ ar_fast_once() {
 ar_fast_tab() {
   local tab="${HERDR_TAB_ID:-}"
   [ -n "$tab" ] || return 0
-  local prog="" cmd="" info name label raw prefix slabel enabled auto want
+  local prog="" cmd="" info name label raw prefix slabel enabled auto want ws
   if [ "$MODE" = "preexec" ]; then
     if [ "${AR_FAST_SAMPLE:-}" = "1" ]; then
       info=$(ar_pane_program "${HERDR_PANE_ID:-}") || return 0
@@ -1875,8 +1934,12 @@ ar_fast_tab() {
   # cost a socket round-trip on every command.
   # The branch comes from this shell's own directory, so a checkout switched at
   # the prompt shows up at the next one -- herdr has no event to tell us.
+  # AR_FAST_WS is what the workspace half just settled this workspace on, where
+  # it ran. The record on the tab is what the last reconcile saw, which a cd has
+  # by then moved out from under.
+  ws=${AR_FAST_WS:-${AR_STATE_WS:-}}
   ar_branch_of "$PWD" >/dev/null
-  name=$(ar_label "$PWD" "${AR_STATE_WS:-}" "$AR_BRANCH" "$prog" "$cmd")
+  name=$(ar_label "$PWD" "$ws" "$AR_BRANCH" "$prog" "$cmd")
   # Empty is a real answer under HIDE_SHELL (name the tab nothing, keeping the
   # number alone when there is one); anywhere else it means we have no name.
   if [ -z "$name" ]; then
@@ -1887,7 +1950,7 @@ ar_fast_tab() {
   if [ "$want" != "$label" ]; then
     "$HERDR" tab rename "$tab" "$want" >/dev/null 2>&1 || return 0
   fi
-  ar_state_claim "$tab" "$name" 1 "${AR_STATE_WS:-}"
+  ar_state_claim "$tab" "$name" 1 "$ws"
 }
 
 # The workspace half: keep the workspace's own label on the directory the shell
@@ -1904,7 +1967,7 @@ ar_fast_tab() {
 # adopting one takes its label, and fetching that on every prompt is the cost
 # this guard exists to refuse. The reconcile adopts it at the next herdr event.
 ar_fast_workspace() {
-  local tab="${HERDR_TAB_ID:-}" wid base json label slabel prefix want
+  local tab="${HERDR_TAB_ID:-}" wid base json label owner active slabel prefix want
   local enabled auto unused seeded
   ar_index_pass workspaces || return 0
   # A herdr tab id carries its workspace and a colon ("w1:t1"), the same shape
@@ -1919,9 +1982,32 @@ ar_fast_workspace() {
   IFS=$AR_ROW_SEP read -r enabled auto unused seeded <<< "$(ar_state_fields "ws:$wid")"
   [ "$enabled" = "true" ] && [ -n "$auto" ] && [ "$auto" != "$base" ] || return 0
   json=$("$HERDR" workspace list 2>/dev/null) || return 0
-  label=$(printf '%s' "$json" | jq -r --arg w "$wid" "$AR_JQ_CLEAN"'
-    .result.workspaces[]? | select(.workspace_id == $w) | .label | clean' 2>/dev/null) || return 0
+  # Two things come back beside the label. The row's own active tab, because a
+  # prompt says where the WORKSPACE is only when it is drawn where the workspace
+  # is: herdr moves identity_cwd with the active pane, so a prompt in a
+  # background tab, which is what a long command finishing after focus moved
+  # produces, would rename the workspace away from where the user is standing.
+  # And whichever workspace claims THIS tab as its active one, because a tab
+  # dragged between workspaces keeps the id it was created with, so the id's own
+  # prefix can name the workspace the tab has left.
+  #
+  # A herdr that reports no active tab anywhere is trusted as before, since
+  # refusing every prompt is the worse half of that guess. The label goes LAST:
+  # bash hands the last name the rest of the line, and the label is the field
+  # that can hold anything.
+  IFS=$AR_ROW_SEP read -r owner active label <<< "$(printf '%s' "$json" \
+    | jq -r --arg w "$wid" --arg t "$tab" "$AR_JQ_CLEAN"'
+      [ .result.workspaces[]? ] as $ws
+      | ( [ $ws[] | select((.active_tab_id | clean) == $t) ] | .[0] ) as $owner
+      | $ws[] | select((.workspace_id | clean) == $w)
+      | [ (($owner.workspace_id // "") | clean), (.active_tab_id | clean),
+          (.label | clean) ] | join([31] | implode)' 2>/dev/null)"
   [ -n "$label" ] || return 0
+  if [ -n "$active" ]; then
+    [ "$active" = "$tab" ] || return 0
+  else
+    [ -z "$owner" ] || [ "$owner" = "$wid" ] || return 0
+  fi
   slabel=$(ar_strip_prefix "$label")
   ar_ws_track_eligible "$wid" "$slabel" "$base" || return 0
   # The position is the reconcile's to compute, so the number already on the row
@@ -1931,6 +2017,9 @@ ar_fast_workspace() {
   if [ "$want" != "$label" ]; then
     "$HERDR" workspace rename "$wid" "$want" >/dev/null 2>&1 || return 0
   fi
+  # What the workspace is called after this prompt, for the tab half to dedupe
+  # against -- the same handover ar_renumber_workspaces makes through AR_WS_BASES.
+  AR_FAST_WS=$base
   ar_ws_claim "$wid" "$base"
 }
 

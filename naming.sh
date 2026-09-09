@@ -320,8 +320,13 @@ ar_in_list() {
 # both spellings of every such agent, so the pair is read off that list rather
 # than out of a second table that would have to be kept in step with it: strip
 # the suffix, or add it, and take the answer only when the list carries it too.
+#
+# BOTH spellings have to be listed, which is what makes them one agent under two
+# names. The suffix alone is not a pairing: git is on the list, so a name derived
+# by stripping "-cli" would hand an unrelated git-cli whatever alias git carries.
 ar_other_spelling() {
   local n=$1 alt suffix
+  ar_in_list "$n" "${NAME_ONLY_PROGRAMS[@]}" || return 0
   for suffix in -agent -cli; do
     case "$n" in
     *"$suffix") alt=${n%"$suffix"} ;;

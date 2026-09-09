@@ -24,7 +24,7 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
   It now names the workspace from the same prompt, by the rules the reconcile uses: the directory is the shell's own `$PWD`, the base is the repository that directory belongs to or the directory itself, and a workspace somebody named by hand is numbered and nothing else. A quiet prompt costs one state read and no herdr call, since the base we own is recorded and only a cd that leaves the project has anything to ask. A workspace the plugin has not adopted is left to the next event, adopting one meaning a round-trip on every prompt.
 
-  Panes with no shell hook installed are unchanged, and so is the five-second wait for herdr to persist a brand-new workspace.
+  Only the tab the workspace is on moves it, since herdr tracks a workspace's directory through its active pane and a prompt drawn in a background tab is about somewhere else. Panes with no shell hook installed are unchanged, and so is the five-second wait for herdr to persist a brand-new workspace.
 
 - One `PROGRAM_ALIASES` entry now names an agent however it was installed ([#19](https://github.com/qu8n/herdr-automatic-rename/issues/19)). Two agents answer to two names, `cursor-agent`, which herdr calls `cursor`, and `kiro-cli`, which it calls `kiro`, and which of the two reaches naming says only how the agent was installed. A native install arrives as its own executable, an npm-fronted one as the kind herdr detected behind the runtime. Keyed by exact name, one config labelled the two panes differently: `cu` where the alias matched, `cursor` where it did not.
 
