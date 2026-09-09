@@ -30,13 +30,36 @@ check "git is name-only" "git" "$(ar_format 'git' 'git status')"
 
 # NAME_ONLY_PROGRAMS only bites with SHOW_PROGRAM_ARGS=1 (0 is the default and
 # already renders bare names), so assert these there. Covers the agents herdr
-# 0.8.0 detects, including the two whose executable differs from its --kind id.
+# 0.9.0 detects, including the three whose executable differs from its --kind id.
 check "grok is name-only" "grok" "$(SHOW_PROGRAM_ARGS=1 ar_format 'grok' 'grok --model x')"
 check "agy is name-only" "agy" "$(SHOW_PROGRAM_ARGS=1 ar_format 'agy' 'agy --conversation 12')"
 check "opencode is name-only" "opencode" "$(SHOW_PROGRAM_ARGS=1 ar_format 'opencode' 'opencode run x')"
 check "cursor-agent name-only" "cursor-agent" "$(SHOW_PROGRAM_ARGS=1 ar_format 'cursor-agent' 'cursor-agent -p x')"
 check "kiro-cli is name-only" "kiro-cli" "$(SHOW_PROGRAM_ARGS=1 ar_format 'kiro-cli' 'kiro-cli chat')"
 check "gemini is name-only" "gemini" "$(SHOW_PROGRAM_ARGS=1 ar_format 'gemini' 'gemini -p hi')"
+check "muse is name-only" "muse" "$(SHOW_PROGRAM_ARGS=1 ar_format 'muse' 'muse --resume')"
+check "muse-cli is name-only" "muse-cli" "$(SHOW_PROGRAM_ARGS=1 ar_format 'muse-cli' 'muse-cli chat')"
+check "muse-code is name-only" "muse-code" "$(SHOW_PROGRAM_ARGS=1 ar_format 'muse-code' 'muse-code run')"
+
+# Muse only ever runs as muse-bin-<version>, which no list can carry, so the
+# fold onto herdr's own kind happens before every rule that keys on the name.
+check "a versioned muse binary is named muse" "muse" \
+  "$(SHOW_PROGRAM_ARGS=1 ar_format 'muse-bin-0.1.0-R708.1' 'muse-bin-0.1.0-R708.1 --resume')"
+check "and takes the alias set for muse" "ms" "$(
+  PROGRAM_ALIASES=("muse=ms")
+  ar_format 'muse-bin-1.2.3' 'muse-bin-1.2.3'
+)"
+# herdr asks for a digit right after the prefix, so an unrelated binary that
+# merely starts the same way keeps its own name.
+check "muse-binary is not Muse" "muse-binary" \
+  "$(SHOW_PROGRAM_ARGS=0 ar_format 'muse-binary' 'muse-binary -x')"
+check "a bare muse-bin is not Muse either" "muse-bin" \
+  "$(SHOW_PROGRAM_ARGS=0 ar_format 'muse-bin' 'muse-bin')"
+# The fold sits ahead of the icon lookup too, so a versioned install draws the
+# robot every other agent draws instead of the fallback. (The glyph itself is
+# pinned by the icon section below, which reads its roster off the same list.)
+check "a versioned muse binary draws the agent glyph" "$(printf '\363\260\232\251') muse" \
+  "$(ICONS_ENABLED=1 ar_format 'muse-bin-0.1.0-R708.1' 'muse-bin-0.1.0-R708.1')"
 
 # ---- ignored programs keep showing the shell ----
 check "ls is ignored -> shell" "zsh" "$(ar_format 'ls' 'ls -la')"

@@ -302,9 +302,11 @@
 # Rename specific programs on the tab. "<program>=<label>" pairs; wins over every
 # rule except the bare-prompt shell name.
 #
-# The two agents whose executable differs from herdr's own id for them,
-# cursor-agent (id "cursor") and kiro-cli (id "kiro"), answer to either spelling,
-# so one entry names such an agent however it was installed.
+# The agents whose executable differs from herdr's own id for them, cursor-agent
+# (id "cursor"), kiro-cli (id "kiro"), and muse-cli / muse-code (id "muse"),
+# answer to either spelling, so one entry names such an agent however it was
+# installed. Muse's versioned binary (muse-bin-0.1.0-R708.1) is named "muse"
+# before any of this, so it takes a "muse=" entry too.
 # PROGRAM_ALIASES=(
 #   "lazygit=lg"
 #   "clx=hn"

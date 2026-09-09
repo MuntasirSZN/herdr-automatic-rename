@@ -12,6 +12,8 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
   The click now reaches the plugin faster than it did. herdr wrote `session.json` on a five-second debounce and writes this file the instant a space is toggled, so the pass that runs after the click reads the new value rather than the old one. Two limits are new. The file is one per session socket rather than one per client, so two clients on one session share it and the last writer wins. A client narrow enough for herdr's mobile layout ignores collapse altogether, without writing that down anywhere.
 
+- A Muse tab is named after the agent. herdr 0.9.0 detects Muse, which installs as `muse-bin-<version>` and never runs under a plain name, so a pane herdr had not yet detected reached the tab bar as `muse-bin-0.1.0-R708.1` wearing the glyph for an unknown program. The versioned name is folded onto `muse` the way herdr folds it, a digit required after the prefix so an unrelated `muse-binary` keeps its own name. The fold runs ahead of the alias lookup, the program lists and the icon map, so one `PROGRAM_ALIASES` entry names Muse however it was installed. `muse`, `muse-cli` and `muse-code` are listed alongside the other agents.
+
 ## [0.9.0] - 2026-09-08
 
 ### Added
