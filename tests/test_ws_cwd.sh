@@ -389,4 +389,51 @@ check_contains "identity_cwd wins" "$(log)" "workspace rename w1 [1] from-identi
 check_absent   "pane dir ignored"  "$(log)" "from-pane"
 teardown
 
+# ======================================================================
+# Scenario 15: a cd in the shell moves the workspace name (issue #20). herdr
+#   emits no event for a cd, so the workspace label sat on the directory the
+#   workspace was created in until some unrelated event arrived, while the tab
+#   beside it followed every prompt: the shell hook renames the tab and nothing
+#   else. The hook knows the directory (its own $PWD) and the state file already
+#   says which base we own, so the same ownership rules apply from there.
+#   NAME_TABS is off here, which is the file's default: workspace tracking is
+#   governed by the workspace knobs, not by whether tabs are named.
+# ======================================================================
+setup
+mkdir -p "$SB/home/project-a" "$SB/home/project-b"
+export HERDR_TAB_ID=w1:t1 HERDR_PANE_ID=w1:p1
+workspaces "$(ws w1 project-a)"
+session "w1=/home/project-a"
+run_event workspace.created                       # adopt at project-a
+
+clear_log
+workspaces "$(ws w1 '[1] project-a')"             # as the adopt left it
+( cd "$SB/home/project-b" && /usr/bin/env bash "$ENGINE" precmd zsh )
+check_contains "the hook moves the workspace" "$(log)" "workspace rename w1 [1] project-b"
+
+# ...and settles: the next prompt in the same directory renames nothing.
+clear_log
+workspaces "$(ws w1 '[1] project-b')"
+( cd "$SB/home/project-b" && /usr/bin/env bash "$ENGINE" precmd zsh )
+check "settled: the next prompt is quiet" "" "$(log)"
+teardown
+
+# ======================================================================
+# Scenario 16: the hook obeys the same ownership rule the reconcile does. A name
+#   somebody typed is numbered and never retitled, and a prompt is not the place
+#   that changes.
+# ======================================================================
+setup
+mkdir -p "$SB/home/project-a" "$SB/home/project-b"
+export HERDR_TAB_ID=w1:t1 HERDR_PANE_ID=w1:p1
+workspaces "$(ws w1 'incident room')"
+session "w1=/home/project-a"
+run_event workspace.created                       # numbered, and opted out
+
+clear_log
+workspaces "$(ws w1 '[1] incident room')"
+( cd "$SB/home/project-b" && /usr/bin/env bash "$ENGINE" precmd zsh )
+check "the hook leaves a typed name alone" "" "$(log)"
+teardown
+
 t_summary
