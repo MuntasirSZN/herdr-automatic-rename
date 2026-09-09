@@ -1834,6 +1834,15 @@ ar_reconcile() {
 # flicker); a construct wrapping nvim samples as nvim. On sampling failure
 # rename nothing -- never guess.
 ar_fast_once() {
+  [ "$NAME_TABS" = "1" ] && ar_fast_tab
+  # A cd has landed by the time the prompt is drawn, and preexec's $PWD is the
+  # one the last precmd already saw, so the workspace half is precmd's alone.
+  [ "$MODE" = "precmd" ] && ar_fast_workspace
+  return 0
+}
+
+# The tab half: rename the tab this shell is in, and nothing else.
+ar_fast_tab() {
   local tab="${HERDR_TAB_ID:-}"
   [ -n "$tab" ] || return 0
   local prog="" cmd="" info name label raw prefix slabel enabled auto want
@@ -1879,6 +1888,50 @@ ar_fast_once() {
     "$HERDR" tab rename "$tab" "$want" >/dev/null 2>&1 || return 0
   fi
   ar_state_claim "$tab" "$name" 1 "${AR_STATE_WS:-}"
+}
+
+# The workspace half: keep the workspace's own label on the directory the shell
+# is standing in. herdr emits no event for a cd, so the label sat on the
+# directory the workspace was created in until an unrelated event arrived, while
+# the tab beside it followed every prompt (issue #20). The rules are the pass's
+# own: the base is herdr's derivation of the directory (ar_project_base), and
+# ownership decides whether it may be applied (ar_ws_track_eligible).
+#
+# A quiet prompt costs one state read and no herdr call at all. The base we own
+# is in the state file, so a prompt that derives the same base again stops
+# there, and only a cd that leaves the project reaches `workspace list`. A
+# workspace nobody has adopted, or one somebody named by hand, stops there too:
+# adopting one takes its label, and fetching that on every prompt is the cost
+# this guard exists to refuse. The reconcile adopts it at the next herdr event.
+ar_fast_workspace() {
+  local tab="${HERDR_TAB_ID:-}" wid base json label slabel prefix want
+  local enabled auto unused seeded
+  ar_index_pass workspaces || return 0
+  # A herdr tab id carries its workspace and a colon ("w1:t1"), the same shape
+  # the "ws:" state keys are built to sit beside without colliding. No colon, no
+  # workspace to name from here.
+  case "$tab" in *:*) wid=${tab%%:*} ;; *) return 0 ;; esac
+  [ -n "$wid" ] || return 0
+  base=$(ar_project_base "$PWD")
+  [ -n "$base" ] || return 0
+  # Every field gets a name, for the reason ar_ws_track_eligible names them all.
+  # shellcheck disable=SC2034  # `unused` and `seeded` are named so they can be discarded
+  IFS=$AR_ROW_SEP read -r enabled auto unused seeded <<< "$(ar_state_fields "ws:$wid")"
+  [ "$enabled" = "true" ] && [ -n "$auto" ] && [ "$auto" != "$base" ] || return 0
+  json=$("$HERDR" workspace list 2>/dev/null) || return 0
+  label=$(printf '%s' "$json" | jq -r --arg w "$wid" "$AR_JQ_CLEAN"'
+    .result.workspaces[]? | select(.workspace_id == $w) | .label | clean' 2>/dev/null) || return 0
+  [ -n "$label" ] || return 0
+  slabel=$(ar_strip_prefix "$label")
+  ar_ws_track_eligible "$wid" "$slabel" "$base" || return 0
+  # The position is the reconcile's to compute, so the number already on the row
+  # is carried forward, the way the tab half carries its own.
+  if ar_index_on workspaces; then prefix=$(ar_index_prefix "$label"); else prefix=""; fi
+  want="$prefix$base"
+  if [ "$want" != "$label" ]; then
+    "$HERDR" workspace rename "$wid" "$want" >/dev/null 2>&1 || return 0
+  fi
+  ar_ws_claim "$wid" "$base"
 }
 
 # Coalesce bursts: only the lock holder works; contenders raise the rerun flag
@@ -1981,7 +2034,9 @@ ar_main() {
       ar_run fast
       ;;
     precmd)
-      [ "$NAME_TABS" = "1" ] || exit 0
+      # The workspace half runs whether or not tabs are named: which knobs govern
+      # a workspace label are the workspace's own (see ar_fast_workspace).
+      { [ "$NAME_TABS" = "1" ] || ar_index_pass workspaces; } || exit 0
       # Optional 2nd arg = the calling shell's own name, so a bare prompt in a
       # bash/fish pane reads "bash"/"fish" instead of $SHELL (the login shell).
       # Absent (a bare `precmd` from an older caller) -> keep the SHELL_NAME
