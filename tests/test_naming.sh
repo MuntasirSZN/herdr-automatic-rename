@@ -68,6 +68,9 @@ PROGRAM_ALIASES=("cursor-agent=cu")
 check "another program is not the same agent" "sourcegraph" "$(ar_format 'sourcegraph' 'sourcegraph')"
 PROGRAM_ALIASES=("git=g")
 check "an unsuffixed program takes no alternate" "gitui" "$(ar_format 'gitui' 'gitui')"
+# Both spellings have to be listed, which is what makes them one agent's two
+# names: a suffix alone would hand an unrelated git-cli whatever git is aliased to.
+check "a suffix is not a pairing on its own" "git-cli" "$(SHOW_PROGRAM_ARGS=0 ar_format 'git-cli' 'git-cli')"
 PROGRAM_ALIASES=()
 
 # ---- substitutions ----
