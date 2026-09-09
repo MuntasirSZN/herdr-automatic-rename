@@ -20,6 +20,10 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ### Fixed
 
+- One `PROGRAM_ALIASES` entry now names an agent however it was installed ([#19](https://github.com/qu8n/herdr-automatic-rename/issues/19)). Two agents answer to two names, `cursor-agent`, which herdr calls `cursor`, and `kiro-cli`, which it calls `kiro`, and which of the two reaches naming says only how the agent was installed. A native install arrives as its own executable, an npm-fronted one as the kind herdr detected behind the runtime. Keyed by exact name, one config labelled the two panes differently: `cu` where the alias matched, `cursor` where it did not.
+
+  An alias is now looked up under both spellings, the exact name first, so a config naming each separately still gets each. The pair is read off the agent list that already carries both spellings rather than out of a second table somebody would have to keep in step with it.
+
 - Two herdr sessions no longer share one state store ([#22](https://github.com/qu8n/herdr-automatic-rename/issues/22)). Every server numbers its tabs from `w1:t1`, so the plugin running under `herdr --session work` and the one under `herdr --session home` wrote the same keys into the same `state.json`, and each full pass pruned the other session's tabs as closed. A tab whose record is gone reads as renamed by hand on the next pass and opts out of naming until reset, which is how a machine running more than one session ended up with every tab frozen on whatever it was called when the other session last ran, and the lock they also shared dropped events on top of that.
 
   A named session now keeps its store under `sessions/<name>/` inside the state directory, resolved the way the herdr CLI picks its server: from the session directory in the socket path herdr exports to plugin commands and pane environments alike, or from `HERDR_SESSION` when no socket path is set, so the herdr-invoked pass and the shell hooks resolve one file. The default session keeps the store where it always was.

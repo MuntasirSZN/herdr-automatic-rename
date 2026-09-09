@@ -53,6 +53,23 @@ check "alias clx->hn" "hn" "$(ar_format 'clx' 'clx --nerdfonts')"
 check "alias lazygit->lg" "lg" "$(ar_format 'lazygit' 'lazygit')"
 PROGRAM_ALIASES=()
 
+# An agent whose executable differs from herdr's kind reaches ar_format under
+# either spelling, depending on how it was installed (the WRAPPER_PROGRAMS path
+# substitutes the kind), so one alias entry has to answer for both (issue #19).
+PROGRAM_ALIASES=("cursor-agent=cu")
+check "alias by executable, natively installed" "cu" "$(ar_format 'cursor-agent' 'cursor-agent')"
+check "alias by executable, kind substituted" "cu" "$(ar_format 'cursor' 'cursor')"
+PROGRAM_ALIASES=("kiro=k")
+check "alias by kind, kind substituted" "k" "$(ar_format 'kiro' 'kiro')"
+check "alias by kind, natively installed" "k" "$(ar_format 'kiro-cli' 'kiro-cli')"
+# Only the two spellings of one agent are the same agent. A program that merely
+# ends in the same suffix keeps its own name.
+PROGRAM_ALIASES=("cursor-agent=cu")
+check "another program is not the same agent" "sourcegraph" "$(ar_format 'sourcegraph' 'sourcegraph')"
+PROGRAM_ALIASES=("git=g")
+check "an unsuffixed program takes no alternate" "gitui" "$(ar_format 'gitui' 'gitui')"
+PROGRAM_ALIASES=()
+
 # ---- substitutions ----
 check "poetry shell -> poetry" "poetry" "$(ar_format 'poetry' 'poetry shell')"
 check "ipython3 collapse" "ipython3" "$(ar_format 'ipython3' '/usr/bin/ipython3')"

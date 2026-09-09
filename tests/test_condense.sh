@@ -155,10 +155,10 @@ check "the name prefix comes out of the budget" "nightly-ETL-job-drops" \
 reserve_for() { # <program> <budget> -> the text the label will share
   printf '%s%s' "$(ar_icon_reserve "$1")" "$(ar_title_name_prefix "$1" "$2")"
 }
+reserve=$(TITLE_STYLE=name_and_task ICONS_ENABLED=1 reserve_for claude 28)
 check "and so does the glyph beside it" "nightly-ETL-job" \
-  "$(export TITLE_STYLE=name_and_task ICONS_ENABLED=1
-     ar_condense_title 'Investigate why the nightly ETL job drops rows' \
-       "$(reserve_for claude 28)")"
+  "$(TITLE_STYLE=name_and_task ICONS_ENABLED=1 \
+     ar_condense_title 'Investigate why the nightly ETL job drops rows' "$reserve")"
 # The prefix ar_format will actually draw is the one charged: refused there, it
 # costs the label nothing here.
 check "a prefix that will not be drawn charges nothing" "" \

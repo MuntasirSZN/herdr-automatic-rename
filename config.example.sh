@@ -301,6 +301,10 @@
 
 # Rename specific programs on the tab. "<program>=<label>" pairs; wins over every
 # rule except the bare-prompt shell name.
+#
+# The two agents whose executable differs from herdr's own id for them,
+# cursor-agent (id "cursor") and kiro-cli (id "kiro"), answer to either spelling,
+# so one entry names such an agent however it was installed.
 # PROGRAM_ALIASES=(
 #   "lazygit=lg"
 #   "clx=hn"
