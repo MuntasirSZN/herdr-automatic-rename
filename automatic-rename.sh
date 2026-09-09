@@ -469,13 +469,33 @@ ar_unlock() {
 # from nothing. Ids this session lacks go on the first prune. The link is what
 # makes the copy safe under a burst of first events: it refuses an existing
 # file, so a pass that already wrote is never covered over.
+#
+# Every copied record is marked `seeded`, and the mark is what makes the second
+# sentence above true. The root store is not only the store an upgrade leaves
+# behind: it is the DEFAULT session's live store, and it stays populated for as
+# long as anybody uses that session. So a session created later seeds from it
+# too, and because every herdr server numbers its tabs from w1:t1 the copied
+# record lands on a tab that has nothing to do with it. That tab still carries
+# herdr's generated number, and an owned record against a placeholder label is
+# what a hand rename looks like -- so the session's own first tab opted itself
+# out for good, needing the reset action per tab, which is this bug one layer
+# along. A seeded record is a claim about another store's tab rather than a
+# write of ours, so ar_name_eligible confirms it against the label and drops it
+# when the label disagrees, leaving the tab exactly as unseen as it really is.
+#
+# Nothing has to clear the mark: ar_state_set writes a record whole, so the
+# first write of ours replaces it. A seeded record that MATCHES its label keeps
+# the mark, and costs nothing for it -- the label agrees, so the record is ours
+# in everything but provenance, and a later hand rename reaches the same
+# opted-out end state by the drop-and-re-examine path instead of directly.
 ar_state_seed() {
   [ "$STATE_FILE" != "$AR_LEGACY_STATE_FILE" ] || return 0
   [ -e "$STATE_FILE" ] && return 0
   [ -f "$AR_LEGACY_STATE_FILE" ] || return 0
   local tmp
   tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 0
-  if jq -c 'with_entries(select(.value.enabled == true))' "$AR_LEGACY_STATE_FILE" > "$tmp" 2>/dev/null \
+  if jq -c 'with_entries(select(.value.enabled == true) | .value += {seeded: true})' \
+       "$AR_LEGACY_STATE_FILE" > "$tmp" 2>/dev/null \
      && jq -es 'length == 1 and (.[0] | type == "object")' "$tmp" >/dev/null 2>&1; then
     ln "$tmp" "$STATE_FILE" 2>/dev/null || true
   fi
@@ -551,10 +571,14 @@ ar_state_get() { # <tab_id> <field>
 # another one, leaves it stale until the next reconcile. That pass is the one
 # that changes the label anyway -- a dedupe that flips is a different label --
 # so the staleness costs at most the label a tab already had.
-# ar_state_fields <key> -> "<enabled><SEP><auto><SEP><ws>" for that key, empty
-# throughout when nothing is known about it. One jq for the three fields the
-# opt-out machine reads together: they are read on every tab of every pass, and
-# a fork each is a fork per field per tab.
+# ar_state_fields <key> -> "<enabled><SEP><auto><SEP><ws><SEP><seeded>" for that
+# key, empty throughout when nothing is known about it. One jq for the four
+# fields the opt-out machine reads together: they are read on every tab of every
+# pass, and a fork each is a fork per field per tab.
+#
+# `seeded` goes last so a reader that names fewer variables collects it in its
+# own final one and discards it there, rather than appending it to a field it
+# compares against.
 #
 # `enabled` is emitted as its own text rather than through `//`, which treats a
 # boolean false as absent: an opted-out tab would read back as first-seen on
@@ -563,7 +587,8 @@ ar_state_fields() { # <key>
   [ -f "$STATE_FILE" ] || return 0
   jq -r --arg t "$1" '.[$t] as $r
     | [ ($r.enabled | if . == null then "" else tostring end),
-        ($r.auto // ""), ($r.ws // "") ] | join([31] | implode)' \
+        ($r.auto // ""), ($r.ws // ""),
+        ($r.seeded | if . == true then "true" else "" end) ] | join([31] | implode)' \
     "$STATE_FILE" 2>/dev/null
 }
 ar_state_set() { # <tab_id> <auto-name> <enabled true|false> [ws]
@@ -650,8 +675,22 @@ ar_state_claim() {
 # from one worth writing -- ar_state_set rewrites the whole state file. The shell
 # hook reads AR_STATE_WS for the dedupe as well.
 ar_name_eligible() {
-  local tab=$1 slabel=$2 enabled auto ws
-  IFS=$AR_ROW_SEP read -r enabled auto ws <<< "$(ar_state_fields "$tab")"
+  local tab=$1 slabel=$2 enabled auto ws seeded
+  IFS=$AR_ROW_SEP read -r enabled auto ws seeded <<< "$(ar_state_fields "$tab")"
+  # A seeded record is ar_state_seed's guess that this tab is one the shared
+  # store already owned, and the label is the only thing that can confirm it.
+  # Where it does not, the guess was about another session's tab of the same id
+  # -- every server numbers from w1:t1 -- so the record is dropped and the tab
+  # is examined as the unseen one it is. Reading the mismatch as a hand rename
+  # instead opted out the first tab of every session created after the upgrade.
+  #
+  # An empty label is excluded because the machine below already re-adopts on
+  # one, whatever the record says, so there is nothing a drop would change.
+  if [ "$seeded" = "true" ] && [ "$enabled" = "true" ] \
+     && [ -n "$slabel" ] && [ "$slabel" != "$auto" ]; then
+    ar_state_del "$tab"
+    enabled="" auto="" ws=""
+  fi
   AR_STATE_ENABLED=$enabled
   AR_STATE_AUTO=$auto
   AR_STATE_WS=$ws
@@ -1156,14 +1195,26 @@ ar_identity_base() { # <workspace_id>
 # moved on and ours has not, and only the record tells that apart from a name
 # somebody typed. Anything else is somebody's name and is left alone for good.
 ar_ws_track_eligible() {
-  local key="ws:$1" slabel=$2 ibase=$3 enabled auto unused
+  local key="ws:$1" slabel=$2 ibase=$3 enabled auto unused seeded
   # Every field gets a name, including the one a workspace record never carries:
   # bash hands the LAST variable the rest of the line, delimiters and all, so a
   # reader short of one name would append the next field to $auto the day a
   # workspace record grows one -- and the compare below could then never be true
   # again, which is this workspace opting itself out of directory tracking.
   # shellcheck disable=SC2034  # `unused` is named so it can be discarded
-  IFS=$AR_ROW_SEP read -r enabled auto unused <<< "$(ar_state_fields "$key")"
+  IFS=$AR_ROW_SEP read -r enabled auto unused seeded <<< "$(ar_state_fields "$key")"
+  # A seeded record is dropped where the label confirms neither derivation, for
+  # the reason ar_name_eligible drops one: "ws:w1" collides across sessions the
+  # same way "w1:t1" does. The first branch below covers most of it already, a
+  # new session's workspace usually carrying herdr's own derivation, so this is
+  # the narrower case of one whose derivation has since moved on. Opting out is
+  # permanent here and there is no reset action for a workspace, which is why it
+  # matters more than the odds suggest.
+  if [ "$seeded" = "true" ] && [ "$enabled" = "true" ] \
+     && [ "$slabel" != "$ibase" ] && [ "$slabel" != "$auto" ]; then
+    ar_state_del "$key"
+    enabled="" auto=""
+  fi
   AR_WS_STATE_ENABLED=$enabled
   AR_WS_STATE_AUTO=$auto
   if [ "$slabel" = "$ibase" ]; then

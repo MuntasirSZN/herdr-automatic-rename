@@ -113,6 +113,50 @@ check_rc "so the seeded tab is still owned"  0 \
 check_rc "and the unseeded one adopts a placeholder" 0 \
   "$(in_session work 'ar_name_eligible w1:t2 3; echo $?')"
 
+# The copied records are marked, and the mark is what lets the label confirm the
+# guess. The root store is the DEFAULT session's live store as well as the one an
+# upgrade leaves behind, so a session created later seeds from it too: every
+# server numbers from w1:t1, and without the mark that session's own first tab
+# read as hand-renamed and opted out for good.
+check "a seeded record is marked" "true" "$(in_session work 'ar_state_get w1:t1 seeded')"
+check "and an owned workspace record too" "true" \
+  "$(in_session work 'ar_state_get ws:w1 seeded')"
+
+# The label disagrees, so the record was about another session's tab of that id.
+# It goes, and the tab is examined as the unseen one it is: a placeholder label
+# is adopted, exactly as it would be from nothing.
+# reseeded <name> <command> -> the command against a store freshly seeded from
+# the shared one, since each case below consumes the record it examines.
+reseeded() { rm -rf "$LEGACY/sessions/$1"; in_session "$1" "ar_state_seed; $2"; }
+
+check_rc "a seeded record loses to a placeholder label" 0 \
+  "$(reseeded work 'ar_name_eligible w1:t1 1; echo $?')"
+check "and is dropped rather than opted out" "" \
+  "$(reseeded work 'ar_name_eligible w1:t1 1 >/dev/null; ar_state_get w1:t1 enabled')"
+# The same drop against a label somebody typed opts out, as no record would.
+check_rc "a seeded record loses to a hand-typed label too" 1 \
+  "$(reseeded work 'ar_name_eligible w1:t1 my-notes; echo $?')"
+check "which opts the tab out" "false" \
+  "$(reseeded work 'ar_name_eligible w1:t1 my-notes >/dev/null; ar_state_get w1:t1 enabled')"
+# A label that confirms the record keeps the tab named, which is the whole point
+# of seeding and the case an upgrade actually meets.
+check_rc "a label that confirms it keeps the tab" 0 \
+  "$(reseeded work 'ar_name_eligible w1:t1 nvim; echo $?')"
+check "and the record survives" "nvim" \
+  "$(reseeded work 'ar_name_eligible w1:t1 nvim >/dev/null; ar_state_get w1:t1 auto')"
+# Nothing clears the mark on its own: our own write replaces the record whole.
+check "our own write drops the mark" "" \
+  "$(reseeded work 'ar_state_set w1:t1 nvim true; ar_state_get w1:t1 seeded')"
+
+# The workspace record collides the same way, and opting out is permanent there
+# with no reset action to undo it.
+check_rc "a seeded workspace record confirming neither name is dropped" 1 \
+  "$(reseeded work 'ar_ws_track_eligible w1 typed-name other-derivation; echo $?')"
+check "so the workspace opts out rather than tracking another's base" "false" \
+  "$(reseeded work 'ar_ws_track_eligible w1 typed-name other-derivation >/dev/null; ar_state_get ws:w1 enabled')"
+check_rc "one its own record confirms goes on tracking" 0 \
+  "$(reseeded work 'ar_ws_track_eligible w1 proj moved-on; echo $?')"
+
 # A store that exists is never seeded over, whatever the shared one holds.
 in_session work 'ar_state_set w1:t1 htop true'
 in_session work 'ar_state_seed'
@@ -179,6 +223,30 @@ session_fixtures work nvim htop
 check_contains "work goes on naming it after home's pass" "$(run_in work tab.focused)" "tab rename w1:t1 htop"
 check "and no store was left at the root" "no" \
   "$([ -e "$LEGACY/state.json" ] && printf yes || printf no)"
+
+# A session created AFTER the upgrade, while the default session's store is
+# still live and still owns a w1:t1 of its own. The new session's tab is a fresh
+# one carrying herdr's generated number, and the seeded record says that id is
+# owned at a name it has never had: read as a hand rename, the first tab of
+# every new session opted itself out for good, needing the reset action per tab.
+printf '{"w1:t1":{"auto":"nvim","enabled":true}}' >"$LEGACY/state.json"
+session_fixtures fresh 1 claude
+check_contains "a session created later still names its own tab" \
+  "$(run_in fresh tab.focused)" "tab rename w1:t1 claude"
+check "and records it as its own" "claude" \
+  "$(jq -r '."w1:t1".auto' "$LEGACY/sessions/fresh/state.json" 2>/dev/null)"
+check "with the seed mark gone" "null" \
+  "$(jq -r '."w1:t1".seeded' "$LEGACY/sessions/fresh/state.json" 2>/dev/null)"
+check "leaving the default session's own record alone" "nvim" \
+  "$(jq -r '."w1:t1".auto' "$LEGACY/state.json" 2>/dev/null)"
+
+# The upgrade the seeding exists for: the tab carries the name the shared store
+# recorded, so it stays ours and goes on being renamed as the program changes.
+rm -rf "$LEGACY/sessions/upg"
+printf '{"w1:t1":{"auto":"nvim","enabled":true}}' >"$LEGACY/state.json"
+session_fixtures upg nvim htop
+check_contains "an upgraded session keeps the tab it had named" \
+  "$(run_in upg tab.focused)" "tab rename w1:t1 htop"
 
 rm -rf "$SB" 2>/dev/null || true
 t_summary
