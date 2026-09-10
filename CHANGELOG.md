@@ -4,6 +4,14 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- One command installs the plugin and the shell hook: `curl -fsSL .../install.sh | bash`. The hook is what makes a rename land the moment a command starts, and wiring it was a per-shell copy-paste out of the README, so anyone who read past step 1 got the numbering and none of the naming until they matched their shell to the right snippet. `install.sh` reads `$SHELL`, writes the zsh, bash, or fish snippet to that shell's startup file, and installs the plugin first when herdr does not already list it.
+
+  A marker comment in the startup file is what makes a re-run change nothing, so the command doubles as the upgrade path. The snippet it writes globs herdr's managed plugin directory, whose name carries a version hash, and spells the home directory as `$HOME` so the startup file survives being carried to another machine. A shell argument (`bash install.sh fish`) wires a second shell and `HAR_RC` names a startup file other than the default, which is what a macOS login shell reading `~/.bash_profile` needs. Run from a clone rather than curl'd, the hook points at the checkout and the plugin half is left alone, since herdr owns that copy.
+
+  The two steps it will not take behind your back, turning off herdr's new-tab name prompt and installing the agent integrations, it prints when it finishes. The manual snippets are still in the README, folded away.
+
 ## [0.9.1] - 2026-09-09
 
 ### Fixed

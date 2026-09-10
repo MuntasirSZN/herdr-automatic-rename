@@ -19,15 +19,38 @@ Tab name examples labeled by this plugin:
 
 Needs herdr `>= 0.7.1`, `jq`, and bash, on Linux or macOS.
 
-**1. Install the plugin.**
+```sh
+curl -fsSL https://raw.githubusercontent.com/qu8n/herdr-automatic-rename/main/install.sh | bash
+```
+
+That installs the plugin and adds the shell hook, which is what makes a rename land the moment a command starts. It picks the hook for your login shell out of zsh, bash, and fish, and writes it to that shell's startup file. Running it again changes nothing, so it is also the upgrade path. Add `bash install.sh fish` style arguments to wire a second shell, or set `HAR_RC` to write a startup file other than the default (macOS login shells read `~/.bash_profile`, not `~/.bashrc`).
+
+Two steps are left for you, because a script should not make either choice behind your back:
+
+**1. Turn off herdr's new-tab name prompt.**
+
+A name typed there counts as a hand rename, which opts every new tab out of being renamed by this plugin until you `reset` it. Thus it's better to turn this off:
+
+```toml
+# ~/.config/herdr/config.toml
+[ui]
+prompt_new_tab_name = false
+```
+
+**2. Install the herdr integration for the coding agents you use.**
+
+See [herdr's integrations docs](https://herdr.dev/docs/integrations/) for installation details. This lets herdr then detect an agent natively instead of by reading the screen, which makes for steadier agent tab names.
+
+<details>
+<summary>Rather wire it up by hand</summary>
+
+Install the plugin:
 
 ```sh
 herdr plugin install qu8n/herdr-automatic-rename --yes
 ```
 
-**2. Add the shell hook.**
-
-This lets the renaming happen immediately.
+Then add the hook for your shell. Each snippet globs herdr's managed plugin directory, whose name carries a version hash that changes under every upgrade.
 
 zsh (`~/.zshrc`):
 
@@ -53,23 +76,7 @@ for _f in $HOME/.config/herdr/plugins/github/herdr-automatic-rename-*/shell/hook
 end
 ```
 
-**3. Turn off herdr's new-tab name prompt.**
-
-A name typed there counts as a hand rename, which opts every new tab out of being renamed by this plugin until you `reset` it. Thus it's better to turn this off:
-
-```toml
-# ~/.config/herdr/config.toml
-[ui]
-prompt_new_tab_name = false
-```
-
-**4. Install the herdr integration for the coding agents you use.**
-
-```sh
-herdr integration install claude
-```
-
-herdr then detects an agent natively instead of by reading the screen, which makes for steadier agent tab names. See [herdr's integrations docs](https://herdr.dev/docs/integrations/) for the full list. Claude Code gets one thing extra here: the integration tells herdr which session each pane holds, so a session you opened with a slash command and never titled still gets a name from its transcript.
+</details>
 
 ## Configuration
 
