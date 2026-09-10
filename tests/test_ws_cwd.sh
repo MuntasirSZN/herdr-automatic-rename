@@ -40,6 +40,9 @@ check "outside any repo"        "sub"   "$(ar_project_base "$PB/plain/sub")"
 check "trailing slash ignored"  "sub"   "$(ar_project_base "$PB/plain/sub/")"
 check "relative path: basename" "notes" "$(ar_project_base "some/notes")"
 check "empty path: empty base"  ""      "$(ar_project_base "")"
+mkdir -p "$PB/plain/$(printf 'ta\tb')"
+check "control char scrubbed" "ta b" "$(ar_project_base "$PB/plain/$(printf 'ta\tb')")"
+check "double space collapsed" "a b" "$(ar_project_base "some/a  b")"
 rm -rf "$PB"
 
 # Numbering only (NAME_TABS off, no tab/pane fixtures), so the rename log holds

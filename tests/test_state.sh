@@ -32,6 +32,24 @@ ar_state_prune a c
 check "pruned entry gone"      "" "$(ar_state_get b auto)"
 check "kept entry a"           "x" "$(ar_state_get a auto)"
 check "kept entry c"           "z" "$(ar_state_get c auto)"
+# A prune that removes nothing leaves the file alone (its mtime included). This
+# runs on every event, so a rewrite here is the store's every-event write.
+before=$(stat -f %m "$STATE_FILE" 2>/dev/null || stat -c %Y "$STATE_FILE")
+sleep 1
+ar_state_prune a c
+after=$(stat -f %m "$STATE_FILE" 2>/dev/null || stat -c %Y "$STATE_FILE")
+check "no-op prune does not rewrite" "$before" "$after"
+# No keep list is not "keep nothing". `printf '%s\n'` on no arguments still
+# emits one empty line, so the list would read [""] and match no key: a pass
+# that saw no workspace (or no tab) would then drop every record of that kind.
+ar_state_set "ws:w1" api true
+ar_state_set "ws:w2" web true
+ar_state_prune_ws
+check "an empty ws keep list prunes nothing" "api web" \
+  "$(ar_state_get ws:w1 auto) $(ar_state_get ws:w2 auto)"
+ar_state_prune
+check "an empty tab keep list prunes nothing" "x z" \
+  "$(ar_state_get a auto) $(ar_state_get c auto)"
 
 # ======================================================================
 # ar_name_eligible state machine. rc 0 = eligible for auto-naming, 1 = leave it.
@@ -125,9 +143,14 @@ check "leaving exactly one document"    "1" "$(jq -s 'length' "$STATE_FILE" 2>/d
 check "with only the new entry in it"   "lazygit" "$(ar_state_get t3 auto)"
 check "and nothing from the stream"     "" "$(ar_state_get t1 auto)"
 
+# A prune that starts from a broken file must not fail on it. It reads as an
+# empty store, so there is nothing to drop and nothing to write: the heal is the
+# next real write's, not the prune's, which writes only when it removed something.
 printf '{"a": {"auto": "x", "enab' >"$STATE_FILE"
 ar_state_prune a
-check "prune leaves a file that parses" "object" "$(jq -r 'type' "$STATE_FILE" 2>/dev/null)"
+check_rc "prune on a broken file does not fail" 0 $?
+ar_state_set a x true
+check "and the next write heals it" "object" "$(jq -r 'type' "$STATE_FILE" 2>/dev/null)"
 
 reset_state
 
@@ -139,10 +162,21 @@ reset_state
 # because the same permissions stop it taking its lock, so the rule is pinned
 # here on the two functions that carry it.
 ar_state_set tW nvim true
+AR_STATE_KEY=tW
 AR_STATE_ENABLED=$(ar_state_get tW enabled)
 AR_STATE_AUTO=$(ar_state_get tW auto)
 AR_FORCE_TAB=tW AR_FORCE_ADOPTED="" ar_state_claim tW nvim 1
 check_rc "an unchanged claim needs no write" 0 $?
+
+# The globals describe the tab ar_name_eligible examined LAST. A claim for a
+# different tab that happens to match them is not the steady state, and skipping
+# its write on them would leave that tab unowned.
+reset_state
+ar_state_set tA nvim true
+ar_name_eligible tA nvim
+ar_state_claim tB nvim 1
+check "a claim for another tab writes its own record" "nvim true" \
+  "$(ar_state_get tB auto) $(ar_state_get tB enabled)"
 
 chmod 555 "$STATE_DIR"
 ar_state_set tZ nvim true
