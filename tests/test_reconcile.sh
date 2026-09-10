@@ -2101,6 +2101,8 @@ teardown
 #   that said gone (HERDR_MOCK_TAB_GONE_AFTER + 1) rather than on a timeout. The
 #   tab list is the settled one, without t2. No panes fixture: nothing here can
 #   be named, so the renames are the renumbering alone.
+# ===============================================================teardown
+
 # ======================================================================
 setup
 export NAME_TABS=1 AUTO_INDEX=1
@@ -2177,6 +2179,70 @@ check "parse: a trailing comment is not the value" "spaces" \
   "$(sort_of 'agent_panel_sort = "spaces"  # or "priority"')"
 check "parse: priority reads as priority" "priority" "$(sort_of 'agent_panel_sort = "priority"')"
 check "parse: no such line defaults to spaces" "spaces" "$(sort_of '')"
+=======
+# Scenario 47: the plugin's own rename does not buy a second full pass.
+#   Every rename the pass issues re-fires tab.renamed, and that event used to
+#   run the whole reconcile again to find every number already right. When
+#   state says we own the tab at exactly the label it carries, the event exits
+#   before the lock. The pane here runs vim while the record says nvim, so a
+#   full pass would visibly rename the tab and the skipped one visibly does not.
+#   A label typed by hand, or an event with no tab id, still gets the full pass.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=1
+STATE="$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"w1:t1":{"auto":"nvim","enabled":true,"ws":"api"}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[1] nvim","pane_count":1,"focused":true}]}}
+JSON
+fixture tab_w1:t1.json <<'JSON'
+{"result":{"tab":{"tab_id":"w1:t1","label":"[1] nvim","pane_count":1,"focused":true}}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"vim","cmdline":"vim"}]}}}
+JSON
+export HERDR_TAB_ID=w1:t1
+run_event tab.renamed
+check "our own rename runs no pass"          "" "$(log)"
+check "and touches no state"                 "nvim true" \
+  "$(jq -r '."w1:t1" | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
+# The same event with no tab id has nothing to check and runs the pass.
+unset HERDR_TAB_ID
+run_event tab.renamed
+check_contains "without a tab id the pass runs" "$(log)" "tab rename w1:t1 [1] vim"
+: >"$HERDR_MOCK_LOG"
+printf '{"w1:t1":{"auto":"nvim","enabled":true,"ws":"api"}}\n' >"$STATE"
+export HERDR_TAB_ID=w1:t1
+# A label typed by hand is not ours, so the full pass runs and opts the tab out.
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[1] typed-by-hand","pane_count":1,"focused":true}]}}
+JSON
+fixture tab_w1:t1.json <<'JSON'
+{"result":{"tab":{"tab_id":"w1:t1","label":"[1] typed-by-hand","pane_count":1,"focused":true}}}
+JSON
+run_event tab.renamed
+check "a hand rename opts the tab out"       "false" "$(jq -r '."w1:t1".enabled' "$STATE" 2>/dev/null)"
+check_absent "and is left alone"             "$(log)" "tab rename w1:t1"
+# A seeded record is a guess, not ownership: the pass confirms it, then owns it.
+: >"$HERDR_MOCK_LOG"
+printf '{"w1:t1":{"auto":"nvim","enabled":true,"seeded":true}}\n' >"$STATE"
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[1] nvim","pane_count":1,"focused":true}]}}
+JSON
+fixture tab_w1:t1.json <<'JSON'
+{"result":{"tab":{"tab_id":"w1:t1","label":"[1] nvim","pane_count":1,"focused":true}}}
+JSON
+run_event tab.renamed
+check_contains "a seeded record still gets the pass" "$(log)" "tab rename w1:t1 [1] vim"
+unset HERDR_TAB_ID
 teardown
 
 t_summary
