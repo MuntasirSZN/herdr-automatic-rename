@@ -12,6 +12,26 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
   The two steps it will not take behind your back, turning off herdr's new-tab name prompt and installing the agent integrations, it prints when it finishes. The manual snippets are still in the README, folded away.
 
+- A `doctor` action. It runs one real naming pass with tracing on and prints, for the current tab, the versions and paths in play, the tab's ownership record, the label it carries, and every decision that pass made about it. Until now every failure looked the same from outside: nothing happened. A tab that opted out after a hand rename, a placeholder deferred, a title refused, a lock held by a dead process, and a `jq` that was never installed all produced the same silence, and the issues filed against this plugin were mostly the reporter reasoning backwards from that silence. `herdr plugin action invoke herdr-automatic-rename.doctor` runs it, and the README has a Troubleshooting section keyed to what the tab bar shows.
+
+  `AR_TRACE=1` in herdr's environment writes the same decisions for every pass to `trace.log` in the state directory, at 0600 since a label can carry a task title.
+
+### Fixed
+
+- Ownership records survive a pass that could not read everything. A tab whose record goes missing reads as renamed by hand on the next pass and opts out of naming for good, so every path that dropped one without cause was a permanent bug. A workspace whose tab list failed to read had every tab pruned. An empty workspace keep list pruned every workspace record. A store with one hand-edited key emptied every record after it. A `jq` that crashed read as a broken file and healed a good store to nothing, and on Debian's jq 1.6 a truncated file was never healed at all, since that release reports a parse error with a different status. Each of those now leaves the records alone, and the store is rewritten only when a record actually changed rather than on every event.
+
+- The shell hook scrubs the workspace name it derives from `$PWD`. A directory name holding a control character reached `herdr workspace rename` raw. herdr handed the label back normalized, which read as a name somebody typed and opted the workspace out of directory tracking, with no `reset` to bring it back. The tab half already scrubbed for this and the workspace half now does the same.
+
+- `agent_panel_sort = "spaces"  # or "priority"` in `config.toml` reads as `spaces`. The comment used to be part of the value, and the word `priority` anywhere on the line stripped every agent number.
+
+- `SUBSTITUTE_SETS` is documented as acting on the program name or command line, which is what it does. The comment said the final label, and PR #15 was written against that wording. The README says that untitled Claude Code tabs are named by reading the session transcript, and how to turn that off, and it writes `MAX_TITLE_LEN`'s default as the derivation it is rather than the number it happens to be.
+
+### Changed
+
+- A steady-state event spawns fewer processes. The state file is read once per pass rather than once per tab, `herdr --version` is asked once per process, the rename the plugin itself issues no longer buys a second full pass through the `tab.renamed` event it fires, and the wait for a closing tab backs off over about two seconds instead of polling sixty times.
+
+- The test suite runs its files in parallel, about twenty seconds instead of forty-five. `./tests/run.sh --serial` restores the old order. CI pins its actions by commit and checks the shellcheck download against a recorded digest, and markdownlint now refuses an em dash, which `CONTRIBUTING.md` already did.
+
 ## [0.9.1] - 2026-09-09
 
 ### Fixed
