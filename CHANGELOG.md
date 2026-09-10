@@ -4,6 +4,8 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-10
+
 ### Added
 
 - One command installs the plugin and the shell hook: `curl -fsSL .../install.sh | bash`. The hook is what makes a rename land the moment a command starts, and wiring it was a per-shell copy-paste out of the README, so anyone who read past step 1 got the numbering and none of the naming until they matched their shell to the right snippet. `install.sh` reads `$SHELL`, writes the zsh, bash, or fish snippet to that shell's startup file, and installs the plugin first when herdr does not already list it.
@@ -312,7 +314,8 @@ First public release.
 - Configuration via `~/.config/herdr-automatic-rename/config.sh` (or `$HERDR_AUTOMATIC_RENAME_CONFIG`), with a documented `config.example.sh`.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers, the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.7.3...v0.8.0
