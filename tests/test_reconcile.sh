@@ -2245,4 +2245,130 @@ check_contains "a seeded record still gets the pass" "$(log)" "tab rename w1:t1 
 unset HERDR_TAB_ID
 teardown
 
+# ======================================================================
+# Scenario 48: the doctor action explains an owned tab. It runs one real pass
+#   with tracing forced on and reports what THAT pass decided, so the record,
+#   the label, and at least one trace line about the tab all appear on stdout,
+#   and the first sections go out as a single notification for a keybinding
+#   with no terminal. The trace file it made is its own and is gone afterwards.
+#   A user's AR_TRACE stays off throughout: the action forces its own.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+SD="$XDG_STATE_HOME/herdr-automatic-rename"; mkdir -p "$SD"
+printf '{"w1:t1":{"auto":"nvim","enabled":true,"ws":"api"}}\n' >"$SD/state.json"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"nvim","pane_count":1,"focused":true}]}}
+JSON
+fixture tab_w1:t1.json <<'JSON'
+{"result":{"tab":{"tab_id":"w1:t1","label":"nvim","pane_count":1,"focused":true}}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+out=$(HERDR_TAB_ID=w1:t1 run_event doctor)
+check_rc       "doctor exits 0"                          0 $?
+check_contains "doctor names the tab"                    "$out" "tab: w1:t1"
+check_contains "doctor prints the record"                "$out" "enabled=true"
+check_contains "doctor prints the label"                 "$out" "label: [nvim]"
+check_contains "doctor shows a trace line about the tab" "$out" "w1:t1 owned unchanged"
+check_contains "doctor shows what the pass concluded"    "$out" "w1:t1 label already correct: [nvim]"
+check_contains "doctor prints the naming knobs"          "$out" "NAME_TABS=1 AUTO_INDEX=0"
+check "one notification"                                 "1" "$(log | grep -c '^notification show')"
+check_contains "the notification carries the record"     "$(log)" "enabled=true"
+check "the doctor's trace file is cleaned up"            "" "$(ls "$SD"/.doctor.* 2>/dev/null)"
+check "no trace.log is left either"                      "" "$(ls "$SD"/trace.log 2>/dev/null)"
+teardown
+
+# ======================================================================
+# Scenario 49: the doctor on a tab that opted out. This is the report issue
+#   diagnosis keeps needing: the record says enabled=false and the trace names
+#   the arm that left the label alone, so a user can tell "you renamed it by
+#   hand once" from "nothing is running".
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+SD="$XDG_STATE_HOME/herdr-automatic-rename"; mkdir -p "$SD"
+printf '{"w1:t1":{"auto":"","enabled":false}}\n' >"$SD/state.json"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"incident","pane_count":1,"focused":true}]}}
+JSON
+fixture tab_w1:t1.json <<'JSON'
+{"result":{"tab":{"tab_id":"w1:t1","label":"incident","pane_count":1,"focused":true}}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+out=$(HERDR_TAB_ID=w1:t1 run_event doctor)
+check_contains "doctor reports the opt-out record"  "$out" "enabled=false"
+check_contains "and the arm that honored it"        "$out" "w1:t1 opt-out stands"
+check_contains "and the label the user typed"       "$out" "label: [incident]"
+check_absent   "doctor renames nothing"             "$(log)" "tab rename"
+teardown
+
+# ======================================================================
+# Scenario 50: the doctor with no tab to explain. No tab id, no action context,
+#   and `tab list` (no --workspace) has no fixture, so the focused-tab fallback
+#   finds nothing. The notification says so, the exit status is still 0, and the
+#   whole pass's trace is shown instead, since "is anything running" is the
+#   question left.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+out=$(run_event doctor)
+check_rc       "doctor still exits 0"                  0 $?
+check_contains "doctor says no tab resolved"           "$out" "tab: none resolved"
+check_contains "and shows the pass ran"                "$out" "lock acquired: action full pass"
+check_contains "the notification says so too"         "$(log)" "notification show Doctor: no tab resolved"
+teardown
+
+# ======================================================================
+# Scenario 51: an ordinary pass with AR_TRACE unset writes no trace file. The
+#   hooks fire this on every prompt, and a file that grows in the state dir
+#   without anyone asking is the one thing tracing must not do by default. Set
+#   empty rather than unset, so a developer's own AR_TRACE cannot make this pass.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=1
+SD="$XDG_STATE_HOME/herdr-automatic-rename"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"-zsh","cmdline":"-zsh"}]}}}
+JSON
+AR_TRACE='' AR_TRACE_FILE='' run_event tab.focused
+check_contains "the pass still names the tab"   "$(log)" "tab rename w1:t1 [1] zsh"
+check "and leaves no trace.log behind"          "" "$(ls "$SD"/trace.log 2>/dev/null)"
+# The same pass with tracing on writes to the default path in the state dir.
+# herdr now reports the label the pass just wrote (see scenario 41).
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[1] zsh","pane_count":1,"focused":true}]}}
+JSON
+AR_TRACE=1 AR_TRACE_FILE='' run_event tab.focused
+check_contains "with AR_TRACE set the file appears" \
+  "$(cat "$SD/trace.log" 2>/dev/null)" "w1:t1 label already correct: [[1] zsh]"
+check "and is private to the user" "600" "$(stat -f %Lp "$SD/trace.log" 2>/dev/null || stat -c %a "$SD/trace.log" 2>/dev/null)"
+teardown
+
 t_summary
