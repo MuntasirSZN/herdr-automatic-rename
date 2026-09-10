@@ -1163,7 +1163,7 @@ ar_format() {
     is_shell=1 # quick tools: keep showing the shell
   elif ar_in_list "$prog" "${NAME_ONLY_PROGRAMS[@]}"; then
     name="$(ar_subst "$prog")" # nvim, claude, ...: just the name
-  elif [ "${SHOW_PROGRAM_ARGS:-1}" = "1" ] && [ -n "$cmdline" ]; then
+  elif [ "${SHOW_PROGRAM_ARGS:-0}" = "1" ] && [ -n "$cmdline" ]; then
     name="$(ar_subst "$cmdline")"
   else
     name="$(ar_subst "$prog")"

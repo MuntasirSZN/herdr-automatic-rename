@@ -27,6 +27,14 @@ serve() { cat "$dir/$1" 2>/dev/null || printf '%s' "$2"; }
 group="$1"; shift 2>/dev/null || true
 action="$1"; shift 2>/dev/null || true
 
+# $HERDR_MOCK_FAIL_VERB="tab list" (or any "<group> <action>") makes that one
+# query exit 1 with no output, standing in for a socket blip mid-pass. Naming
+# the arguments too ("tab list --workspace w2") fails only that call, which is
+# how a pass reads one workspace and loses the other.
+case "$group $action $*" in
+  "${HERDR_MOCK_FAIL_VERB:-}"|"${HERDR_MOCK_FAIL_VERB:-} "*) [ -n "${HERDR_MOCK_FAIL_VERB:-}" ] && exit 1 ;;
+esac
+
 case "$group" in
   # $HERDR_MOCK_VERSION picks the herdr the engine thinks it is talking to, which
   # gates agent numbering (herdr >= 0.7.5 rejects a bracketed agent name). The

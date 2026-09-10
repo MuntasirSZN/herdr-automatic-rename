@@ -552,9 +552,24 @@ ar_state_read() {
     return 1
   fi
   [ -n "$base" ] || { printf '{}'; return 0; }
-  printf '%s' "$base" | jq -c -s \
-    'if length == 1 and (.[0] | type) == "object" then .[0] else {} end' 2>/dev/null \
-    || printf '{}'
+  # The {} answer is for a file jq READ and could not use. jq exits 5 for that
+  # (a parse error, or a runtime error in the filter) and 0 otherwise, so any
+  # other status is jq itself not running: killed, out of memory, a broken
+  # install. Healing on that arm handed the next writer a {} to start from, and
+  # it moved a one-key file over a store that was fine all along.
+  local out rc
+  out=$(printf '%s' "$base" | jq -c -s \
+    'if length == 1 and (.[0] | type) == "object" then .[0] else {} end' 2>/dev/null)
+  rc=$?
+  case "$rc" in
+    0) printf '%s' "$out" ;;
+    # jq ran and refused the input. Which status a parse error gets moved between
+    # jq releases (1.6 and 1.7 disagree), so any of jq's own codes heals; only a
+    # status that means jq never ran (not found, killed) is refused, like an
+    # unreadable file.
+    [1-5]) printf '{}' ;;
+    *) return 1 ;;
+  esac
 }
 
 # ar_state_get reads the file directly and needs no repair path: an unreadable
@@ -629,24 +644,30 @@ ar_state_prune() { # <keep tab_ids...> - drop entries for tabs that no longer ex
   # entries that match nothing and the tab would be pruned while it still exists,
   # reading as hand-renamed on the next pass. Ids reach here through `clean`, which
   # is what keeps a control character out of one (see AR_JQ_CLEAN).
-  local keep tmp
+  local keep base pruned tmp
+  # No ids means nothing was seen, not that nothing exists: `printf '%s\n'` on
+  # no arguments still emits one empty line, so the keep list would read [""]
+  # and drop every tab record. The callers guard this too. Both lines stand.
+  [ "$#" -gt 0 ] || return 0
   keep=$(printf '%s\n' "$@" | jq -R . | jq -s .) || return 0
-  tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 0
-  local base
-  base=$(ar_state_read) || { rm -f "$tmp"; return 0; }   # unreadable: leave it alone
+  base=$(ar_state_read) || return 0                      # unreadable: leave it alone
   # "ws:" keys belong to the workspace tracker (ar_state_prune_ws prunes those),
   # and a keep list of tab ids never holds one: selecting on this list ALONE wiped
   # every workspace's ownership record on the pass after it was written, so each
   # workspace read as first-seen, found a label that was no longer herdr's own
   # derivation, and opted itself out of tracking for good -- issue #13 again, one
   # layer down. Each kind prunes its own keys and leaves the other's alone.
-  if printf '%s' "$base" | jq --argjson keep "$keep" \
-       'with_entries(select((.key | startswith("ws:")) or (.key as $k | $keep | index($k))))' \
-       > "$tmp" 2>/dev/null; then
-    mv "$tmp" "$STATE_FILE"
-  else
-    rm -f "$tmp"
-  fi
+  pruned=$(printf '%s' "$base" | jq -c --argjson keep "$keep" \
+    'with_entries(select((.key | startswith("ws:")) or (.key as $k | $keep | index($k))))' \
+    2>/dev/null) || return 0
+  # Write only when something was dropped. This runs on every event, and a pass
+  # that prunes nothing is the steady state, so rewriting the file here made the
+  # write the every-event path rather than the rare one -- and every write is a
+  # turn through the lock's residual race. Both sides are compact JSON
+  # (ar_state_read slurps through `jq -c`), so a byte comparison is exact.
+  [ -n "$pruned" ] && [ "$pruned" != "$base" ] || return 0
+  tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 0
+  if printf '%s' "$pruned" > "$tmp"; then mv "$tmp" "$STATE_FILE"; else rm -f "$tmp"; fi
 }
 
 # ar_state_claim <tab_id> <name> <named 0|1> [ws] - record that we own <tab_id> at
@@ -660,8 +681,11 @@ ar_state_claim() {
   # tab is back under naming: reporting it any earlier told the user it worked when
   # the rename failed, or when the state write did, and a tab in either position
   # opts itself straight back out on the next pass.
-  if [ "${AR_STATE_ENABLED:-}" = "true" ] && [ "${AR_STATE_AUTO:-}" = "$2" ] \
-     && [ "${AR_STATE_WS:-}" = "${4:-}" ]; then
+  # The key check is what makes "state already says this" about THIS tab: the
+  # globals describe whichever tab ar_name_eligible examined last, and a claim
+  # for another tab must not skip its write on them.
+  if [ "${AR_STATE_KEY:-}" = "$1" ] && [ "${AR_STATE_ENABLED:-}" = "true" ] \
+     && [ "${AR_STATE_AUTO:-}" = "$2" ] && [ "${AR_STATE_WS:-}" = "${4:-}" ]; then
     :                                    # state already says this; nothing to write
   elif ! ar_state_set "$1" "$2" true "${4:-}"; then
     return 1
@@ -697,6 +721,9 @@ ar_name_eligible() {
     ar_state_del "$tab"
     enabled="" auto="" ws=""
   fi
+  # The key goes with the fields so ar_state_claim can tell they describe the
+  # tab it is about to claim, rather than whichever tab was examined last.
+  AR_STATE_KEY=$tab
   AR_STATE_ENABLED=$enabled
   AR_STATE_AUTO=$auto
   AR_STATE_WS=$ws
@@ -726,9 +753,11 @@ ar_name_eligible() {
       # out, where a marked one is dropped and re-examined, and the first-seen
       # path reads that number as herdr's own placeholder and takes the tab
       # back. One write, on the one pass that confirms it.
+      # Published only when the write landed. Publishing it regardless told
+      # ar_state_claim that state already said this, so it skipped its own
+      # write too, and the mark stayed on disk with nothing left to retry it.
       if [ "$seeded" = "true" ]; then
-        ar_state_set "$tab" "$auto" true "$ws"
-        AR_STATE_ENABLED=true
+        if ar_state_set "$tab" "$auto" true "$ws"; then AR_STATE_ENABLED=true; fi
       fi
       return 0
     elif [ -z "$slabel" ]; then return 0        # user cleared it -> re-adopt
@@ -1227,7 +1256,18 @@ ar_project_base() {
         [ -n "$dir" ] && [ "$dir" != "/" ] || dir=$1 ;;
   esac
   dir=${dir%/}
-  printf '%s' "${dir##*/}"
+  dir=${dir##*/}
+  # The reconcile hands this a directory that came through jq's clean; the shell
+  # hook hands it a raw $PWD, and a directory may be named anything a filesystem
+  # accepts. A control character in the label is the visible half; the invisible
+  # half is herdr handing the label back normalized, which reads as a name
+  # somebody typed and opts the workspace out of tracking for good. Guarded, so a
+  # clean name pays no fork.
+  case $dir in
+  *[[:cntrl:]]* | *"  "*) dir=$(printf '%s' "$dir" | tr -s '[:cntrl:] ' ' ')
+                          dir=${dir# }; dir=${dir% } ;;
+  esac
+  printf '%s' "$dir"
 }
 
 # ar_workspace_pane_dirs <workspace-list-json> -> one "<workspace_id><SEP><dir>"
@@ -1395,6 +1435,9 @@ ar_ws_claim() {
 # document differs, so a steady session leaves the file alone.
 ar_state_prune_ws() {
   local keep base pruned tmp
+  # Same as ar_state_prune: no ids is an empty keep list of [""], which matches
+  # no workspace and would drop every "ws:" record.
+  [ "$#" -gt 0 ] || return 0
   keep=$(printf '%s\n' "$@" | jq -R . | jq -s .) || return 0
   base=$(ar_state_read) || return 0                      # unreadable: leave it alone
   pruned=$(printf '%s' "$base" | jq -c --argjson keep "$keep" \
@@ -1420,7 +1463,10 @@ ar_renumber_workspaces() {
   local json=$1 rows wid label pos base want ibase track seen=""
   AR_WS_BASES=""
   [ -n "$json" ] || return 0
-  rows=$(ar_workspace_positions "$json" "$(ar_collapsed_spaces)")
+  # Read with its status: a jq that fails after emitting some rows would leave
+  # the missing workspaces out of the keep list, and ar_state_prune_ws would drop
+  # their records. Nothing is numbered or pruned from a row set that is not whole.
+  rows=$(ar_workspace_positions "$json" "$(ar_collapsed_spaces)") || return 0
   [ -n "$rows" ] || return 0
   AR_WS_IDENTITY=""
   AR_WS_PANEDIR=""
@@ -1457,8 +1503,10 @@ ar_renumber_workspaces() {
   done <<< "$rows"
   # A workspace id carries no whitespace (both go through `clean`), so the
   # space-joined list splits into one argument per workspace.
+  # An empty list is not "keep nothing": with nothing seen there is nothing to
+  # confirm gone, and pruning on it dropped every workspace record.
   # shellcheck disable=SC2086
-  [ "$CLEAR" = "1" ] || ar_state_prune_ws $seen
+  [ "$CLEAR" = "1" ] || [ -z "$seen" ] || ar_state_prune_ws $seen
 }
 
 # Tabs: cmd+N indexes the focused workspace's tabs by ARRAY ORDER (NOT the
@@ -1488,6 +1536,15 @@ ar_reconcile_tabs() {
   # named after its own directory drops that half of its name (ar_context_dir),
   # and the numbering prefix comes off first because what it is compared against
   # is a directory name, which "[1] api" is not.
+  #
+  # The rows are read with their status. A jq that fails after emitting some of
+  # them would leave the tabs of the missing workspaces out of AR_SEEN_TABS with
+  # nothing marking the pass partial, and the prune would drop their records.
+  local wsrows
+  wsrows=$(printf '%s' "$wsjson" | jq -r "$AR_JQ_CLEAN"'
+    (.result.workspaces // .workspaces // [])[]
+    | [ (.workspace_id | clean), (.label | clean) ] | join([31] | implode)' 2>/dev/null) \
+    || { AR_TABS_PARTIAL=1; wsrows=""; }
   while IFS=$AR_ROW_SEP read -r w wslabel; do
     [ -n "$w" ] || continue
     wsbase=$(ar_ws_base "$w" "$wslabel")
@@ -1498,9 +1555,14 @@ ar_reconcile_tabs() {
       tjson=$(printf '%s' "$AR_SNAP_TABS_JSON" | jq -c --arg w "$w" \
         '{result:{tabs:[(.result.tabs // [])[]|select(.workspace_id==$w)]}}' 2>/dev/null)
     else
-      tjson=$("$HERDR" tab list --workspace "$w" 2>/dev/null) || continue
+      # A workspace whose tabs could not be read still has them. Each skip below
+      # marks the pass partial so the prune after it leaves every record alone:
+      # a tab pruned while it exists reads as hand-renamed on the next pass and
+      # opts out for good, and one failed `tab list` used to do that to a whole
+      # workspace.
+      tjson=$("$HERDR" tab list --workspace "$w" 2>/dev/null) || { AR_TABS_PARTIAL=1; continue; }
     fi
-    [ -n "$tjson" ] || continue
+    [ -n "$tjson" ] || { AR_TABS_PARTIAL=1; continue; }
     rows=$(printf '%s' "$tjson" | jq -r "$AR_JQ_CLEAN"'
       (.result.tabs // .tabs // [])[]
       | [ (.tab_id | clean), (.label | clean), ((.pane_count // 0) | tostring),
@@ -1508,7 +1570,9 @@ ar_reconcile_tabs() {
           (((.label // "") != (.label | clean)) | tostring),
           (._name_agent // ""), (._name_title // ""), (._name_title_lc // ""),
           (._name_dir_lc // ""), (._name_dir // ""), (._name_session // "") ]
-      | join([31] | implode)' 2>/dev/null)
+      | join([31] | implode)' 2>/dev/null) || { AR_TABS_PARTIAL=1; continue; }
+    # No rows is a workspace with no tabs, which was read in full: only a jq that
+    # failed above is a workspace the prune must not judge.
     [ -n "$rows" ] || continue
     i=0
     while IFS=$AR_ROW_SEP read -r tid label pcount foc lpane dirty \
@@ -1571,9 +1635,7 @@ ar_reconcile_tabs() {
         ar_state_claim "$tid" "$name" "$named" "$wsbase"
       fi
     done <<< "$rows"
-  done <<< "$(printf '%s' "$wsjson" | jq -r "$AR_JQ_CLEAN"'
-    (.result.workspaces // .workspaces // [])[]
-    | [ (.workspace_id | clean), (.label | clean) ] | join([31] | implode)' 2>/dev/null)"
+  done <<< "$wsrows"
 }
 
 # ar_agent_revert <pane_id> <base> <detected>
@@ -1693,10 +1755,14 @@ ar_agent_sort() {
     cfg="${HERDR_CONFIG_FILE:-$(ar_herdr_session_dir)/config.toml}"
     line=$(grep -E '^[[:space:]]*agent_panel_sort[[:space:]]*=' "$cfg" 2>/dev/null | tail -n1)
     sort=${line#*=}
+    sort=${sort%%#*}                                # drop a trailing comment
+    sort=$(printf '%s' "$sort" | tr -d ' "'"'"'\t')  # unquote, trim
   fi
+  # An exact compare, because a comment on the line used to read as the value:
+  # `agent_panel_sort = "spaces"  # or "priority"` came out as priority.
   case "$sort" in
-    *priority*) printf 'priority' ;;
-    *)          printf 'spaces' ;;
+    priority) printf 'priority' ;;
+    *)        printf 'spaces' ;;
   esac
 }
 
@@ -1930,11 +1996,16 @@ ar_reconcile() {
   fi
   if ar_index_pass tabs || [ "$NAME_TABS" = "1" ]; then
     AR_SEEN_TABS=""
+    AR_TABS_PARTIAL=""
     ar_reconcile_tabs "$wsjson"
     # AR_SEEN_TABS is a space-joined list and ar_state_prune takes one tab id per
     # argument, so the split is the call. herdr tab ids carry no whitespace.
+    # A pass that could not read every workspace's tabs prunes nothing: the tabs
+    # it did not see still exist, and dropping their records opts each one out
+    # for good. The next full read prunes what is really gone.
     # shellcheck disable=SC2086
-    [ "$NAME_TABS" = "1" ] && [ -n "$AR_SEEN_TABS" ] && ar_state_prune $AR_SEEN_TABS
+    [ "$NAME_TABS" = "1" ] && [ -n "$AR_SEEN_TABS" ] && [ -z "${AR_TABS_PARTIAL:-}" ] \
+      && ar_state_prune $AR_SEEN_TABS
   fi
   if ar_index_pass agents; then
     ar_renumber_agents
@@ -2071,7 +2142,7 @@ ar_fast_workspace() {
   # that can hold anything.
   IFS=$AR_ROW_SEP read -r owner active label <<< "$(printf '%s' "$json" \
     | jq -r --arg w "$wid" --arg t "$tab" "$AR_JQ_CLEAN"'
-      [ .result.workspaces[]? ] as $ws
+      [ (.result.workspaces // .workspaces // [])[] ] as $ws
       | ( [ $ws[] | select((.active_tab_id | clean) == $t) ] | .[0] ) as $owner
       | $ws[] | select((.workspace_id | clean) == $w)
       | [ (($owner.workspace_id // "") | clean), (.active_tab_id | clean),
