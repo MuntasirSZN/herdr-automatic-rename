@@ -312,7 +312,9 @@
 #   "clx=hn"
 # )
 
-# Ordered `sed -E` rewrites applied to the final label.
+# Ordered `sed -E` rewrites applied to the program name or command line a tab
+# shows. They do not reach the directory, the branch, an agent's title, or a
+# workspace label.
 # SUBSTITUTE_SETS=(
 #   's|.*ipython([32])|ipython\1|'
 #   's|.*poetry shell.*|poetry|'

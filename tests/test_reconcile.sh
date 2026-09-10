@@ -27,7 +27,7 @@ PI_SPINNER=$(printf '\342\240\213') # U+280B, one of its ten working frames
 setup() {
   SB=$(mktemp -d "${TMPDIR:-/tmp}/hal-test.XXXXXX")
   export HERDR_MOCK_DIR="$SB/fixtures"; mkdir -p "$HERDR_MOCK_DIR"
-  export HERDR_MOCK_LOG="$SB/renames.log"; : >"$HERDR_MOCK_LOG"
+  export HERDR_MOCK_LOG="$SB/renames.log"; : >"$HERDR_MOCK_LOG"; rm -f "$HERDR_MOCK_LOG.tabget"
   export HERDR_BIN_PATH="$MOCK"
   export XDG_STATE_HOME="$SB/state"
   export HERDR_AUTOMATIC_RENAME_CONFIG="$SB/none.sh"   # absent -> env toggles win
@@ -38,6 +38,7 @@ setup() {
   unset HERDR_MOCK_VERSION HERDR_MOCK_NO_VERSION HERDR_MOCK_RERUN_ONCE   # per-scenario opt-in; mock default is current herdr
   unset HERDR_MOCK_FAIL_RENAME                     # per-scenario opt-in; renames succeed by default
   unset HERDR_MOCK_FAIL_VERB                       # per-scenario opt-in; every query answers by default
+  unset HERDR_MOCK_TAB_GONE_AFTER                  # per-scenario opt-in; a tab stays until its fixture goes
   unset HIDE_SHELL                                 # per-scenario opt-in; default is off
   unset AUTO_INDEX_WORKSPACES AUTO_INDEX_TABS AUTO_INDEX_AGENTS   # per-kind opt-in; inherit AUTO_INDEX
   unset AGENT_TITLES SHOW_PROGRAM_ARGS TITLE_STYLE # per-scenario opt-in; naming.sh defaults apply
@@ -2179,7 +2180,9 @@ check "parse: a trailing comment is not the value" "spaces" \
   "$(sort_of 'agent_panel_sort = "spaces"  # or "priority"')"
 check "parse: priority reads as priority" "priority" "$(sort_of 'agent_panel_sort = "priority"')"
 check "parse: no such line defaults to spaces" "spaces" "$(sort_of '')"
-=======
+teardown
+
+# ======================================================================
 # Scenario 47: the plugin's own rename does not buy a second full pass.
 #   Every rename the pass issues re-fires tab.renamed, and that event used to
 #   run the whole reconcile again to find every number already right. When
@@ -2369,6 +2372,28 @@ AR_TRACE=1 AR_TRACE_FILE='' run_event tab.focused
 check_contains "with AR_TRACE set the file appears" \
   "$(cat "$SD/trace.log" 2>/dev/null)" "w1:t1 label already correct: [[1] zsh]"
 check "and is private to the user" "600" "$(stat -f %Lp "$SD/trace.log" 2>/dev/null || stat -c %a "$SD/trace.log" 2>/dev/null)"
+
+teardown
+
+# ======================================================================
+# Scenario 52: doctor under a held lock says so, like reset and clear, instead
+#   of reporting the old state and label as if a pass had just run.
+# ======================================================================
+setup
+export NAME_TABS=1 AUTO_INDEX=0
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename/lock"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[1] zsh","pane_count":1,"focused":true}]}}
+JSON
+out=$(HERDR_TAB_ID=w1:t1 run_event doctor)
+check_contains "a contended doctor says no pass ran" "$out" "held the lock"
+check_contains "and notifies like the other actions" "$(log)" \
+  "notification show Doctor is waiting --body Another naming pass held the lock. Try again."
+check_absent   "and prints no report"           "$out" "record:"
+
 teardown
 
 t_summary
