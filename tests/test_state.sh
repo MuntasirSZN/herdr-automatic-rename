@@ -54,7 +54,9 @@ check "an empty tab keep list prunes nothing" "x z" \
 # ======================================================================
 # ar_name_eligible state machine. rc 0 = eligible for auto-naming, 1 = leave it.
 # ======================================================================
-reset_state() { rm -f "$STATE_FILE"; }
+# Deleting the file behind the engine's back is something no writer in it does,
+# so the per-pass row memo is dropped by hand: this file is one long pass.
+reset_state() { rm -f "$STATE_FILE"; AR_STATE_ROWS_LOADED=""; }
 
 # First sight of a placeholder label -> adopt (eligible), no state written yet.
 reset_state
@@ -270,5 +272,91 @@ ar_state_set "ws:w1" "project-a" true
 check_rc "a tracked workspace stays tracked across a cd" 0 \
   "$(ar_ws_track_eligible w1 "project-a" "project-b"; echo $?)"
 
+# ======================================================================
+# The rows behind ar_state_fields are loaded once and scanned, so every writer
+# has to drop them, or a pass that opted a tab out reads it back as owned on
+# its very next look. Each writer in turn, each followed by a read.
+# ======================================================================
+reset_state
+ar_state_set tM nvim true
+IFS=$AR_ROW_SEP read -r _en _au _ws _sd <<< "$(ar_state_fields tM)"
+check "rows: first read sees the record"  "true nvim" "$_en $_au"
+ar_state_set tM claude false
+IFS=$AR_ROW_SEP read -r _en _au _ws _sd <<< "$(ar_state_fields tM)"
+check "rows: a set is seen by the next read" "false claude" "$_en $_au"
+ar_state_set tN vim true
+IFS=$AR_ROW_SEP read -r _en _au _ws _sd <<< "$(ar_state_fields tN)"
+check "rows: a second key is seen too"    "true vim" "$_en $_au"
+ar_state_del tM
+check "rows: a del is seen by the next read" "" "$(ar_state_fields tM)"
+ar_state_prune tM
+check "rows: a prune is seen by the next read" "" "$(ar_state_fields tN)"
+ar_state_set "ws:w1" api true
+ar_state_set "ws:w2" web true
+ar_state_prune_ws w2
+check "rows: a ws prune is seen by the next read" "" "$(ar_state_fields ws:w1)"
+IFS=$AR_ROW_SEP read -r _en _au _ws _sd <<< "$(ar_state_fields ws:w2)"
+check "rows: and the kept key survives it" "true web" "$_en $_au"
+# A file jq cannot use loads as no rows, the same answer the per-key jq gave.
+printf '{"tM": {"auto": "nvim", "enab' >"$STATE_FILE"
+AR_STATE_ROWS_LOADED=""
+check "rows: a broken file reads as nothing known" "" "$(ar_state_fields tM)"
+# The trailing field is usually empty, and the scan has to keep it in place:
+# the fourth variable is `seeded`, and a row that lost its last separator would
+# still read right here, but one that lost an earlier one would not.
+reset_state
+ar_state_set tS "" true "ws-label"
+IFS=$AR_ROW_SEP read -r _en _au _ws _sd <<< "$(ar_state_fields tS)"
+check "rows: an empty auto stays in its column" "true||ws-label|" "$_en|$_au|$_ws|$_sd"
+
 rm -rf "$SB" 2>/dev/null || true
+
+# ---- ar_state_load: one bad record does not empty the store ----
+# A hand-edited key whose value is not an object used to abort the whole jq, so
+# every healthy tab read as unseen and opted out. It is skipped instead.
+reset_state
+mkdir -p "$STATE_DIR"
+printf '%s' '{"junk":"bad","tA":{"auto":"nvim","enabled":true},"tB":{"auto":"","enabled":false}}' >"$STATE_FILE"
+AR_STATE_ROWS_LOADED=""
+ar_state_rows
+check "bad record: load is not marked bad" "" "${AR_STATE_ROWS_BAD:-}"
+ar_name_eligible tA "nvim"; check_rc "bad record: healthy owned tab still eligible" 0 $?
+ar_name_eligible tB "typed"; check_rc "bad record: healthy opted-out tab stays out" 1 $?
+check "bad record: nothing was rewritten" "true" "$(jq -r '.tA.enabled' "$STATE_FILE")"
+
+# A record whose field is not a string is one bad row, not a jq that stops
+# mid-file and leaves every later record unread.
+reset_state
+mkdir -p "$STATE_DIR"
+printf '%s' '{"tJ":{"auto":["x"],"enabled":true,"ws":{"k":1}},"tK":{"auto":"vim","enabled":true}}' >"$STATE_FILE"
+AR_STATE_ROWS_LOADED=""
+ar_state_rows
+check "bad field: load is not marked bad" "" "${AR_STATE_ROWS_BAD:-}"
+ar_name_eligible tK "vim"; check_rc "bad field: the record after it is still read" 0 $?
+
+# A present but unreadable file is unknown, not empty. Only where chmod bites.
+reset_state
+mkdir -p "$STATE_DIR"
+printf '%s' '{"tU":{"auto":"nvim","enabled":true}}' >"$STATE_FILE"
+chmod 000 "$STATE_FILE" 2>/dev/null
+if ! cat "$STATE_FILE" >/dev/null 2>&1; then
+  AR_STATE_ROWS_LOADED=""
+  ar_state_rows
+  check "unreadable file: load is marked bad" "1" "${AR_STATE_ROWS_BAD:-}"
+  ar_name_eligible tU "3"; check_rc "unreadable file: even a placeholder tab is left alone" 1 $?
+fi
+chmod 644 "$STATE_FILE" 2>/dev/null
+AR_STATE_ROWS_BAD=""
+AR_STATE_ROWS_LOADED=""
+
+# A store the pass could not read is unknown, not empty: nothing is written.
+reset_state
+mkdir -p "$STATE_DIR"
+ar_state_set tC nvim true
+AR_STATE_ROWS_LOADED=1 AR_STATE_ROWS="" AR_STATE_ROWS_BAD=1
+ar_name_eligible tC "typed-by-hand"; check_rc "unreadable store: tab left alone" 1 $?
+check "unreadable store: record untouched" "true" "$(ar_state_get tC enabled)"
+AR_STATE_ROWS_BAD=""
+AR_STATE_ROWS_LOADED=""
+
 t_summary

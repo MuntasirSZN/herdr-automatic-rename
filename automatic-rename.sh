@@ -503,6 +503,7 @@ ar_state_seed() {
   if jq -c 'with_entries(select(.value.enabled == true) | .value += {seeded: true})' \
        "$AR_LEGACY_STATE_FILE" > "$tmp" 2>/dev/null \
      && jq -es 'length == 1 and (.[0] | type == "object")' "$tmp" >/dev/null 2>&1; then
+    AR_STATE_ROWS_LOADED=""
     ln "$tmp" "$STATE_FILE" 2>/dev/null || true
   fi
   rm -f "$tmp"
@@ -592,10 +593,67 @@ ar_state_get() { # <tab_id> <field>
 # another one, leaves it stale until the next reconcile. That pass is the one
 # that changes the label anyway -- a dedupe that flips is a different label --
 # so the staleness costs at most the label a tab already had.
+# The whole store as one row per key, loaded once per pass. Every writer below
+# clears it, so a read after a write goes back to the file. The rows are the
+# same four fields ar_state_fields hands out, led by the key they belong to.
+#
+# One jq for the pass rather than one per tab: a pass reads these fields for
+# every tab and every workspace it sees, and the file does not change between
+# those reads except through the writers in this file. (ar_identity_base scans
+# a pre-loaded blob the same way, for the same reason.)
+AR_STATE_ROWS=""
+AR_STATE_ROWS_LOADED=""
+AR_STATE_ROWS_BAD=""
+ar_state_load() {
+  AR_STATE_ROWS=""
+  AR_STATE_ROWS_LOADED=1
+  AR_STATE_ROWS_BAD=""
+  [ -f "$STATE_FILE" ] || return 0
+  # A record that is not an object is skipped, not fatal: one hand-edited key
+  # used to abort the whole jq, and every tab after it read as unseen and opted
+  # out, where the per-key read this replaced lost only that key. A file jq
+  # rejects outright reads as an empty store, which is what ar_state_read heals
+  # it to on the next write (the opt-out that write records is what makes reset
+  # work again; see the comment above ar_state_read). Only a jq that did not
+  # run at all leaves the store UNKNOWN for the pass, and unknown is not empty:
+  # ar_state_fields answers nothing, and the eligibility checks refuse to write
+  # against a store they could not read.
+  #
+  # The file is read by cat first, as ar_state_read reads it: jq opening the path
+  # itself reports a file it cannot read with the same status as one it cannot
+  # parse, and only the second of those is an empty store. Every joined field is
+  # a string by construction (tostring), so a record whose auto or ws is an
+  # array is one bad row rather than a jq that stops mid-file.
+  local base rc=0
+  if ! base=$(cat "$STATE_FILE" 2>/dev/null); then AR_STATE_ROWS_BAD=1; return 0; fi
+  [ -n "$base" ] || return 0
+  AR_STATE_ROWS=$(printf '%s' "$base" | jq -r 'to_entries[]
+    | select(.value | type == "object") | .value as $r
+    | [ .key, ($r.enabled | if . == null then "" else tostring end),
+        (($r.auto // "") | tostring), (($r.ws // "") | tostring),
+        ($r.seeded | if . == true then "true" else "" end) ] | join([31] | implode)' \
+    2>/dev/null) || rc=$?
+  case "$rc" in
+    0 | [1-5]) ;;
+    *) AR_STATE_ROWS=""; AR_STATE_ROWS_BAD=1 ;;
+  esac
+}
+# ar_state_rows - have the rows loaded in THIS shell. ar_state_fields loads on
+# demand as well, but every caller reads it through `$(...)`, and a load done
+# inside that subshell dies with it: the pass would read the file once per tab
+# again, which is the fork this whole memo exists to remove. Callers run this
+# on the line before the substitution.
+ar_state_rows() { [ -n "${AR_STATE_ROWS_LOADED:-}" ] || ar_state_load; }
+
 # ar_state_fields <key> -> "<enabled><SEP><auto><SEP><ws><SEP><seeded>" for that
-# key, empty throughout when nothing is known about it. One jq for the four
-# fields the opt-out machine reads together: they are read on every tab of every
-# pass, and a fork each is a fork per field per tab.
+# key, empty throughout when nothing is known about it. A scan of the loaded
+# rows, no fork: the four fields the opt-out machine reads together are read on
+# every tab of every pass.
+#
+# `read -r k rest` with the row separator as IFS: `rest` keeps the remaining
+# fields WITH their separators, which is the line the callers' own read splits.
+# A non-whitespace IFS keeps a trailing empty field (`seeded` usually is), so
+# the separator must never become a tab.
 #
 # `seeded` goes last so a reader that names fewer variables collects it in its
 # own final one and discards it there, rather than appending it to a field it
@@ -605,15 +663,18 @@ ar_state_get() { # <tab_id> <field>
 # boolean false as absent: an opted-out tab would read back as first-seen on
 # every pass and re-adopt a name somebody typed.
 ar_state_fields() { # <key>
-  [ -f "$STATE_FILE" ] || return 0
-  jq -r --arg t "$1" '.[$t] as $r
-    | [ ($r.enabled | if . == null then "" else tostring end),
-        ($r.auto // ""), ($r.ws // ""),
-        ($r.seeded | if . == true then "true" else "" end) ] | join([31] | implode)' \
-    "$STATE_FILE" 2>/dev/null
+  ar_state_rows
+  local k rest
+  while IFS=$AR_ROW_SEP read -r k rest; do
+    [ "$k" = "$1" ] || continue
+    printf '%s' "$rest"
+    return 0
+  done <<< "$AR_STATE_ROWS"
+  return 0
 }
 ar_state_set() { # <tab_id> <auto-name> <enabled true|false> [ws]
   local base tmp
+  AR_STATE_ROWS_LOADED=""                  # the loaded rows are about to be stale
   base=$(ar_state_read) || return 1        # unreadable: leave the file alone
   # A write that did not land reports it. Ownership IS this file, so swallowing a
   # full disk or an unwritable state directory told the reset action a tab was
@@ -630,6 +691,7 @@ ar_state_set() { # <tab_id> <auto-name> <enabled true|false> [ws]
 }
 ar_state_del() { # <tab_id>
   local tmp
+  AR_STATE_ROWS_LOADED=""
   tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 0
   local base
   base=$(ar_state_read) || { rm -f "$tmp"; return 0; }   # unreadable: leave it alone
@@ -666,6 +728,7 @@ ar_state_prune() { # <keep tab_ids...> - drop entries for tabs that no longer ex
   # turn through the lock's residual race. Both sides are compact JSON
   # (ar_state_read slurps through `jq -c`), so a byte comparison is exact.
   [ -n "$pruned" ] && [ "$pruned" != "$base" ] || return 0
+  AR_STATE_ROWS_LOADED=""
   tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 0
   if printf '%s' "$pruned" > "$tmp"; then mv "$tmp" "$STATE_FILE"; else rm -f "$tmp"; fi
 }
@@ -706,6 +769,10 @@ ar_state_claim() {
 # hook reads AR_STATE_WS for the dedupe as well.
 ar_name_eligible() {
   local tab=$1 slabel=$2 enabled auto ws seeded
+  ar_state_rows
+  # A store the pass could not read says nothing about this tab, and writing an
+  # opt-out against nothing is how a record gets lost. Leave the tab as it is.
+  [ -z "${AR_STATE_ROWS_BAD:-}" ] || { ar_trace "$tab state unreadable: left alone"; return 1; }
   IFS=$AR_ROW_SEP read -r enabled auto ws seeded <<< "$(ar_state_fields "$tab")"
   # A seeded record is ar_state_seed's guess that this tab is one the shared
   # store already owned, and the label is the only thing that can confirm it.
@@ -1376,6 +1443,8 @@ ar_ws_track_eligible() {
   # reader short of one name would append the next field to $auto the day a
   # workspace record grows one -- and the compare below could then never be true
   # again, which is this workspace opting itself out of directory tracking.
+  ar_state_rows
+  [ -z "${AR_STATE_ROWS_BAD:-}" ] || return 1     # store unreadable: leave the workspace alone
   # shellcheck disable=SC2034  # `unused` is named so it can be discarded
   IFS=$AR_ROW_SEP read -r enabled auto unused seeded <<< "$(ar_state_fields "$key")"
   # A seeded record is dropped where the label confirms neither derivation, for
@@ -1445,6 +1514,7 @@ ar_state_prune_ws() {
                          or ((.key | ltrimstr("ws:")) as $w | $keep | index($w))))' \
     2>/dev/null) || return 0
   [ -n "$pruned" ] && [ "$pruned" != "$base" ] || return 0
+  AR_STATE_ROWS_LOADED=""
   tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 0
   if printf '%s' "$pruned" > "$tmp"; then mv "$tmp" "$STATE_FILE"; else rm -f "$tmp"; fi
 }
@@ -1701,14 +1771,25 @@ ar_version_lt() {
 # ar_herdr_version -> the running herdr's dotted version ("0.8.0"), or rc 1 when
 # it cannot be read. `herdr --version` prints "herdr <version>"; take the first
 # field shaped like a number and drop any trailing build metadata.
+#
+# Asked once per process and remembered, a failure included ("-"): the binary
+# cannot change version underneath one event, and a pass that loops (ar_run's
+# coalescing re-pass) already has its answer. Every event asked before, which
+# on the pane.agent_status_changed stream is a fork for a value that is the
+# same every time.
 ar_herdr_version() {
+  if [ -n "${AR_HERDR_VERSION_MEMO:-}" ]; then
+    [ "$AR_HERDR_VERSION_MEMO" = "-" ] && return 1
+    printf '%s' "$AR_HERDR_VERSION_MEMO"; return 0
+  fi
   local out f
-  out=$("$HERDR" --version 2>/dev/null) || return 1
+  out=$("$HERDR" --version 2>/dev/null) || { AR_HERDR_VERSION_MEMO="-"; return 1; }
   for f in $out; do
     case "$f" in
-      [0-9]*.[0-9]*) printf '%s' "${f%%[!0-9.]*}"; return 0 ;;
+      [0-9]*.[0-9]*) AR_HERDR_VERSION_MEMO="${f%%[!0-9.]*}"; printf '%s' "$AR_HERDR_VERSION_MEMO"; return 0 ;;
     esac
   done
+  AR_HERDR_VERSION_MEMO="-"
   return 1
 }
 
@@ -1726,8 +1807,10 @@ ar_herdr_version() {
 # Workspace and tab renames are unaffected -- those labels are free-form.
 ar_agent_prefix_ok() {
   local v
-  v=$(ar_herdr_version) || return 1
-  ar_version_lt "$v" "0.7.5"
+  # Called in THIS shell, not through $(...), or the memo dies with the subshell
+  # and every caller pays the herdr round-trip again.
+  ar_herdr_version >/dev/null || return 1
+  ar_version_lt "$AR_HERDR_VERSION_MEMO" "0.7.5"
 }
 
 # ar_agent_sort -> "priority" or "spaces" (grouped). herdr renders the agent panel
@@ -1808,13 +1891,15 @@ ar_renumber_agents() {
   # The toggle is tested BEFORE the two probes below on purpose: ar_agent_prefix_ok
   # shells out for the herdr version and ar_agent_sort reads config.toml, and a
   # config with agents switched off should not pay for either on every event.
+  # Of the two probes, the file read goes first: either answer alone forces the
+  # strip, so a priority-sorted panel never spawns the version query at all.
   if [ "$CLEAR" = "1" ]; then
     strip=1
   elif ! ar_index_on agents; then
     strip=1
-  elif ! ar_agent_prefix_ok; then
-    strip=1
   elif [ "$(ar_agent_sort)" = "priority" ]; then
+    strip=1
+  elif ! ar_agent_prefix_ok; then
     strip=1
   fi
   if [ "$strip" = "1" ]; then
@@ -1858,22 +1943,58 @@ ar_renumber_agents() {
   done
 }
 
-# ar_wait_tab_gone <tab_id> - block (bounded ~3s) until a just-closed tab has left
+# ar_wait_tab_gone <tab_id> - block (bounded ~2s) until a just-closed tab has left
 # herdr's model, so the reconcile that follows never numbers by a stale list.
 # herdr keeps a closing tab in `tab list` until its pane finishes tearing down;
 # the tab.closed event fires while it is still listed, so an immediate reconcile
 # would find every number already correct and change nothing. Waiting for the id
 # to disappear turns that race into a settled read.
+#
+# Seven polls that back off, rather than sixty at a fixed 50ms: a pane usually
+# goes within the first two, and a tab that is still listed after a second is
+# one the reconcile will meet again on the next event anyway. No jq per poll:
+# a tab that is gone comes back as `{}` or an error object from herdr and the
+# mock alike, and neither carries a "tab_id" key.
 ar_wait_tab_gone() {
-  local t=$1 i=0 raw
+  local t=$1 raw d
+  local delays="0.05 0.05 0.1 0.1 0.2 0.3 0.5 0.7"
   [ -n "$t" ] || return 0
-  while [ "$i" -lt 60 ]; do
+  for d in $delays; do
     raw=$("$HERDR" tab get "$t" 2>/dev/null) || return 0
     [ -n "$raw" ] || return 0
-    printf '%s' "$raw" | jq -e '(.result.tab // .tab) | has("tab_id")' >/dev/null 2>&1 || return 0
-    i=$(( i + 1 ))
-    sleep 0.05 2>/dev/null || return 0
+    case "$raw" in *'"tab_id"'*) ;; *) return 0 ;; esac
+    sleep "$d" 2>/dev/null || return 0
   done
+}
+
+# ar_own_rename <tab_id> -> 0 when the tab carries exactly the label this plugin
+# last wrote on it: state says the tab is ours, and the label herdr reports,
+# prefix stripped, is the recorded auto name. That is the tab.renamed our own
+# rename re-fires, and a full pass on it finds every number correct and changes
+# nothing. Everything else is rc 1, and the caller answers it with the full pass
+# it always ran: a hand rename, a tab nobody owns, a read that failed.
+#
+# A seeded record does not count. It is ar_state_seed's guess that the tab is
+# one the shared store owned, and the full pass is what confirms or drops it.
+#
+# The number is not checked, only the base: which number is right takes the
+# whole pass to know. A hand-typed wrong number over our base therefore waits
+# for the next event of any kind, where it used to be put right on this one.
+ar_own_rename() {
+  local t=$1 enabled auto ws seeded raw label
+  ar_state_rows
+  # shellcheck disable=SC2034  # `ws` is named so it can be discarded
+  IFS=$AR_ROW_SEP read -r enabled auto ws seeded <<< "$(ar_state_fields "$t")"
+  [ "$enabled" = "true" ] && [ -z "$seeded" ] || return 1
+  raw=$("$HERDR" tab get "$t" 2>/dev/null) || return 1
+  [ -n "$raw" ] || return 1
+  # One jq for both questions: `select` emits nothing for a tab without a
+  # label, and -e turns no output into a non-zero exit. A missing label must not
+  # read as an empty one, which an owned HIDE_SHELL tab legitimately carries.
+  label=$(printf '%s' "$raw" \
+    | jq -r -e "$AR_JQ_CLEAN"'(.result.tab // .tab) | select(has("label")) | .label | clean' \
+    2>/dev/null) || return 1
+  [ "$(ar_strip_prefix "$label")" = "$auto" ]
 }
 
 # ar_notify <title> <body> - tell the user an action ran. Both actions are meant
@@ -2122,6 +2243,7 @@ ar_fast_workspace() {
   [ -n "$wid" ] || return 0
   base=$(ar_project_base "$PWD")
   [ -n "$base" ] || return 0
+  ar_state_rows
   # Every field gets a name, for the reason ar_ws_track_eligible names them all.
   # shellcheck disable=SC2034  # `unused` and `seeded` are named so they can be discarded
   IFS=$AR_ROW_SEP read -r enabled auto unused seeded <<< "$(ar_state_fields "ws:$wid")"
@@ -2194,6 +2316,11 @@ ar_run() {
   local guard=0
   while :; do
     rm -f "$RERUN_FLAG" 2>/dev/null || true
+    # The state rows are loaded once per PASS, not per process: the lock is let
+    # go and retaken between two turns of this loop, and whoever held it in
+    # between wrote to the file this process would otherwise still be reading
+    # from memory.
+    AR_STATE_ROWS_LOADED=""
     if [ "$want" = "fast" ]; then ar_fast_once; else ar_reconcile; fi
     want=full                              # any re-pass is a full reconcile
     guard=$(( guard + 1 ))
@@ -2323,6 +2450,19 @@ ar_main() {
     tab.closed)
       ar_wait_tab_gone "${HERDR_TAB_ID:-}"   # settle before the reconcile
       ar_run full                            # renumbers survivors; ar_state_prune drops the closed tab
+      ;;
+    tab.renamed)
+      # Our own rename re-fires this event. When state already says we own the
+      # tab at exactly the label it now carries, the reconcile would find every
+      # number correct and change nothing, so it is skipped before the lock:
+      # every pass that renamed something used to be followed by a second full
+      # pass that did nothing. Anything else, a hand rename included, falls
+      # through to the full pass. With no tab id there is nothing to check.
+      if [ -n "${HERDR_TAB_ID:-}" ] && [ "$NAME_TABS" = "1" ] \
+         && ar_own_rename "$HERDR_TAB_ID"; then
+        exit 0
+      fi
+      ar_run full
       ;;
     *)
       ar_run full                            # any other herdr event
