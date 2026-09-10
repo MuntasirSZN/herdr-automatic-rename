@@ -34,10 +34,10 @@ check "kept entry a"           "x" "$(ar_state_get a auto)"
 check "kept entry c"           "z" "$(ar_state_get c auto)"
 # A prune that removes nothing leaves the file alone (its mtime included). This
 # runs on every event, so a rewrite here is the store's every-event write.
-before=$(stat -f %m "$STATE_FILE" 2>/dev/null || stat -c %Y "$STATE_FILE")
+before=$(stat -c %Y "$STATE_FILE" 2>/dev/null || stat -f %m "$STATE_FILE")
 sleep 1
 ar_state_prune a c
-after=$(stat -f %m "$STATE_FILE" 2>/dev/null || stat -c %Y "$STATE_FILE")
+after=$(stat -c %Y "$STATE_FILE" 2>/dev/null || stat -f %m "$STATE_FILE")
 check "no-op prune does not rewrite" "$before" "$after"
 # No keep list is not "keep nothing". `printf '%s\n'` on no arguments still
 # emits one empty line, so the list would read [""] and match no key: a pass

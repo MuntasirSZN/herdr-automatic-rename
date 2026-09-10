@@ -2371,7 +2371,7 @@ JSON
 AR_TRACE=1 AR_TRACE_FILE='' run_event tab.focused
 check_contains "with AR_TRACE set the file appears" \
   "$(cat "$SD/trace.log" 2>/dev/null)" "w1:t1 label already correct: [[1] zsh]"
-check "and is private to the user" "600" "$(stat -f %Lp "$SD/trace.log" 2>/dev/null || stat -c %a "$SD/trace.log" 2>/dev/null)"
+check "and is private to the user" "600" "$(stat -c %a "$SD/trace.log" 2>/dev/null || stat -f %Lp "$SD/trace.log" 2>/dev/null)"
 
 teardown
 
