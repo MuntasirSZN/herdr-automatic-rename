@@ -181,6 +181,16 @@ declare -p SUBSTITUTE_SETS >/dev/null 2>&1 || SUBSTITUTE_SETS=(
   's|.*poetry shell.*|poetry|'
 )
 
+# The same, for the directory-derived label a WORKSPACE carries. Empty by
+# default: a workspace shows the name of the directory it sits in, and a rule
+# here is somebody asking for a shorter spelling of it.
+#
+# Not a naming knob, despite the company it keeps -- it applies whether or not
+# tabs are named. It lives in this file because it is string-in / string-out
+# like everything else here, and because config.sh has to get first refusal on
+# the default (see the `declare -p` note at the top).
+declare -p WORKSPACE_SUBSTITUTE_SETS >/dev/null 2>&1 || WORKSPACE_SUBSTITUTE_SETS=()
+
 # Titles that name the agent instead of the work it is doing. An agent sets one
 # of these before it has a task (at startup, or once a session is cleared), and a
 # tab reading "Claude Code" says less than "claude" does. Matched case-insensitively
@@ -374,6 +384,16 @@ ar_alias() {
 ar_subst() {
   local s=$1 expr
   for expr in "${SUBSTITUTE_SETS[@]}"; do
+    s=$(printf '%s' "$s" | sed -E "$expr")
+  done
+  printf '%s' "$s"
+}
+
+# ar_ws_subst <string> -> string with WORKSPACE_SUBSTITUTE_SETS applied in order.
+# The empty rule list is the common case and forks nothing.
+ar_ws_subst() {
+  local s=$1 expr
+  for expr in "${WORKSPACE_SUBSTITUTE_SETS[@]}"; do
     s=$(printf '%s' "$s" | sed -E "$expr")
   done
   printf '%s' "$s"
