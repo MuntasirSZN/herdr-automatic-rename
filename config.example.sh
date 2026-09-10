@@ -52,8 +52,11 @@
 # herdr offers no way to tell a hand-typed name from the derivation it happens
 # to match exactly, so a name you type that IS the directory name reads as ours.
 #
-# Deleting the rules puts the derived names back on the next herdr event, after
-# which this plugin lets those workspaces go and herdr resumes labelling them.
+# The rewrite is derived fresh on every pass rather than built out of the label
+# the last one wrote, so deleting the rules puts the derived names back at the
+# next herdr event. With workspace numbering off there is no next pass to do it,
+# and the labels keep their last rewrite until the `clear` action, which is what
+# that action is for.
 
 # ---- naming knobs (only used when NAME_TABS=1) ----
 

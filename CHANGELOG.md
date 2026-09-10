@@ -10,7 +10,7 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
   Only a derived name is rewritten. A name you typed is left alone for good, the same promise the tab opt-out makes, with the same gap in it: herdr exposes no way to tell a typed name from the derivation it happens to match exactly.
 
-  Numbering and rewriting are separate reasons for the workspace pass to run, so a rewrite reaches a workspace whose numbering was never turned on. Delete the rules and the derived names come back at the next herdr event or shell prompt, after which the plugin lets those workspaces go and herdr labels them itself again.
+  Numbering and rewriting are the two reasons the workspace pass runs, so a rewrite reaches a workspace whose numbering was never turned on. A rewrite is derived fresh every pass rather than built out of the label the last one wrote, so deleting the rules puts the derived names back at the next event by itself. With numbering off there is no next pass to do that, and the labels keep their last rewrite until `clear`.
 
   `clear` hands back the derived name too, where it used to strip the number off the rewrite and leave that standing. It is documented as the last step before uninstall, after which the plugin that could have restored the label is gone.
 

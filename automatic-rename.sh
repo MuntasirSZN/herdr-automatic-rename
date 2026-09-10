@@ -224,26 +224,36 @@ ar_index_pass() {
   [ "$CLEAR" = "1" ] || ar_index_on "$1" || ar_index_explicit "$1"
 }
 
-# ar_ws_pass -> 0 when the workspace pass has work to do, and ar_ws_unwind -> 0
-# when the only work left is to undo what this plugin already wrote.
+# ar_ws_pass -> 0 when the workspace pass has work to do. Numbering is one
+# reason (ar_index_pass), WORKSPACE_SUBSTITUTE_SETS is the other: a rewrite has
+# to reach a workspace whose numbering was never turned on.
 #
-# Numbering is one reason to run (ar_index_pass), WORKSPACE_SUBSTITUTE_SETS is
-# the other: a rewrite has to reach a workspace whose numbering was never turned
-# on. The third is the one that ends the feature. Deleting the rules leaves the
-# rewritten label on screen, and with numbering off nothing would ever run again
-# to take it back -- so an owned workspace, which is a workspace this plugin has
-# renamed, keeps the pass alive for exactly as long as it takes to hand the
-# directory-derived name back and let go of the record. Ownership is the whole
-# signal: no record, no pass.
+# There is deliberately no third reason. A pass that ran because this plugin
+# OWNS a workspace would run for every config that has ever numbered one, which
+# is every config, and the pass would then be entitled to write to workspaces on
+# a config that asks for nothing. Deleting the rules with numbering on restores
+# the derived names by itself, since the rewrite is derived fresh every pass and
+# an empty rule list is the identity; deleting them with numbering off leaves
+# the last rewrite standing until the `clear` action, which is what that action
+# is for. Neither case is worth a pass that reads state before it knows it has
+# work, and the one-way cost of getting it wrong is a workspace opted out of
+# directory tracking with no `reset` action to bring it back.
 ar_ws_pass() {
-  ar_index_pass workspaces && return 0
-  [ "${#WORKSPACE_SUBSTITUTE_SETS[@]}" -gt 0 ] && return 0
-  ar_ws_owned
+  ar_index_pass workspaces || [ "${#WORKSPACE_SUBSTITUTE_SETS[@]}" -gt 0 ]
 }
-ar_ws_unwind() {
-  [ "$CLEAR" = "1" ] && return 0
-  ar_index_pass workspaces && return 1
-  [ "${#WORKSPACE_SUBSTITUTE_SETS[@]}" -eq 0 ]
+
+# ar_ws_derives -> 0 when the workspace pass will read herdr's own directory
+# derivation, which is also what decides whether it needs the pane list beside
+# it (ar_workspace_pane_dirs is the correction for a session.json that lags).
+#
+# Every pass but --clear derives. --clear derives only when there are rules to
+# undo: with none configured it has no rewrite to hand back, so it stays the
+# pure prefix strip it has always been. Deriving there anyway would have it
+# rename every workspace to wherever identity_cwd points, on the one pass that
+# has no follow-up -- it is documented as the last step before uninstall, and
+# the rename it issues freezes herdr's derivation for good.
+ar_ws_derives() {
+  [ "$CLEAR" != "1" ] || [ "${#WORKSPACE_SUBSTITUTE_SETS[@]}" -gt 0 ]
 }
 
 # ar_strip_prefix <label> -> label with a leading "[<digits>] " removed. Only
@@ -1489,7 +1499,7 @@ ar_ws_track_eligible() {
   # matters more than the odds suggest.
   if [ "$seeded" = "true" ] && [ "$enabled" = "true" ] \
      && [ "$slabel" != "$ibase" ] && [ "$slabel" != "$auto" ]; then
-    ar_state_del "$key"
+    [ "$CLEAR" = "1" ] || ar_state_del "$key"
     enabled="" auto=""
   fi
   # herdr saves session.json on a 5-second debounce, so a cd the shell hook has
@@ -1502,8 +1512,16 @@ ar_ws_track_eligible() {
   # that matches neither the file nor our record changes nothing and the file
   # stays the answer -- which is the case a live session paid for (see the
   # identity_cwd note in docs/ARCHITECTURE.md).
+  #
+  # The record is compared against the pane's base REWRITTEN, because that is
+  # the shape the record is in: what we last wrote is a label, and a label has
+  # WORKSPACE_SUBSTITUTE_SETS applied to it. Comparing it against the raw base
+  # switched this guard off for exactly the workspaces a rule matches, and the
+  # reconcile then reverted every rename the prompt made until session.json
+  # caught up. `ar_ws_subst` is identity on an empty rule list, so a config with
+  # no rules compares what it always compared, and forks nothing to do it.
   if [ -n "$pbase" ] && [ "$pbase" != "$ibase" ] \
-     && [ "$enabled" = "true" ] && [ "$auto" = "$pbase" ]; then
+     && [ "$enabled" = "true" ] && [ "$auto" = "$(ar_ws_subst "$pbase")" ]; then
     ibase=$pbase
   fi
   AR_WS_IBASE=$ibase
@@ -1514,7 +1532,10 @@ ar_ws_track_eligible() {
   elif [ "$enabled" = "true" ] && [ "$slabel" = "$auto" ]; then
     return 0
   fi
-  [ "$enabled" = "false" ] || ar_state_set "$key" "" false
+  # --clear reaches this function now, because a rewrite has to be handed back
+  # before the prefix comes off it, and the uninstall path decides nothing about
+  # ownership on its way out: it strips what is there and writes no state.
+  [ "$CLEAR" = "1" ] || [ "$enabled" = "false" ] || ar_state_set "$key" "" false
   return 1
 }
 
@@ -1531,34 +1552,6 @@ ar_ws_claim() {
   ar_state_set "ws:$1" "$2" true
 }
 
-# ar_ws_owned -> 0 when any workspace record says we own a label. What keeps the
-# unwind pass alive (ar_ws_pass), so it reads the rows already loaded rather than
-# forking a jq of its own on every prompt. `enabled` is the first field of the
-# rest of the row, so the compare needs no second read.
-ar_ws_owned() {
-  local k rest
-  ar_state_rows
-  [ -z "${AR_STATE_ROWS_BAD:-}" ] || return 1   # store unreadable: claim nothing
-  while IFS=$AR_ROW_SEP read -r k rest; do
-    case "$k" in ws:*) ;; *) continue ;; esac
-    case "$rest" in "true$AR_ROW_SEP"*) return 0 ;; esac
-  done <<< "$AR_STATE_ROWS"
-  return 1
-}
-
-# ar_ws_owns <workspace_id> <stripped label> -> 0 when the record says we wrote
-# exactly the label the workspace carries. ar_ws_track_eligible's second arm,
-# read on its own and without its writes: the unwind pass is giving labels back,
-# and must not opt a workspace out on the way past.
-ar_ws_owns() {
-  local enabled auto unused seeded
-  ar_state_rows
-  [ -z "${AR_STATE_ROWS_BAD:-}" ] || return 1
-  # Every field gets a name, for the reason ar_ws_track_eligible names them all.
-  # shellcheck disable=SC2034  # `unused` and `seeded` are named so they can be discarded
-  IFS=$AR_ROW_SEP read -r enabled auto unused seeded <<< "$(ar_state_fields "ws:$1")"
-  [ "$enabled" = "true" ] && [ -n "$auto" ] && [ "$auto" = "$2" ]
-}
 
 # ar_state_prune_ws <keep workspace_ids...> - drop the "ws:" records of
 # workspaces that no longer exist, and touch no other key (the tabs own theirs,
@@ -1592,12 +1585,11 @@ ar_state_prune_ws() {
 #
 # WORKSPACE_SUBSTITUTE_SETS rewrites that base on its way to the sidebar, and
 # only there: the directory, the Git worktree, and what this workspace's tabs
-# dedupe against are all still the derived name. The pass therefore has three
-# reasons to run rather than one, and one of them is to undo itself -- see
-# ar_ws_pass and ar_ws_unwind, which `unwind` below is the answer to. --clear is
-# an unwind: it hands back the derived base and then strips the prefix off it.
+# dedupe against are all still the derived name. --clear is the one pass that
+# takes the rewrite back, handing over the derived base and stripping the prefix
+# off that, which is why it now reads the derivation it used to skip.
 ar_renumber_workspaces() {
-  local json=$1 rows wid label pos base dedupe want ibase track unwind=0 seen=""
+  local json=$1 rows wid label pos base lprefix dedupe want ibase track seen=""
   AR_WS_BASES=""
   [ -n "$json" ] || return 0
   # Read with its status: a jq that fails after emitting some rows would leave
@@ -1605,40 +1597,35 @@ ar_renumber_workspaces() {
   # their records. Nothing is numbered or pruned from a row set that is not whole.
   rows=$(ar_workspace_positions "$json" "$(ar_collapsed_spaces)") || return 0
   [ -n "$rows" ] || return 0
-  ar_ws_unwind && unwind=1
   AR_WS_IDENTITY=""
   AR_WS_PANEDIR=""
-  # The derivation is read under --clear too, which it did not have to be while
-  # a "[N] " prefix was the only thing this plugin put on a workspace. A rewrite
-  # changes the base as well, and stripping the prefix off "[1] wt-feature"
-  # would leave "wt-feature" standing -- on the uninstall path, with the plugin
-  # that could have taken it back about to be gone.
-  AR_WS_IDENTITY=$(ar_workspace_identities)
-  # The pane fallback is a freshness fix for a session.json that lags a live cd
-  # (ar_ws_track_eligible). An unwind is handing the derivation back, wherever it
-  # currently points, and does not fetch panes to do it.
-  [ "$unwind" = "1" ] || AR_WS_PANEDIR=$(ar_workspace_pane_dirs "$json")
+  # The derivation is read under --clear too when there are rules to undo, which
+  # it did not have to be while a "[N] " prefix was the only thing this plugin
+  # put on a workspace: stripping the prefix off "[1] wt-feature" would leave
+  # "wt-feature" standing, on the uninstall path, with the plugin that could
+  # have taken it back about to be gone. The panes come with it either way, so
+  # the correction for a session.json that lags a live cd applies on that pass
+  # too (ar_ws_track_eligible) -- reading the derivation without them would hand
+  # back the directory the workspace has just left.
+  if ar_ws_derives; then
+    AR_WS_IDENTITY=$(ar_workspace_identities)
+    AR_WS_PANEDIR=$(ar_workspace_pane_dirs "$json")
+  fi
   while IFS=$AR_ROW_SEP read -r wid label pos; do
     [ -n "$wid" ] || continue
     seen="$seen $wid"
     base=$(ar_strip_prefix "$label")
+    # The prefix as the STRIP saw it, which is the only spelling of it that
+    # cannot disagree with the base beside it. ar_index_prefix is documented as
+    # ar_strip_prefix's exact inverse and is not one on a malformed label:
+    # "[1]: [done] task" strips to itself while ar_index_prefix still reads a
+    # "[1] " off it, and re-joining those two renames a row this pass promised
+    # to leave alone. Taking the base back off the label instead is a no-op on
+    # exactly the labels the strip refused.
+    lprefix=${label%"$base"}
     dedupe=$base
     track=0
-    if [ "$unwind" = "1" ]; then
-      # Only a label we wrote is given back, and it is read without the writes
-      # ar_ws_track_eligible makes: this pass exists to let go of workspaces, not
-      # to opt fresh ones out. Everything else keeps its base, and outside
-      # --clear is not touched at all -- an unwind runs on a config that never
-      # asked for workspace numbering, so a "[3] " on a row it does not own is
-      # somebody's own text.
-      if ibase=$(ar_identity_base "$wid") && ar_ws_owns "$wid" "$base"; then
-        base=$ibase
-        dedupe=$ibase
-        track=2
-      elif [ "$CLEAR" != "1" ]; then
-        continue
-      fi
-    elif ibase=$(ar_identity_base "$wid") \
+    if ibase=$(ar_identity_base "$wid") \
        && ar_ws_track_eligible "$wid" "$base" "$ibase" "$(ar_panedir_base "$wid")"; then
       # The rewrite is display only, so the two part company here: the workspace
       # is RENAMED to the rewritten spelling, and its tabs go on deduping against
@@ -1647,16 +1634,30 @@ ar_renumber_workspaces() {
       # it was rewritten to lose ("worktree-feature > nvim" under a "wt-feature"
       # sidebar).
       dedupe=$AR_WS_IBASE
-      base=$(ar_ws_subst "$AR_WS_IBASE")
+      # --clear is on its way out and takes the rewrite with it, so it hands
+      # back the derived name and strips the prefix off THAT. Leaving the
+      # rewrite behind would strand it: it is documented as the last step before
+      # uninstall, after which the plugin that could restore the label is gone.
+      if [ "$CLEAR" = "1" ]; then
+        base=$AR_WS_IBASE
+      else
+        base=$(ar_ws_subst "$AR_WS_IBASE")
+      fi
       track=1
     fi
     [ -n "$base" ] || continue          # empty label: nothing to number, leave it
-    if [ "$track" = "2" ] && [ "$CLEAR" != "1" ]; then
-      # Numbering was never named in this config (ar_ws_unwind), so whatever
-      # number the row carries is carried forward rather than stripped.
-      want="$(ar_index_prefix "$label")$base"
-    else
+    if ar_index_pass workspaces; then
       want=$(ar_desired workspaces "$pos" "$base")  # position 0 (hidden) -> bare, like 10+
+    else
+      # The pass is here for the rewrite alone, on a config that never named
+      # workspace numbering. ar_index_explicit's contract is that such a config
+      # asks for neither the numbering nor the strip and is left exactly as it
+      # was, so whatever "[3] " this row carries -- ours from before numbering
+      # was switched off, or somebody's own text, which nothing here can tell
+      # apart -- is carried over rather than taken off. A row this pass does not
+      # own therefore ends up with the label it arrived with, and is not renamed
+      # at all.
+      want="$lprefix$base"
     fi
     if [ "$want" != "$label" ]; then
       "$HERDR" workspace rename "$wid" "$want" >/dev/null 2>&1 || continue
@@ -1671,17 +1672,9 @@ ar_renumber_workspaces() {
     # the workspace still carries.
     AR_WS_BASES="$AR_WS_BASES$wid$AR_ROW_SEP$dedupe
 "
-    if [ "$track" = "1" ]; then
-      ar_ws_claim "$wid" "$base"
-    elif [ "$track" = "2" ] && [ "$CLEAR" != "1" ]; then
-      # The label is back where herdr derived it, so herdr can go on deriving it
-      # -- which it only does for a workspace nobody has renamed. Letting the
-      # record go is what ends the unwind: with no owned workspace left,
-      # ar_ws_pass stops scheduling this pass at all. --clear keeps its records,
-      # exactly as the tab half does: the rules are still in the config, and the
-      # next event is entitled to apply them again.
-      ar_state_del "ws:$wid"
-    fi
+    # --clear keeps its records, exactly as the tab half does: the rules are
+    # still in the config, and the next event is entitled to apply them again.
+    [ "$track" = "1" ] && [ "$CLEAR" != "1" ] && ar_ws_claim "$wid" "$base"
   done <<< "$rows"
   # A workspace id carries no whitespace (both go through `clean`), so the
   # space-joined list splits into one argument per workspace.
@@ -2294,7 +2287,7 @@ ar_reconcile() {
     # well (ar_workspace_pane_dirs) and the snapshot is already in hand: one jq
     # over memory, no herdr call. The per-list path below still fetches only when
     # tab naming needs it, since there a pane list is a round-trip.
-    if [ "$CLEAR" != "1" ]; then
+    if ar_ws_derives; then
       AR_PANES_JSON=$(printf '%s' "$snap" | jq -c \
         '{result:{panes:((.result.snapshot // .snapshot).panes // [])}}' 2>/dev/null)
       [ -n "$AR_PANES_JSON" ] || AR_PANES_JSON='{"result":{"panes":[]}}'
@@ -2307,7 +2300,7 @@ ar_reconcile() {
     # and how a rename the prompt just applied is told from one session.json is
     # merely late in reporting. Here that is a round-trip rather than a jq over
     # the snapshot, so it is still asked for only where a pass will read it.
-    if [ "$CLEAR" != "1" ] && { [ "$NAME_TABS" = "1" ] || ar_ws_pass; }; then
+    if ar_ws_derives && { [ "$NAME_TABS" = "1" ] || ar_ws_pass; }; then
       AR_PANES_JSON=$("$HERDR" pane list 2>/dev/null) || AR_PANES_JSON='{"result":{"panes":[]}}'
     fi
   fi
@@ -2440,7 +2433,7 @@ ar_fast_tab() {
 # this guard exists to refuse. The reconcile adopts it at the next herdr event.
 ar_fast_workspace() {
   local tab="${HERDR_TAB_ID:-}" wid base shown json label owner active slabel prefix want
-  local enabled auto unused seeded unwind=0
+  local enabled auto unused seeded
   ar_trace "fast workspace entered: tab [${tab}]"
   ar_ws_pass || { ar_trace "fast workspace: workspace pass is off"; return 0; }
   # A herdr tab id carries its workspace and a colon ("w1:t1"), the same shape
@@ -2454,8 +2447,14 @@ ar_fast_workspace() {
   # against. Comparing the DERIVED name instead would make the guard false on
   # every prompt for as long as a rewrite rule matches this workspace, and the
   # `workspace list` this guard exists to refuse would run on every one of them.
-  ar_ws_unwind && unwind=1
-  if [ "$unwind" = "1" ]; then shown=$base; else shown=$(ar_ws_subst "$base"); fi
+  shown=$(ar_ws_subst "$base")
+  # A rule that outputs nothing, or one `sed` rejects outright (a typo, a
+  # GNU-only construct on BSD sed), leaves this empty, and an empty label is one
+  # herdr would take: the row goes blank and its derivation is frozen by the
+  # rename that blanked it. The reconcile half refuses an empty base for the
+  # same reason a few lines into its loop, and the tab half refuses an empty
+  # name unless HIDE_SHELL asked for one.
+  [ -n "$shown" ] || { ar_trace "ws:$wid rewrite of [$base] is empty, nothing renamed"; return 0; }
   ar_state_rows
   # Every field gets a name, for the reason ar_ws_track_eligible names them all.
   # shellcheck disable=SC2034  # `unused` and `seeded` are named so they can be discarded
@@ -2492,12 +2491,16 @@ ar_fast_workspace() {
   ar_ws_track_eligible "$wid" "$slabel" "$base" || { ar_trace "ws:$wid not eligible: label [$slabel]"; return 0; }
   # The position is the reconcile's to compute, so the number already on the row
   # is carried forward, the way the tab half carries its own.
-  if ar_index_on workspaces || [ "$unwind" = "1" ]; then
-    # An unwind runs on a config that never asked for workspace numbering, so a
-    # number on this row is either ours from before it was switched off or
-    # somebody's own text. Neither is this pass's to strip: it is here to take
-    # back a rewrite, and it carries the prefix over as the reconcile does.
-    prefix=$(ar_index_prefix "$label")
+  # Whether the number on this row survives the prompt is the reconcile's rule,
+  # and this half has to answer it the same way or the two undo each other every
+  # time: numbering on carries it, numbering NAMED and switched off strips it
+  # (that strip is what naming the kind asks for), and a config that merely
+  # inherited off has asked for neither and is left as it is -- which is the
+  # case rewrite rules made reachable here. The prefix is taken back off the
+  # label rather than rebuilt from it, for the reason ar_renumber_workspaces
+  # gives where it does the same.
+  if ar_index_on workspaces || ! ar_index_pass workspaces; then
+    prefix=${label%"$slabel"}
   else
     prefix=""
   fi
@@ -2511,15 +2514,7 @@ ar_fast_workspace() {
   # and the derived name for the same reason: a rewrite is the sidebar's, and a
   # tab still sits in a directory called what the directory is called.
   AR_FAST_WS=$base
-  # An unwind has just handed the derivation back, so herdr can resume deriving
-  # it and the record goes -- the same ending ar_renumber_workspaces gives it,
-  # and what stops ar_ws_pass waking this path on every prompt from here on.
-  if [ "$unwind" = "1" ]; then
-    ar_state_del "ws:$wid"
-    ar_trace "ws:$wid released: no numbering and no rewrite rules left"
-  else
-    ar_ws_claim "$wid" "$shown"
-  fi
+  ar_ws_claim "$wid" "$shown"
 }
 
 # Coalesce bursts: only the lock holder works; contenders raise the rerun flag
