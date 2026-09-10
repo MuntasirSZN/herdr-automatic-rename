@@ -627,7 +627,7 @@ check "a moved tab does not rename the workspace it left" "" "$(log)"
 teardown
 
 # ======================================================================
-# Scenario 18: WORKSPACE_SUBSTITUTE_SETS rewrites the label a workspace takes
+# Scenario 23: WORKSPACE_SUBSTITUTE_SETS rewrites the label a workspace takes
 #   from its directory, and only the label. The rewrite composes with numbering
 #   in the one rename, and then settles.
 # ======================================================================
@@ -646,7 +646,8 @@ run_event pane.focused
 check "the rewrite settles" "" "$(log)"
 
 # ...and it follows a cd like any other derived label: the new directory is
-# derived first and rewritten second.
+# derived first and rewritten second, so the rewrite is never built out of the
+# label the last pass wrote.
 clear_log
 session "w1=/home/u/worktree-parser"
 run_event pane.focused
@@ -654,9 +655,9 @@ check_contains "the rewrite follows the cd" "$(log)" "workspace rename w1 [1] wt
 teardown
 
 # ======================================================================
-# Scenario 19: the rewrite runs on a config that never asked for numbering.
-#   Numbering and rewriting are separate reasons for the workspace pass to
-#   exist, and AUTO_INDEX=0 switches off only the first.
+# Scenario 24: the rewrite runs on a config that never asked for numbering.
+#   Numbering and rewriting are the two separate reasons the workspace pass
+#   exists, and AUTO_INDEX=0 switches off only the first.
 # ======================================================================
 setup
 export AUTO_INDEX=0
@@ -666,7 +667,7 @@ session "w1=/home/u/worktree-feature"
 run_event workspace.created
 check_contains "no numbering, still rewritten" "$(log)" "workspace rename w1 wt-feature"
 
-# A workspace no rule touches is renamed nothing at all -- the pass runs, and
+# A workspace no rule touches is renamed nothing at all: the pass runs, and
 # leaves a label that already reads as it should.
 clear_log
 workspaces "$(ws w1 wt-feature),$(ws w2 project-a)"
@@ -676,7 +677,7 @@ check "a label no rule matches is left alone" "" "$(log)"
 teardown
 
 # ======================================================================
-# Scenario 20: a name somebody typed is not rewritten, even when a rule matches
+# Scenario 25: a name somebody typed is not rewritten, even where a rule matches
 #   it. Ownership is the same promise the tab opt-out makes: a label that is
 #   neither herdr's derivation nor our own last write belongs to whoever typed
 #   it. (herdr exposes no way to tell a typed name from the derivation it
@@ -692,77 +693,93 @@ check "a hand-typed name is not rewritten" "" "$(log)"
 teardown
 
 # ======================================================================
-# Scenario 21: deleting the rules puts the derived names back, and then lets go.
-#   With numbering off there is nothing else to bring the workspace pass round
-#   again, so an owned workspace keeps it alive for exactly one more pass: the
-#   one that hands the derivation back and drops the record. herdr labels the
-#   workspace from its directory again from there, which it only does for a
-#   workspace nobody has renamed.
+# Scenario 26: a rewrite is derived fresh every pass, so deleting the rules puts
+#   the derived names back on the next event with no unwinding machinery of its
+#   own. An empty rule list is the identity, and the base has always come from
+#   identity_cwd rather than from the label the last pass wrote (issue #13).
 # ======================================================================
 setup
-export AUTO_INDEX=0
 state=$XDG_STATE_HOME/herdr-automatic-rename/state.json
 rule
 workspaces "$(ws w1 worktree-feature)"
 session "w1=/home/u/worktree-feature"
 run_event workspace.created
-check_contains "adopted at the rewrite" "$(log)" "workspace rename w1 wt-feature"
+check_contains "adopted at the rewrite" "$(log)" "workspace rename w1 [1] wt-feature"
 
 clear_log
 : >"$HERDR_AUTOMATIC_RENAME_CONFIG"                # the rules are deleted
-workspaces "$(ws w1 wt-feature)"
+workspaces "$(ws w1 '[1] wt-feature')"
 run_event pane.focused
 check_contains "deleting the rules restores the derived name" "$(log)" \
-  "workspace rename w1 worktree-feature"
-check "and the record is let go" "false" "$(jq -r 'has("ws:w1")' "$state" 2>/dev/null)"
+  "workspace rename w1 [1] worktree-feature"
+check "and the workspace is still tracked" "worktree-feature" \
+  "$(jq -r '."ws:w1".auto' "$state" 2>/dev/null)"
 
 clear_log
-workspaces "$(ws w1 worktree-feature)"
+workspaces "$(ws w1 '[1] worktree-feature')"
 run_event pane.focused
-check "and the pass stops running at all" "" "$(log)"
+check "and it settles there" "" "$(log)"
 teardown
 
 # ======================================================================
-# Scenario 22: an unwind touches only what this plugin owns. It runs on a config
-#   that never named workspace numbering, so a "[3] " on a row it does not own
-#   is somebody's own text -- and the number on a row it DOES own is carried
-#   over rather than stripped, for the same reason.
+# Scenario 27: the workspace pass runs for numbering or for a rewrite, and for
+#   nothing else. A pass that also ran because this plugin OWNS a workspace
+#   would run for every config that has ever numbered one, and would then be
+#   entitled to write to workspaces on a config asking for nothing -- where the
+#   one-way cost of being wrong is a workspace opted out of directory tracking
+#   with no reset action to bring it back. So AUTO_INDEX=0 on a config with no
+#   rules is the no-op it was before rewrites existed, records and all.
 # ======================================================================
 setup
-export AUTO_INDEX=0
 state=$XDG_STATE_HOME/herdr-automatic-rename/state.json
-mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
-printf '{"ws:w1":{"auto":"wt-feature","enabled":true}}\n' >"$state"
-workspaces "$(ws w1 '[3] wt-feature'),$(ws w2 '[9] notes')"
-session "w1=/home/u/worktree-feature" "w2=/home/u/elsewhere"
+workspaces "$(ws w1 project-a)"
+session "w1=/home/u/project-a"
+run_event workspace.created                        # numbering adopts it
+check "adopted by numbering" "project-a" "$(jq -r '."ws:w1".auto' "$state" 2>/dev/null)"
+
+clear_log
+export AUTO_INDEX=0
+workspaces "$(ws w1 '[1] project-a')"
 run_event pane.focused
-check_contains "the number is carried over the restore" "$(log)" \
-  "workspace rename w1 [3] worktree-feature"
-check_absent "a row we do not own is untouched" "$(log)" "w2"
+check "numbering off renames nothing" "" "$(log)"
+check "and the record is left alone" "project-a" "$(jq -r '."ws:w1".auto' "$state" 2>/dev/null)"
+
+# ...so turning numbering back on after a cd re-adopts through the record,
+# rather than reading the frozen label as a name somebody typed.
+clear_log
+export AUTO_INDEX=1
+session "w1=/home/u/project-b"
+run_event pane.focused
+check_contains "and numbering resumes tracking" "$(log)" "workspace rename w1 [1] project-b"
 teardown
 
 # ======================================================================
-# Scenario 23: `clear` takes the rewrite back too, not just the number. It is
+# Scenario 28: `clear` takes the rewrite back too, not just the number. It is
 #   documented as the last step before uninstall, after which the plugin that
-#   could have restored the label is gone -- so it hands back the derived base
-#   and strips the prefix off THAT.
+#   could have restored the label is gone, so it hands back the derived base and
+#   strips the prefix off THAT.
 # ======================================================================
 setup
+state=$XDG_STATE_HOME/herdr-automatic-rename/state.json
 rule
 workspaces "$(ws w1 worktree-feature)"
 session "w1=/home/u/worktree-feature"
 run_event workspace.created
 check_contains "adopted and numbered" "$(log)" "workspace rename w1 [1] wt-feature"
+before=$(cat "$state")
 
 clear_log
-workspaces "$(ws w1 '[1] wt-feature')"
+workspaces "$(ws w1 '[1] wt-feature'),$(ws w2 '[9] my notes')"
+session "w1=/home/u/worktree-feature" "w2=/home/u/elsewhere"
 /usr/bin/env bash "$ENGINE" --clear
-check_contains "clear restores the derived base" "$(log)" \
-  "workspace rename w1 worktree-feature"
+out=$(log)
+check_contains "clear restores the derived base" "$out" "workspace rename w1 worktree-feature"
+check_contains "and still strips a row it does not own" "$out" "workspace rename w2 my notes"
+check "and writes no state" "$before" "$(cat "$state")"
 teardown
 
 # ======================================================================
-# Scenario 24: the shell hook rewrites too, and stays quiet where the rewrite
+# Scenario 29: the shell hook rewrites too, and stays quiet where the rewrite
 #   already stands. The hook's whole guard is "the base I own is the base this
 #   prompt derives"; comparing the DERIVED name against a record holding the
 #   REWRITTEN one is never equal, and would fetch `workspace list` on every
@@ -794,9 +811,11 @@ check_contains "and asked herdr nothing" "$(cat "$trace" 2>/dev/null)" \
 teardown
 
 # ======================================================================
-# Scenario 25: the hook unwinds as the reconcile does. Whichever half reaches a
-#   workspace first once the rules are gone hands the derivation back and drops
-#   the record, so the other has nothing left to wake it.
+# Scenario 30: a rewrite that comes back empty renames nothing. `sed` rejects a
+#   malformed rule outright (a typo, a GNU-only construct on BSD sed) and the
+#   substitution captures its empty output, and herdr would take an empty label:
+#   the row goes blank and the rename that blanked it freezes the derivation, so
+#   nothing here could ever put it back.
 # ======================================================================
 setup
 export AUTO_INDEX=0
@@ -807,14 +826,215 @@ rule
 workspaces "$(ws w1 worktree-feature)"
 session "w1=/home/worktree-feature"
 run_event workspace.created
+check_contains "adopted at the rewrite" "$(log)" "workspace rename w1 wt-feature"
+
+# The rule is edited into one sed refuses.
+clear_log
+printf "WORKSPACE_SUBSTITUTE_SETS=('s|^[worktree-|wt-|')\n" \
+  >"$HERDR_AUTOMATIC_RENAME_CONFIG"
+workspaces "$(ws w1 wt-feature)"
+( cd "$SB/home/worktree-feature" \
+  && /usr/bin/env bash "$ENGINE" precmd zsh ) 2>/dev/null
+check "the hook renames nothing" "" "$(log)"
+check "and does not record an empty base" "wt-feature" \
+  "$(jq -r '."ws:w1".auto' "$state" 2>/dev/null)"
+
+# ...and the reconcile half refuses it as well.
+clear_log
+run_event pane.focused 2>/dev/null
+check "the reconcile renames nothing either" "" "$(log)"
+check "and records no empty base either" "wt-feature" \
+  "$(jq -r '."ws:w1".auto' "$state" 2>/dev/null)"
+teardown
+
+# ======================================================================
+# Scenario 31: the debounce rule survives a rewrite. Scenario 19's guard holds
+#   the prompt's rename against a lagging session.json by asking whether the
+#   panes still say what we last wrote -- and what we last wrote is a LABEL, so
+#   with a rule in play the record carries the rewritten spelling while the pane
+#   carries the directory's own. Compared raw, the two never match, the guard
+#   switches itself off for exactly the workspaces the feature is for, and the
+#   reconcile reverts every rename the prompt makes until the file catches up.
+# ======================================================================
+setup
+rule
+mkdir -p "$SB/home/worktree-feature" "$SB/home/worktree-parser"
+cat >"$HERDR_MOCK_DIR/snapshot.json" <<JSON
+{"result":{"snapshot":{"workspaces":[
+  {"workspace_id":"w1","label":"[1] wt-parser","focused":true,"active_tab_id":"w1:t1"}
+],"tabs":[],"panes":[
+  {"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,
+   "foreground_cwd":"$SB/home/worktree-parser"}
+],"agents":[]}}}
+JSON
+session "w1=/home/worktree-feature"               # the file has not caught up
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"ws:w1":{"auto":"wt-parser","enabled":true}}\n' \
+  >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+run_event workspace.renamed
+check "a rewritten name survives the debounce" "" "$(log)"
+
+# Once herdr writes the file, both agree and nothing changes either.
+clear_log
+session "w1=/home/worktree-parser"
+run_event pane.focused
+check "and still nothing once it catches up" "" "$(log)"
+teardown
+
+# ======================================================================
+# Scenario 32: and the guard still refuses a pane that agrees with neither the
+#   file nor the record, rewrite or no rewrite. Scenario 21's promise: only the
+#   exact agreement counts, so a pane guess cannot outrank identity_cwd.
+# ======================================================================
+setup
+rule
+mkdir -p "$SB/home/worktree-feature" "$SB/home/worktree-other"
+cat >"$HERDR_MOCK_DIR/snapshot.json" <<JSON
+{"result":{"snapshot":{"workspaces":[
+  {"workspace_id":"w1","label":"[1] wt-stale","focused":true,"active_tab_id":"w1:t1"}
+],"tabs":[],"panes":[
+  {"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,
+   "foreground_cwd":"$SB/home/worktree-other"}
+],"agents":[]}}}
+JSON
+session "w1=/home/worktree-feature"
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"ws:w1":{"auto":"wt-stale","enabled":true}}\n' \
+  >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+run_event pane.focused
+check_contains "identity_cwd still wins" "$(log)" "workspace rename w1 [1] wt-feature"
+check_absent   "the pane guess is ignored" "$(log)" "wt-other"
+teardown
+
+# ======================================================================
+# Scenario 33: a rules-only pass numbers nothing and strips nothing. Rewrites
+#   give the workspace pass a second reason to run, and it now runs on configs
+#   that never named workspace numbering -- where ar_index_explicit's contract
+#   is that such a config asks for neither the numbering nor the strip and is
+#   left exactly as it was. So a "[3] " somebody typed stays put, and a row this
+#   pass does not own is not renamed at all.
+# ======================================================================
+setup
+export AUTO_INDEX=0                                # inherited off, never named
+rule
+workspaces "$(ws w1 '[3] incident room')"
+session "w1=/home/u/project-a"
+run_event pane.focused
+check "a hand-typed row keeps its own number" "" "$(log)"
+
+# ...while a workspace the rewrite DOES reach keeps its number too, and wears
+# the rewrite.
+clear_log
+workspaces "$(ws w1 '[2] worktree-feature')"
+session "w1=/home/u/worktree-feature"
+run_event pane.focused
+check_contains "and a rewritten row keeps its number" "$(log)" \
+  "workspace rename w1 [2] wt-feature"
+teardown
+
+# ======================================================================
+# Scenario 34: `clear` with no rules configured is the prefix strip it has
+#   always been. It reads herdr's derivation only when there is a rewrite to
+#   hand back -- deriving unconditionally had it rename every workspace to
+#   wherever identity_cwd points, on the one pass with no follow-up, and the
+#   rename it issues freezes that derivation for good.
+# ======================================================================
+setup
+state=$XDG_STATE_HOME/herdr-automatic-rename/state.json
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"ws:w1":{"auto":"project-b","enabled":true}}\n' >"$state"
+workspaces "$(ws w1 '[1] project-b')"
+session "w1=/home/u/project-a"                     # the file has not caught up
+/usr/bin/env bash "$ENGINE" --clear
+check_contains "clear strips, and does not re-derive" "$(log)" \
+  "workspace rename w1 project-b"
+check_absent "the stale directory is not applied" "$(log)" "project-a"
+teardown
+
+# ======================================================================
+# Scenario 35: and where clear DOES hand a rewrite back, the debounce guard
+#   comes with it. Reading the derivation without the panes would hand back the
+#   directory the workspace has just left, permanently, on the way out.
+# ======================================================================
+setup
+rule
+mkdir -p "$SB/home/worktree-feature" "$SB/home/worktree-parser"
+cat >"$HERDR_MOCK_DIR/snapshot.json" <<JSON
+{"result":{"snapshot":{"workspaces":[
+  {"workspace_id":"w1","label":"[1] wt-parser","focused":true,"active_tab_id":"w1:t1"}
+],"tabs":[],"panes":[
+  {"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,
+   "foreground_cwd":"$SB/home/worktree-parser"}
+],"agents":[]}}}
+JSON
+session "w1=/home/worktree-feature"               # the file has not caught up
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"ws:w1":{"auto":"wt-parser","enabled":true}}\n' \
+  >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+/usr/bin/env bash "$ENGINE" --clear
+check_contains "clear restores the directory the panes agree on" "$(log)" \
+  "workspace rename w1 worktree-parser"
+check_absent "not the one session.json still names" "$(log)" "worktree-feature"
+teardown
+
+# ======================================================================
+# Scenario 36: the hook keeps the number the reconcile keeps. Whether a "[N] "
+#   survives is one rule, and the two halves have to answer it alike or they
+#   undo each other every prompt. Numbering NAMED and switched off asks for the
+#   strip; a config that merely inherited off has asked for neither and is left
+#   as it is, which is the case rewrite rules made reachable on this path.
+# ======================================================================
+setup
+export AUTO_INDEX=0                                # inherited off, never named
+export HERDR_TAB_ID=w1:t1 HERDR_PANE_ID=w1:p1
+rule
+mkdir -p "$SB/home/worktree-feature" "$SB/home/worktree-parser"
+workspaces "$(ws w1 '[2] worktree-feature')"
+session "w1=/home/worktree-feature"
+run_event pane.focused
+check_contains "the reconcile keeps the number" "$(log)" "workspace rename w1 [2] wt-feature"
 
 clear_log
-: >"$HERDR_AUTOMATIC_RENAME_CONFIG"                # the rules are deleted
-workspaces "$(ws w1 wt-feature)"
+workspaces "$(ws w1 '[2] wt-feature')"
+( cd "$SB/home/worktree-parser" && /usr/bin/env bash "$ENGINE" precmd zsh )
+check_contains "and so does the hook" "$(log)" "workspace rename w1 [2] wt-parser"
+
+# ...and where numbering is NAMED and off, both still strip. The hook only
+# renames when the BASE it derives has moved, the prefix being the reconcile's
+# to settle, so the cd is what makes this half act at all.
+clear_log
+export AUTO_INDEX_WORKSPACES=0
+workspaces "$(ws w1 '[2] wt-parser')"
 ( cd "$SB/home/worktree-feature" && /usr/bin/env bash "$ENGINE" precmd zsh )
-check_contains "the hook restores the derived name" "$(log)" \
-  "workspace rename w1 worktree-feature"
-check "and lets the workspace go" "false" "$(jq -r 'has("ws:w1")' "$state" 2>/dev/null)"
+check_contains "naming the kind off strips in the hook" "$(log)" \
+  "workspace rename w1 wt-feature"
+
+clear_log
+workspaces "$(ws w1 '[2] wt-feature')"
+session "w1=/home/worktree-feature"
+run_event pane.focused
+check_contains "and in the reconcile" "$(log)" "workspace rename w1 wt-feature"
+unset AUTO_INDEX_WORKSPACES
+teardown
+
+# ======================================================================
+# Scenario 37: a label the strip refused is not renamed by the pass that
+#   carries prefixes over. ar_index_prefix is documented as ar_strip_prefix's
+#   exact inverse and is not one on a malformed label -- "[1]: [done] task"
+#   strips to itself while ar_index_prefix still reads a "[1] " off it -- so the
+#   prefix is taken back off the label rather than rebuilt from it. Re-joining
+#   the two renamed a row this pass promises to leave alone, one way.
+# ======================================================================
+setup
+export AUTO_INDEX=0
+rule
+session "w1=/home/u/project-a"
+for lbl in '[1]: [done] task' '[1]x] foo' '[2](old] plan' '[wip] notes'; do
+  clear_log
+  workspaces "$(ws w1 "$lbl")"
+  run_event pane.focused
+  check "left alone: $lbl" "" "$(log)"
+done
 teardown
 
 t_summary
