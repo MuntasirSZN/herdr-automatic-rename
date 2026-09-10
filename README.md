@@ -100,7 +100,7 @@ See [config.example.sh](config.example.sh) for the full configuration details.
 
 ## Actions
 
-`reset` re-adopts a tab you renamed by hand. `clear` strips every `[N]` number prefix, restores base names, and reverts agents to detection. Run one from the CLI, or bind it in `config.toml` as a `plugin_action`:
+`reset` re-adopts a tab you renamed by hand. `clear` strips every `[N]` number prefix, restores base names, and reverts agents to detection. `doctor` prints why the current tab has the name it has. Run one from the CLI, or bind it in `config.toml` as a `plugin_action`:
 
 ```sh
 herdr plugin action invoke herdr-automatic-rename.reset
@@ -125,6 +125,22 @@ Then delete `~/.local/state/herdr-automatic-rename/`.
 - **An agent answers to either of its names.** herdr knows `cursor-agent` and `kiro-cli` as `cursor` and `kiro`, so one `PROGRAM_ALIASES` entry covers both spellings. Muse is the same, including its `muse-bin-<version>` build.
 - **Naming needs a foreground process.** Some Linux container and sandbox setups hide one from herdr, so naming stops while numbering keeps working. On herdr `>= 0.8.0`, set `HERDR_PROCESS_DETECTION=child-groups` in its environment.
 - **On herdr below `0.7.4`** a new name lands but only shows at the next redraw, such as a focus change.
+
+## Troubleshooting
+
+Each entry is a symptom and the command that explains it. `doctor` runs one real naming pass and prints what that pass saw and decided about the current tab, so what it says is what the plugin did.
+
+**One tab is not being named.** Run `doctor` on it. A record reading `enabled=false` means you renamed the tab by hand at some point, and the plugin keeps its promise to leave it alone. Run `reset` to take it back.
+
+**Nothing is named at all.** Run `doctor`. The first lines say which herdr and jq it found and where the state directory is. A missing one of those is the whole story: the plugin exits without a word when a prerequisite is gone.
+
+**Names are stale, or lag one event behind.** Set `AR_TRACE=1` in the environment herdr launches with, reproduce, and read `~/.local/state/herdr-automatic-rename/trace.log` (a named session keeps its own copy under `sessions/<name>/`). Turn it off afterwards. The log can contain task titles, which is why it lives in the state directory at `0600`.
+
+**Numbers are off by one.** Collapse has no event, so the numbers settle at the next one. Focus another tab and come back.
+
+```sh
+herdr plugin action invoke herdr-automatic-rename.doctor
+```
 
 ## Contributing
 

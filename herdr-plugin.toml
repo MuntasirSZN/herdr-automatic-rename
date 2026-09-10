@@ -156,6 +156,15 @@ title = "Reset tab to automatic naming"
 contexts = ["global"]
 command = ["bash", "automatic-rename.sh", "reset"]
 
+# Print why the current tab has the name it has: versions, the tab's state
+# record, its label, and the decisions one real pass made about it. Invoke with
+#   herdr plugin action invoke herdr-automatic-rename.doctor
+[[actions]]
+id = "doctor"
+title = "Herdr Automatic Rename: explain this tab's name"
+contexts = ["global"]
+command = ["bash", "automatic-rename.sh", "doctor"]
+
 # Strip every "[N] " prefix (restore base names / revert agents to detection).
 # For a clean uninstall, run the strip directly BEFORE uninstalling, so the
 # renames do not re-fire the numbering hooks (see the README's Uninstall steps).
