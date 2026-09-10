@@ -1,38 +1,55 @@
 # herdr-automatic-rename
 
-[![tests](https://github.com/qu8n/herdr-automatic-rename/actions/workflows/ci.yml/badge.svg)](https://github.com/qu8n/herdr-automatic-rename/actions/workflows/ci.yml)
+[![tests](https://github.com/qu8n/herdr-automatic-rename/actions/workflows/ci.yml/badge.svg)](https://github.com/qu8n/herdr-automatic-rename/actions/workflows/ci.yml) [![release](https://img.shields.io/github/v/release/qu8n/herdr-automatic-rename)](https://github.com/qu8n/herdr-automatic-rename/releases) [![herdr](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fqu8n%2Fherdr-automatic-rename%2Fmain%2Fherdr-plugin.toml&query=%24.min_herdr_version&prefix=%3E%3D%20&label=herdr)](https://github.com/qu8n/herdr) [![license](https://img.shields.io/github/license/qu8n/herdr-automatic-rename)](LICENSE)
 
-This plugin makes herdr easier to navigate:
+<img width="900" height="390" alt="Tab bars before and after the plugin names tabs" src="docs/readme-demo.jpg" />
 
-- Like [tmux](https://github.com/tmux/tmux)'s `automatic-rename`, a tab shows its foreground process (`nvim`, `claude`) or the shell (`zsh`) instead of `1`, `2`, `3`. A tab running a coding agent shows the task instead, with names like `Squash merge command`.
-- Workspaces and tabs get an `[N]` prefix matching the `1-9` binding for that slot, so you can glance at the sidebar or tab bar and jump straight there.
-- A workspace keeps the name herdr gives it, which follows the directory its panes are in. Numbering it used to freeze that name at whatever the workspace was called when it opened.
+By default, herdr names your tabs `1`, `2`, `3`, etc. This plugin automatically renames your tabs so you can immediately know what each tab contains. It also adds a `[N]` number prefix for keyboard-first users to quickly navigate across tabs.
 
-Set `NAME_TABS=0` to turn off the naming, `AUTO_INDEX=0` to turn off the numbering.
+Some examples of tabs renamed by this plugin:
 
-<img width="1200" height="520" alt="Tab bars before and after the plugin names tabs" src="docs/readme-demo.jpg" />
+```text
+TAB NAME                                HOW TO READ IT
+-------------------------------------   --------------------------------
+[1] zsh                                 a plain shell
+[2] api › feat/oauth › nvim             directory › branch › program
+[3] prod-01 › ssh                       a machine you reached over ssh
+[4] PROJ-482 › Fix the revenue query    branch › what an agent is doing
+```
 
-## Requirements
+Tab names are highly configurable. See the Configuration section below for more info.
 
-herdr `>= 0.7.1`, `jq`, and bash, on Linux or macOS.
+## Quick start
 
-Prefer herdr `>= 0.7.4`. Below that a new name still lands, but the tab bar shows it only on the next redraw, such as a focus change.
+### Requirements
 
-## Install
+- herdr `>= 0.7.1`
+- `jq`
+- bash
+- Linux or macOS
 
-### 1. Install the plugin
+### Install or update
+
+Simply run this automation script:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/qu8n/herdr-automatic-rename/main/install.sh | bash
+```
+
+This script installs the latest version of the plugin and adds our shell hook, which makes the renaming mechanism happen immediately when a command starts. It picks the hook for your login shell out of zsh, bash, and fish, and writes it to that shell's startup file.
+
+<details>
+<summary>Alternative, manual setup instructions</summary>
+
+#### Install the plugin
 
 ```sh
 herdr plugin install qu8n/herdr-automatic-rename --yes
 ```
 
-It triggers at the next herdr event.
+#### Add the hook for your shell
 
-### 2. Add the shell hook
-
-The hook renames a tab the instant a command starts. Without it, a new name waits for the next focus or tab event.
-
-**zsh** (`~/.zshrc`):
+zsh (`~/.zshrc`):
 
 ```zsh
 for _f in ${HOME}/.config/herdr/plugins/github/herdr-automatic-rename-*/shell/hook.zsh(N); do
@@ -40,7 +57,7 @@ for _f in ${HOME}/.config/herdr/plugins/github/herdr-automatic-rename-*/shell/ho
 done
 ```
 
-**bash** (`~/.bashrc`, after any prompt or history tool like starship or atuin):
+bash (`~/.bashrc`):
 
 ```bash
 for _f in "$HOME"/.config/herdr/plugins/github/herdr-automatic-rename-*/shell/hook.bash; do
@@ -48,7 +65,7 @@ for _f in "$HOME"/.config/herdr/plugins/github/herdr-automatic-rename-*/shell/ho
 done
 ```
 
-**fish** (`~/.config/fish/config.fish`):
+fish (`~/.config/fish/config.fish`):
 
 ```fish
 for _f in $HOME/.config/herdr/plugins/github/herdr-automatic-rename-*/shell/hook.fish
@@ -56,9 +73,13 @@ for _f in $HOME/.config/herdr/plugins/github/herdr-automatic-rename-*/shell/hook
 end
 ```
 
-### 3. Turn off herdr's new-tab name prompt
+</details>
 
-herdr asks each new tab for a name (`prompt_new_tab_name`, on by default). A name typed there counts as a hand rename, which opts the tab out until you `reset` it, so turn the prompt off:
+### Recommended herdr configs
+
+**1. Turn off herdr's new-tab name prompt.**
+
+When you create a new tab, herdr prompts you to give it a name. For the best UX, you should disable this feature to let this plugin do the naming for you. (When you manually set a name, this plugin respects that and doesn't automatically rename it unless you invoke the `reset` action on that tab.)
 
 ```toml
 # ~/.config/herdr/config.toml
@@ -66,52 +87,43 @@ herdr asks each new tab for a name (`prompt_new_tab_name`, on by default). A nam
 prompt_new_tab_name = false
 ```
 
-Keep `prompt_new_workspace_name` if you use it. A name typed there is a name the plugin leaves alone, prefix aside.
+**2. Install the herdr integrations for your coding agents.**
 
-## Configuration
+See [herdr's integrations docs](https://herdr.dev/docs/integrations/) for installation details. This lets herdr then detect an agent natively instead of by reading the screen, which makes for agent tab naming smoother.
 
-Every setting has a working default, so start with no config at all. To change one, copy the sample:
+## Configuration (optional)
 
-```sh
-mkdir -p ~/.config/herdr-automatic-rename
-cp "$(dirname "$(herdr plugin list --json | jq -r '.result.plugins[]|select(.plugin_id=="herdr-automatic-rename").source.managed_path')")"/herdr-automatic-rename-*/config.example.sh \
-  ~/.config/herdr-automatic-rename/config.sh
-```
+To customize a config, write it to `~/.config/herdr-automatic-rename/config.sh` (or point `HERDR_AUTOMATIC_RENAME_CONFIG` elsewhere).
 
-`HERDR_AUTOMATIC_RENAME_CONFIG` overrides that path. [config.example.sh](config.example.sh) documents every knob: numbering per row kind, workspace display rewrites, agent titles, label length, the program lists (shells, ignored commands, custom labels), and Nerd Font icons.
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `NAME_TABS` | `1` | Automatic tab naming (the core feature of this plugin). |
+| `AUTO_INDEX` | `1` | Prefix with their `1-9` prefix key. |
+| `TAB_CONTEXT` | `1` | Show the `<where>` half of a tab name: directory, branch, or ssh host. |
+| `SHOW_BRANCH` | `1` | Add the checked-out branch. Trunk branches and branches that repeat what is on screen are left out. |
+| `AGENT_TITLES` | `1` | Name an agent tab after the task it reports, not after the agent name (e.g. `claude`). |
+| `TITLE_STYLE` | `task` | `name_and_task` keeps the agent in front, like `cc:auth-flow`. Worth it when you run several agents. |
+| `TITLE_CONDENSE` | `0` | Keep a long title's keywords instead of cutting off its tail. |
+| `HIDE_SHELL` | `0` | `1` shows nothing for a plain prompt, so herdr's own number shows through. |
+| `ICONS_ENABLED` | `0` | Show Nerd Font glyph in front of the name. |
+| `PROGRAM_ALIASES` | none | Rename programs on the tab: `"lazygit=lg"`. |
+| `MAX_NAME_LEN` `MAX_TITLE_LEN` `MAX_CONTEXT_LEN` `MAX_BRANCH_LEN` | `20` `MAX_NAME_LEN + 8` `12` `12` | Character budget per part of the tab name. |
 
-For example, this shortens a displayed workspace name from `worktree-feature` to `wt-feature` without renaming its directory or Git worktree:
-
-```bash
-WORKSPACE_SUBSTITUTE_SETS=(
-  's|^worktree-|wt-|'
-)
-```
-
-A workspace name entered by hand is unchanged when it differs from the directory-derived name. Herdr does not expose whether a matching name was entered by hand.
+See [config.example.sh](config.example.sh) for the full configuration details.
 
 ## Actions
 
 - `reset` re-adopts a tab you renamed by hand.
-- `clear` strips every `[N]`, restores base names, and reverts agents to detection.
+- `clear` strips every `[N]` number prefix, restores base names, and reverts agents to detection.
+- `doctor` prints why the current tab has the name it has for troubleshooting.
 
-Both report what they did as a herdr notification. Run one from the CLI, or bind a key:
+Run one from the CLI, or bind it in `config.toml` as a `plugin_action`, like this:
 
 ```sh
 herdr plugin action invoke herdr-automatic-rename.reset
 ```
 
-```toml
-# ~/.config/herdr/config.toml (example binding)
-[[keys.command]]
-key = "alt+shift+r"
-type = "plugin_action"
-command = "herdr-automatic-rename.reset"
-```
-
 ## Uninstall
-
-Strip the labels first, else `clear`'s renames re-fire the hooks. Then remove the plugin:
 
 ```sh
 bash "$(herdr plugin list --json \
@@ -119,18 +131,21 @@ bash "$(herdr plugin list --json \
 herdr plugin uninstall herdr-automatic-rename
 ```
 
-## Good to know
+Then delete `~/.local/state/herdr-automatic-rename/`.
 
-- **Manual renames win.** Rename a tab yourself and naming leaves it alone, though numbering still applies. Run `reset` to hand it back.
-- **The names reach your window title.** herdr `>= 0.8.2` writes the outer terminal's title, `{hostname}: {workspace}` by default, so a workspace's `[N]` already shows there. Add `{tab}` to carry the tab name too, agent task included: `window_title = "{hostname}: {workspace} · {tab}"` under `[ui]`. herdr's `{terminal_title}` token shows the focused pane's raw title instead.
-- **Search finds the generated names.** herdr `>= 0.8.2` searches renamed single-tab labels, so the Session Navigator matches what this plugin wrote.
-- **Numbering stops at 9.** No binding reaches a 10th row, so the rest stay bare.
-- **Naming needs a foreground process.** Some Linux container and sandbox setups leave herdr unable to see one, which stops tab naming (numbering still works). On herdr `>= 0.8.0`, set `HERDR_PROCESS_DETECTION=child-groups` in its environment.
+## Caveats
 
-## Development
+- **Manual renames win.** When you rename a tab yourself, the plugin respects that and doesn't touch it, though the prefix numbering still applies. `reset` hands it back to the plugin.
+- **Numbering stops at 9.** No binding reaches a 10th row, so the rest keep plain names.
+- **An agent answers to either of its names.** herdr knows `cursor-agent` and `kiro-cli` as `cursor` and `kiro`, so one `PROGRAM_ALIASES` entry covers both spellings. Muse is the same, including its `muse-bin-<version>` build.
+- **Transcripts are read for untitled Claude Code tabs.** With the Claude integration installed, a tab whose agent has no title is named from the session's transcript on disk, so the plugin reads what you typed to the agent. `AGENT_TRANSCRIPT=0` in `config.sh` turns that off.
+- **Naming needs a foreground process.** Some Linux container and sandbox setups hide one from herdr, so naming stops while numbering keeps working. On herdr `>= 0.8.0`, set `HERDR_PROCESS_DETECTION=child-groups` in its environment.
+- **On herdr below `0.7.4`** a new name lands but only shows at the next redraw, such as a focus change.
 
-The engine is `automatic-rename.sh`, with the naming rules in `naming.sh` and icons in `icons.sh`. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) covers the non-obvious decisions, and [CONTRIBUTING.md](CONTRIBUTING.md) covers the tests.
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT.

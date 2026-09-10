@@ -30,13 +30,36 @@ check "git is name-only" "git" "$(ar_format 'git' 'git status')"
 
 # NAME_ONLY_PROGRAMS only bites with SHOW_PROGRAM_ARGS=1 (0 is the default and
 # already renders bare names), so assert these there. Covers the agents herdr
-# 0.8.0 detects, including the two whose executable differs from its --kind id.
+# 0.9.0 detects, including the three whose executable differs from its --kind id.
 check "grok is name-only" "grok" "$(SHOW_PROGRAM_ARGS=1 ar_format 'grok' 'grok --model x')"
 check "agy is name-only" "agy" "$(SHOW_PROGRAM_ARGS=1 ar_format 'agy' 'agy --conversation 12')"
 check "opencode is name-only" "opencode" "$(SHOW_PROGRAM_ARGS=1 ar_format 'opencode' 'opencode run x')"
 check "cursor-agent name-only" "cursor-agent" "$(SHOW_PROGRAM_ARGS=1 ar_format 'cursor-agent' 'cursor-agent -p x')"
 check "kiro-cli is name-only" "kiro-cli" "$(SHOW_PROGRAM_ARGS=1 ar_format 'kiro-cli' 'kiro-cli chat')"
 check "gemini is name-only" "gemini" "$(SHOW_PROGRAM_ARGS=1 ar_format 'gemini' 'gemini -p hi')"
+check "muse is name-only" "muse" "$(SHOW_PROGRAM_ARGS=1 ar_format 'muse' 'muse --resume')"
+check "muse-cli is name-only" "muse-cli" "$(SHOW_PROGRAM_ARGS=1 ar_format 'muse-cli' 'muse-cli chat')"
+check "muse-code is name-only" "muse-code" "$(SHOW_PROGRAM_ARGS=1 ar_format 'muse-code' 'muse-code run')"
+
+# Muse only ever runs as muse-bin-<version>, which no list can carry, so the
+# fold onto herdr's own kind happens before every rule that keys on the name.
+check "a versioned muse binary is named muse" "muse" \
+  "$(SHOW_PROGRAM_ARGS=1 ar_format 'muse-bin-0.1.0-R708.1' 'muse-bin-0.1.0-R708.1 --resume')"
+check "and takes the alias set for muse" "ms" "$(
+  PROGRAM_ALIASES=("muse=ms")
+  ar_format 'muse-bin-1.2.3' 'muse-bin-1.2.3'
+)"
+# herdr asks for a digit right after the prefix, so an unrelated binary that
+# merely starts the same way keeps its own name.
+check "muse-binary is not Muse" "muse-binary" \
+  "$(SHOW_PROGRAM_ARGS=0 ar_format 'muse-binary' 'muse-binary -x')"
+check "a bare muse-bin is not Muse either" "muse-bin" \
+  "$(SHOW_PROGRAM_ARGS=0 ar_format 'muse-bin' 'muse-bin')"
+# The fold sits ahead of the icon lookup too, so a versioned install draws the
+# robot every other agent draws instead of the fallback. (The glyph itself is
+# pinned by the icon section below, which reads its roster off the same list.)
+check "a versioned muse binary draws the agent glyph" "$(printf '\363\260\232\251') muse" \
+  "$(ICONS_ENABLED=1 ar_format 'muse-bin-0.1.0-R708.1' 'muse-bin-0.1.0-R708.1')"
 
 # ---- ignored programs keep showing the shell ----
 check "ls is ignored -> shell" "zsh" "$(ar_format 'ls' 'ls -la')"
@@ -51,6 +74,26 @@ check "regular program, args off -> name only" "psql" "$(SHOW_PROGRAM_ARGS=0 ar_
 PROGRAM_ALIASES=("clx=hn" "lazygit=lg")
 check "alias clx->hn" "hn" "$(ar_format 'clx' 'clx --nerdfonts')"
 check "alias lazygit->lg" "lg" "$(ar_format 'lazygit' 'lazygit')"
+PROGRAM_ALIASES=()
+
+# An agent whose executable differs from herdr's kind reaches ar_format under
+# either spelling, depending on how it was installed (the WRAPPER_PROGRAMS path
+# substitutes the kind), so one alias entry has to answer for both (issue #19).
+PROGRAM_ALIASES=("cursor-agent=cu")
+check "alias by executable, natively installed" "cu" "$(ar_format 'cursor-agent' 'cursor-agent')"
+check "alias by executable, kind substituted" "cu" "$(ar_format 'cursor' 'cursor')"
+PROGRAM_ALIASES=("kiro=k")
+check "alias by kind, kind substituted" "k" "$(ar_format 'kiro' 'kiro')"
+check "alias by kind, natively installed" "k" "$(ar_format 'kiro-cli' 'kiro-cli')"
+# Only the two spellings of one agent are the same agent. A program that merely
+# ends in the same suffix keeps its own name.
+PROGRAM_ALIASES=("cursor-agent=cu")
+check "another program is not the same agent" "sourcegraph" "$(ar_format 'sourcegraph' 'sourcegraph')"
+PROGRAM_ALIASES=("git=g")
+check "an unsuffixed program takes no alternate" "gitui" "$(ar_format 'gitui' 'gitui')"
+# Both spellings have to be listed, which is what makes them one agent's two
+# names: a suffix alone would hand an unrelated git-cli whatever git is aliased to.
+check "a suffix is not a pairing on its own" "git-cli" "$(SHOW_PROGRAM_ARGS=0 ar_format 'git-cli' 'git-cli')"
 PROGRAM_ALIASES=()
 
 # ---- substitutions ----
@@ -91,6 +134,27 @@ check "truncates to MAX_NAME_LEN" "12345678901234567890" \
 # A multibyte string must be cut on a codepoint boundary, never mid-byte.
 check "multibyte truncation is clean" "ünïcödé" \
   "$(MAX_NAME_LEN=7 ar_format 'x' 'ünïcödéxxxxxxx')"
+
+# And a label that FITS must be left alone, which is a different claim: bash
+# counts bytes under a C locale (herdr may launch a plugin with no LC_*), so a
+# multibyte label inside its budget still looked over it. What followed was not a
+# cut, since ar_trunc correctly found nothing to cut, but the word-boundary trim
+# that runs after one, which took a whole word off a label that fitted. Run under
+# LC_ALL=C, because that is the only place the bug exists.
+# A TITLE, because the word-boundary trim that does the damage runs only for one.
+# Nine codepoints and thirteen bytes, in a budget of nine: it fits, ar_trunc finds
+# nothing to cut, and the trim used to take "x" off anyway.
+check "a fitting multibyte title is untouched" "ünïcödé x" \
+  "$(LC_ALL=C MAX_TITLE_LEN=9 ar_format 'claude' '' "$(printf '\303\274n\303\257c\303\266d\303\251 x')")"
+# ---- ar_fits: the byte test holds in one direction only ----
+check_rc "ascii inside the budget fits" 0 "$(ar_fits 'abcdef' 8; echo $?)"
+check_rc "ascii over the budget does not" 1 "$(ar_fits 'abcdefghij' 8; echo $?)"
+# Eight codepoints, sixteen bytes: the cheap test fails and only a codepoint
+# count can say it fits.
+check_rc "multibyte inside the budget fits under C" 0 \
+  "$(LC_ALL=C ar_fits "$(printf 'àààààààà')" 8; echo $?)"
+check_rc "multibyte over the budget does not" 1 \
+  "$(LC_ALL=C ar_fits "$(printf 'ààààààààà')" 8; echo $?)"
 
 # ---- icons ----
 # Expected glyphs are built from explicit UTF-8 byte escapes rather than pasted
@@ -222,8 +286,24 @@ check "ICON_MAP override end to end" "$g_agent nosuchprog" \
 # A glyph is one codepoint, so "<glyph> <name>" must be truncated by codepoint,
 # never mid-byte. node is not name-only, so its cmdline is long enough to cut:
 # MAX_NAME_LEN=6 keeps the glyph, the space, and 4 chars of the name.
+# Four bytes, one codepoint: the widest ordinary case, and what makes the floor
+# fail when it counts bytes.
+g_sushi=$(printf '\360\237\215\243')
 check "icon+name truncates on codepoint boundary" "$g_node node" \
   "$(ICONS_ENABLED=1 MAX_NAME_LEN=6 SHOW_PROGRAM_ARGS=1 ar_format 'node' 'nodeandmore')"
+
+# The other half of that claim: a glyph plus a label that FITS must be left
+# whole. Under a C locale the byte count made this look over budget, and the
+# word-boundary trim then cut back to the only space there is, the one behind the
+# glyph, leaving the glyph alone on the tab.
+check "a fitting icon+title is untouched" "$g_node nöde" \
+  "$(LC_ALL=C ICONS_ENABLED=1 MAX_TITLE_LEN=7 ar_format 'node' '' "$(printf 'n\303\266de')")"
+# A title that IS over budget still has to keep a word. The half-budget floor
+# decides that, and counting it in bytes let a four-byte glyph clear it alone, so
+# an over-budget title came back as the glyph and nothing else.
+# An array cannot be a command prefix, so this one sets up in a subshell.
+check "an over-budget icon+title keeps a word" "$g_sushi abcdef" \
+  "$(LC_ALL=C; ICONS_ENABLED=1; ICON_MAP=("node=$g_sushi"); MAX_TITLE_LEN=8; ar_format 'node' '' 'abcdef ghijkl')"
 
 # ---- HIDE_SHELL: every shell-ish case names the tab nothing (issue #5) ----
 # The empty label is what makes herdr fall back to rendering its own tab number,
@@ -475,6 +555,72 @@ check "a mixed-case TITLE_IGNORE entry is folded" "" "$got"
 # ---- ar_format with a title: the task IS the label ----
 check "a title becomes the label" "Squash merge command" \
   "$(ar_format 'claude' '' 'Squash merge command')"
+# ---- TITLE_STYLE: the agent alongside its task ----
+# Every agent shares one robot glyph and a title replaces the program name, so a
+# session of several agents has nothing left saying which is on which task.
+check "task alone is the default" "auth flow" \
+  "$(ar_format 'claude' '' 'auth flow')"
+check "name_and_task keeps both" "claude:auth flow" \
+  "$(TITLE_STYLE=name_and_task ar_format 'claude' '' 'auth flow')"
+# An alias IS wanted here, unlike the plain-title rule below: asking for the name
+# is asking for the name you chose for it.
+check "the alias is what shows" "cc:auth flow" \
+  "$(PROGRAM_ALIASES=("claude=cc"); TITLE_STYLE=name_and_task ar_format 'claude' '' 'auth flow')"
+check "an unaliased agent shows its kind" "codex:auth flow" \
+  "$(PROGRAM_ALIASES=("claude=cc"); TITLE_STYLE=name_and_task ar_format 'codex' '' 'auth flow')"
+# The name is charged to MAX_TITLE_LEN, so the task gives up the room and the tab
+# does not grow. Without a title there is nothing to prefix, and "cc:cc" would say
+# nothing twice.
+# 18 characters, three of them the name, and the word-boundary trim then takes
+# the partial word: without the prefix the same title keeps "why" as well.
+check "the name is priced into the budget" "cc:Investigate" \
+  "$(PROGRAM_ALIASES=("claude=cc"); MAX_TITLE_LEN=18 TITLE_STYLE=name_and_task ar_format 'claude' '' 'Investigate why the nightly job fails')"
+check "and the same title without it keeps more" "Investigate why" \
+  "$(MAX_TITLE_LEN=18 ar_format 'claude' '' 'Investigate why the nightly job fails')"
+# A REFUSED title, not an absent one: ar_title_clean turns the agent naming
+# itself into the empty string, and only then does the program name path run.
+check "a refused title is not prefixed" "cc" \
+  "$(PROGRAM_ALIASES=("claude=cc"); TITLE_STYLE=name_and_task ar_format 'claude' 'claude' \
+     "$(ar_title_clean 'Claude Code' 'claude code' 'api' 'claude')")"
+
+# The prefix is all or nothing. Truncation treats the label as prose, so a name
+# with no room for a task was kept INSTEAD of one -- name_and_task rendering as
+# name only, which is the single thing it must not do. Below the floor the name
+# goes; above it both appear.
+check "no room for a task drops the name" "auth flow" \
+  "$(MAX_TITLE_LEN=13 TITLE_STYLE=name_and_task ar_format 'cursor-agent' '' 'auth flow rewrite')"
+check "room for both keeps both" "cursor-agent:auth" \
+  "$(MAX_TITLE_LEN=20 TITLE_STYLE=name_and_task ar_format 'cursor-agent' '' 'auth flow rewrite')"
+check "MIN_TASK_LEN moves the floor" "cursor-agent:auth" \
+  "$(MIN_TASK_LEN=4 MAX_TITLE_LEN=17 TITLE_STYLE=name_and_task ar_format 'cursor-agent' '' 'auth flow rewrite')"
+# A name with a space in it was cut at the space and shown alone; it is dropped now.
+check "a name too wide is dropped, not cut" "auth flow" \
+  "$(PROGRAM_ALIASES=("claude=Claude Code"); MAX_TITLE_LEN=12 TITLE_STYLE=name_and_task ar_format 'claude' '' 'auth flow')"
+# An alias of nothing but blanks left a bare colon in front of the task, the
+# scrub that would have removed it running after the prefix was decided.
+check "an alias that scrubs to nothing is no prefix" "auth flow" \
+  "$(PROGRAM_ALIASES=("claude= "); TITLE_STYLE=name_and_task ar_format 'claude' '' 'auth flow')"
+check "an unknown style reads as task" "auth flow" \
+  "$(TITLE_STYLE=sideways ar_format 'claude' '' 'auth flow')"
+
+# The glyph and its space come out of the same budget, and after the prefix was
+# decided: the floor was short by their width on every iconned tab, so a task of
+# four characters shipped where seven was promised.
+check "the glyph is charged to the prefix floor" "$(printf '\363\260\232\251') auth flow rewrite" \
+  "$(ICONS_ENABLED=1 MAX_TITLE_LEN=20 TITLE_STYLE=name_and_task ar_format 'cursor-agent' '' 'auth flow rewrite')"
+check "and a budget that seats both still does" "$(printf '\363\260\232\251') claude:auth flow" \
+  "$(ICONS_ENABLED=1 MAX_TITLE_LEN=28 TITLE_STYLE=name_and_task ar_format 'claude' '' 'auth flow')"
+# ICON_STYLE=name draws no glyph, so there is nothing to charge for.
+check "no glyph drawn charges nothing" "cursor-agent:auth" \
+  "$(ICONS_ENABLED=1 ICON_STYLE=name MAX_TITLE_LEN=20 TITLE_STYLE=name_and_task ar_format 'cursor-agent' '' 'auth flow rewrite')"
+
+# A multiword name is refused whatever the budget, not only when it is too wide
+# for one: the trim cuts at the LAST space in the label, which is inside such a
+# name, and it took the task with it -- "SuperLongAgent" alone on the tab.
+check "a multiword name is refused" "authenticationflowrefactoring" \
+  "$(PROGRAM_ALIASES=("claude=SuperLongAgent Extra"); MAX_TITLE_LEN=29 TITLE_STYLE=name_and_task ar_format 'claude' '' 'authenticationflowrefactoring')"
+check "even where it would have fitted" "auth flow" \
+  "$(PROGRAM_ALIASES=("claude=Claude Code"); MAX_TITLE_LEN=28 TITLE_STYLE=name_and_task ar_format 'claude' '' 'auth flow')"
 # The title is taken ahead of PROGRAM_ALIASES on purpose. An alias shortening
 # "claude" to "cl" asks for a tidier program name, not for the work to be hidden;
 # AGENT_TITLES=0 is the knob for wanting program names, and the pair below pins
@@ -532,5 +678,287 @@ check "MAX_TITLE_LEN follows MAX_NAME_LEN" "20" "$got"
 # The derivation is only the DEFAULT, so a config that sets both still gets both.
 got=$(bash -c 'MAX_NAME_LEN=12; MAX_TITLE_LEN=40; . "$1"; printf %s "$MAX_TITLE_LEN"' _ "$here/../naming.sh")
 check "an explicit MAX_TITLE_LEN still wins" "40" "$got"
+
+# ======================================================================
+# The context half of a label: where the work is happening.
+# ======================================================================
+# A tab says WHAT is running; on its own that leaves five "claude" tabs across
+# three checkouts telling each other apart by position alone. The context is the
+# other half -- the directory the pane sits in, the branch it has checked out, the
+# machine it reached over ssh -- joined in front of the program with CONTEXT_SEP.
+
+# ---- ar_context_dir: the directory a pane sits in ----
+HOME_SAVE=$HOME
+HOME=/Users/tester
+check "a project directory names the context" "api" \
+  "$(ar_context_dir '/Users/tester/dev/api' 'web')"
+# The home directory and the filesystem root are where a shell sits when it is
+# nowhere in particular, and "tester" or "/" says nothing a tab bar has room for.
+check "the home directory says nothing" "" "$(ar_context_dir '/Users/tester' 'web')"
+check "the filesystem root says nothing" "" "$(ar_context_dir '/' 'web')"
+check "no directory at all says nothing" "" "$(ar_context_dir '' 'web')"
+# A relative path is not a directory this plugin can reason about: it is whatever
+# the reader's cwd happens to make it, and herdr reports absolute paths.
+check "a relative path says nothing" "" "$(ar_context_dir 'dev/api' 'web')"
+# herdr shows the workspace above its tabs, so a tab in the workspace named after
+# its own directory spends half its width repeating what is already on screen.
+check "the workspace name is not repeated" "" "$(ar_context_dir '/Users/tester/dev/api' 'api')"
+check "the repeat is matched ignoring ASCII case" "" "$(ar_context_dir '/Users/tester/dev/API' 'api')"
+# ASCII, and only ASCII, whatever locale the process was launched under. herdr
+# may start the plugin with no LC_* while the shell hook inherits the user's
+# UTF-8: a fold that followed the locale would have the two naming paths
+# disagree about this tab, which is a tab that flips on every prompt.
+for _loc in C en_US.UTF-8; do
+  check "non-ASCII case is not folded (LC_ALL=$_loc)" "ÄPI" \
+    "$(LC_ALL=$_loc ar_context_dir '/Users/tester/dev/ÄPI' 'äpi')"
+  check "ASCII case still is (LC_ALL=$_loc)" "" \
+    "$(LC_ALL=$_loc ar_context_dir '/Users/tester/dev/API' 'api')"
+done
+# herdr names a worktree workspace after the branch with the convention in front
+# of it stripped, so its directory ends with the workspace's name and the two are
+# the same place: "bugfix-proj-482-fix" under a workspace called
+# "proj-482-fix" is not a tab that has gone anywhere.
+check "a worktree prefix is the same place" "" \
+  "$(ar_context_dir '/Users/tester/dev/wt/bugfix-proj-482-fix' 'proj-482-fix')"
+check "and the separator is required" "aaaproj-482-fix" \
+  "$(MAX_CONTEXT_LEN=20 ar_context_dir '/Users/tester/dev/wt/aaaproj-482-fix' 'proj-482-fix')"
+# The other direction is a different directory, not a prefix convention: a tab in
+# api-docs under a workspace called api has genuinely gone somewhere.
+check "a longer name is not a prefix convention" "api-docs" \
+  "$(ar_context_dir '/Users/tester/dev/api-docs' 'api')"
+# ... and only those, so a tab whose directory has left its workspace
+# behind is exactly the one that keeps saying where it is.
+check "a different directory still shows" "api" "$(ar_context_dir '/Users/tester/dev/api' 'api-docs')"
+# A workspace nobody has named (or a path with no workspace to compare) dedupes
+# against nothing.
+check "no workspace name dedupes nothing" "api" "$(ar_context_dir '/Users/tester/dev/api' '')"
+check "a trailing slash names the same directory" "api" \
+  "$(ar_context_dir '/Users/tester/dev/api/' 'web')"
+# The context gets its own budget: it is a project name, not a sentence, and the
+# activity beside it still needs the room MAX_NAME_LEN gives it.
+check "a long directory is cut to MAX_CONTEXT_LEN" "aaaaaaaaaaaa" \
+  "$(ar_context_dir '/Users/tester/dev/aaaaaaaaaaaaaaaaaaaa' 'web')"
+# A directory is reduced the way a branch is, and for the same reason: a worktree
+# is usually named after the work in it, so a cut through the middle of one
+# ("bugfix-proj-") throws away the part that identifies it.
+check "an over-long directory yields its issue key" "PROJ-482" \
+  "$(ar_context_dir '/Users/tester/dev/wt/bugfix-proj-482-fix-rev-discrepancy' 'web')"
+check "and otherwise ends on a whole word" "herdr-prompt" \
+  "$(ar_context_dir '/Users/tester/dev/herdr-prompt-picker' 'web')"
+check "MAX_CONTEXT_LEN is configurable" "aaaa" \
+  "$(MAX_CONTEXT_LEN=4 ar_context_dir '/Users/tester/dev/aaaaaaaaaaaaaaaaaaaa' 'web')"
+# One switch turns the whole context half off, and it lives here rather than at
+# each call site so the reconcile and the shell hook cannot disagree about it.
+check "TAB_CONTEXT=0 turns the context off" "" \
+  "$(TAB_CONTEXT=0 ar_context_dir '/Users/tester/dev/api' 'web')"
+HOME=$HOME_SAVE
+
+# ---- ar_branch_label: which slice of a project a tab is on ----
+# A branch qualifies the context: "api › feat/oauth › nvim" says which slice of
+# the project the tab is on, where the directory alone says only which project.
+check "a branch that fits is left whole" "feat/oauth" "$(ar_branch_label 'feat/oauth' 'main')"
+# The same claim under a C locale, where bash measures the name in bytes: a
+# non-ASCII branch inside its budget looked over it, and the reduction cut it back
+# to the first separator. Eleven codepoints, twenty bytes, budget of twelve.
+check "a fitting multibyte branch is left whole" "абв-где-жзи" \
+  "$(LC_ALL=C MAX_BRANCH_LEN=12 ar_branch_label "$(printf '\320\260\320\261\320\262-\320\263\320\264\320\265-\320\266\320\267\320\270')" 'main')"
+# And one that genuinely overflows must be cut at the same place in either
+# locale: deciding to shorten was fixed before the offset the cut uses was.
+# Fifteen codepoints in a budget of twelve, so it reduces either way.
+check "an overlong multibyte branch cuts alike" "абв-где" \
+  "$(LC_ALL=C MAX_BRANCH_LEN=12 ar_branch_label "$(printf '\320\260\320\261\320\262-\320\263\320\264\320\265-\320\266\320\267\320\270\320\272\320\273\320\274\320\275')" 'main')"
+# The trunk says nothing -- every tab in the repository would carry it alike --
+# and which branch that is comes from the repository rather than from a list of
+# names, so a team whose trunk is "develop" gets the same silence.
+check "the trunk contributes nothing" "" "$(ar_branch_label 'main' 'main')"
+check "a non-default trunk name is silent too" "" "$(ar_branch_label 'develop' 'develop')"
+check "a branch called main off a develop trunk shows" "main" "$(ar_branch_label 'main' 'develop')"
+# A repository that records no default falls back to the conventional trunk
+# names (see TRUNK_BRANCHES below), so this one is quiet and a branch that is not
+# one of them still shows.
+check "a repository with no default falls back to the list" "" "$(ar_branch_label 'main' '')"
+# Compared exactly, because git refs are: "Main" beside a "main" trunk is a
+# different branch and has something to say.
+check "the trunk compare is exact" "Main" "$(ar_branch_label 'Main' 'main')"
+# An issue key identifies the work whatever convention wraps it, so it wins
+# outright over cutting -- and it is the one value allowed past the budget,
+# because half a key identifies nothing.
+check "an over-long branch yields its issue key" "MC-13675" \
+  "$(ar_branch_label 'bugfix-asa-cpanel-uapi-mc-13675' 'main')"
+check "the key is upper-cased" "PROJ-517" \
+  "$(ar_branch_label 'feature/proj-517-qa-bot-programmatic' 'main')"
+# Failing a key, the namespace goes first (it is the half every branch shares)
+# and what is left is cut at a whole word.
+check "a long branch loses its namespace and its tail" "filter" \
+  "$(ar_branch_label 'fix/filter-sentry-errors-in-the-agent' 'main')"
+check "and is cut at a word boundary" "reticulate" \
+  "$(ar_branch_label 'reticulate-splines-thoroughly' 'main')"
+# A hyphen-and-digits pair that is not a key must not be mistaken for one:
+# "utf-8" has too few digits, "release" too many letters.
+check "utf-8 is not an issue key" "utf-8-decode" \
+  "$(MAX_BRANCH_LEN=30 ar_branch_label 'utf-8-decode' 'main')"
+check "MAX_BRANCH_LEN=0 leaves branches out" "" \
+  "$(MAX_BRANCH_LEN=0 ar_branch_label 'feat/oauth' 'main')"
+check "SHOW_BRANCH=0 leaves branches out" "" \
+  "$(SHOW_BRANCH=0 ar_branch_label 'feat/oauth' 'main')"
+# TAB_CONTEXT is the switch for the whole context half, branch included: a user
+# who asked for none of it did not ask for some of it.
+check "TAB_CONTEXT=0 leaves branches out too" "" \
+  "$(TAB_CONTEXT=0 ar_branch_label 'feat/oauth' 'main')"
+check "a detached hash passes through" "3f2a1b9" "$(ar_branch_label '3f2a1b9' 'main')"
+# A repository that records no default branch -- one cloned without an
+# origin/HEAD, or one that was never cloned -- would otherwise show its branch on
+# every tab alike, which is the column of noise the trunk rule exists to prevent.
+# Only as a fallback: a repository that DOES record one is believed over any list.
+check "no recorded default: a conventional trunk is still quiet" "" \
+  "$(ar_branch_label 'main' '')"
+check "... and so are the others" "" "$(ar_branch_label 'develop' '')"
+check "but a real branch still shows" "feat/oauth" "$(ar_branch_label 'feat/oauth' '')"
+check "a recorded default is believed over the list" "main" \
+  "$(ar_branch_label 'main' 'develop')"
+check "TRUNK_BRANCHES is configurable" "main" \
+  "$(TRUNK_BRANCHES=(release) ar_branch_label 'main' '')"
+# A first word too long to fit has no separator to cut back to, so it is cut
+# where the budget ends -- on a codepoint boundary, which is the one case here
+# that pays for a jq.
+check "one long word is cut where the budget ends" "aaaaaaaaaaaa" \
+  "$(ar_branch_label 'aaaaaaaaaaaaaaaaaaaa' 'main')"
+check "a multibyte branch is not sliced in half" "über-lange" \
+  "$(ar_branch_label 'über-lange-namen' 'main')"
+# ar_upper raises ASCII letters and leaves everything else alone.
+check "upper: a key" "MC-13675" "$(ar_upper 'mc-13675')"
+check "upper: mixed already" "PROJ-517" "$(ar_upper 'Proj-517')"
+check "upper: non-letters survive" "A.B_C/D" "$(ar_upper 'a.b_c/d')"
+check "nothing checked out, nothing shown" "" "$(ar_branch_label '' 'main')"
+
+# ---- a branch that repeats what is already on screen ----
+# herdr shows the workspace above the tabs and the tab shows its own context, so
+# a branch that says the same thing again spends width on what the reader can
+# already see. A worktree named after its branch is the common case.
+check "a branch the workspace already says is dropped" "Herdr auto title" \
+  "$(ar_label '/Users/tester/dev/wt/auto-title' 'auto-title' 'auto-title' 'claude' '' 'Herdr auto title')"
+check "a branch the directory already says is dropped" "PROJ-482 › claude" \
+  "$(ar_label '/Users/tester/dev/wt/bugfix-proj-482-fix' 'other' 'PROJ-482' 'claude' '')"
+check "the compare ignores ASCII case" "auto-title › claude" \
+  "$(ar_label '/Users/tester/dev/wt/auto-title' 'other' 'AUTO-TITLE' 'claude' '')"
+check "a branch that says something new stays" "api › feat/oauth › claude" \
+  "$(ar_label '/Users/tester/dev/api' 'other' 'feat/oauth' 'claude' '')"
+
+# ---- ar_ssh_host: the machine a pane reached ----
+# A pane running ssh is about the machine on the other end, not the directory it
+# was launched from. Options are parsed rather than guessed at, because the first
+# word after `ssh` is as often an option's value as it is a host.
+check "the plain form" "prod-01" "$(ar_ssh_host 'ssh prod-01')"
+check "an option with a separate value" "prod-01" "$(ar_ssh_host 'ssh -p 2222 prod-01')"
+check "an option with an attached value" "prod-01" "$(ar_ssh_host 'ssh -p2222 prod-01')"
+check "a switch" "prod-01" "$(ar_ssh_host 'ssh -4 prod-01')"
+# Short options cluster, and the one that takes a value need not be alone in the
+# word: `-4p 2222` is IPv4, port 2222. Reading only a lone letter as a value flag
+# named one tab after its port number.
+check "a cluster whose last letter takes a value" "prod-01" "$(ar_ssh_host 'ssh -4p 2222 prod-01')"
+check "a cluster with the value attached" "prod-01" "$(ar_ssh_host 'ssh -4p2222 prod-01')"
+check "a cluster of switches only" "prod-01" "$(ar_ssh_host 'ssh -46 prod-01')"
+# An IPv6 address is bracketed, and the colons inside are the address rather than
+# a port.
+check "a bracketed IPv6 host" "[2001:db8::1]" "$(MAX_CONTEXT_LEN=20 ar_ssh_host 'ssh [2001:db8::1]')"
+check "... with a port after it" "[2001:db8::1]" \
+  "$(MAX_CONTEXT_LEN=20 ar_ssh_host 'ssh [2001:db8::1]:2222')"
+# An option whose value is a COMMAND cannot be split back out of a flattened
+# command line: the words inside it look exactly like arguments of ssh itself,
+# and a ProxyCommand names another machine entirely -- the parse would take the
+# bastion for the destination. Refused rather than guessed at, so the tab reads
+# "ssh", which is what it read before any of this existed.
+check "a quoted proxy command is refused" "" \
+  "$(ar_ssh_host 'ssh -o ProxyCommand="ssh -W %h:%p bastion" prod-01')"
+# ... and refused the same way when the quotes are already gone, which is how the
+# reconcile sees it: a shell strips them before exec, so herdr joins an argv that
+# no longer has them. The two naming paths have to reach the same label from the
+# two shapes, or the tab flips between them on every prompt.
+check "an unquoted proxy command is refused too" "" \
+  "$(ar_ssh_host 'ssh -o ProxyCommand=ssh -W %h:%p bastion prod-01')"
+check "and by whatever case it was written in" "" \
+  "$(ar_ssh_host 'ssh -o proxycommand=ssh -W %h:%p bastion prod-01')"
+check "a remote command is refused as well" "" \
+  "$(ar_ssh_host 'ssh -o RemoteCommand=tail -f /var/log/syslog prod-01')"
+# ssh takes the setting attached to the flag too, and that form has to be read
+# the same way: it was the flag's own word that told us a setting was coming.
+check "an attached proxy command is refused" "" \
+  "$(ar_ssh_host 'ssh -oProxyCommand=ssh -W %h:%p bastion prod-01')"
+check "an attached ordinary setting still parses" "prod-01" \
+  "$(ar_ssh_host 'ssh -oStrictHostKeyChecking=no prod-01')"
+# An ordinary -o option has a value that cannot hold a space, so it parses.
+check "an ordinary -o option still parses" "prod-01" \
+  "$(ar_ssh_host 'ssh -o StrictHostKeyChecking=no prod-01')"
+# ... quoted or not, again because the two paths see it both ways.
+check "quoted or not, the same answer" "prod-01" \
+  "$(ar_ssh_host 'ssh -o "StrictHostKeyChecking=no" prod-01')"
+check "a long option's value" "prod-01" "$(ar_ssh_host 'ssh -o StrictHostKeyChecking=no prod-01')"
+# The user is dropped: root@prod-01 and deploy@prod-01 are the same machine, and
+# a tab bar has no room to say who is logged in.
+check "the user is dropped" "prod-01" "$(ar_ssh_host 'ssh deploy@prod-01')"
+# Everything after the destination is the remote command, which the machine's own
+# terminal title is what reports.
+check "a remote command is not the host" "prod-01" \
+  "$(ar_ssh_host 'ssh prod-01 tail -f /var/log/syslog')"
+check "-- ends the options" "prod-01" "$(ar_ssh_host 'ssh -- prod-01')"
+# ... and ends them for good: a destination that looks like an option after it is
+# still the destination, which is the whole reason for writing it.
+check "-- means what follows is positional" "-weird-host" "$(ar_ssh_host 'ssh -- -weird-host')"
+check "the url form" "prod-01" "$(ar_ssh_host 'ssh ssh://deploy@prod-01:2222')"
+check "no destination at all" "" "$(ar_ssh_host 'ssh')"
+check "an option with nothing after it" "" "$(ar_ssh_host 'ssh -p')"
+check "not ssh at all" "" "$(ar_ssh_host 'nvim README.md')"
+check "a long host is cut to the context budget" "aaaaaaaaaaaa" \
+  "$(ar_ssh_host 'ssh aaaaaaaaaaaaaaaaaaaa')"
+# ... and ends on a whole word where the name has one, like a directory or a
+# branch: "quans-ssh-ma" says less about a machine than "quans-ssh" does.
+check "a long host ends on a whole word" "quans-ssh" \
+  "$(ar_ssh_host 'ssh -t quannguyen@quans-ssh-macbook tmux new-session')"
+check "TAB_CONTEXT=0 names no machine" "" "$(TAB_CONTEXT=0 ar_ssh_host 'ssh prod-01')"
+
+# ---- ar_label: an ssh pane is named after the machine ----
+check "the machine leads, ssh follows" "prod-01 › ssh" \
+  "$(ar_label '/home/u/dev/api' 'web' '' 'ssh' 'ssh prod-01')"
+# The branch is read from the directory ssh was launched in, which says nothing
+# about the machine on the other end -- and printed beside prod-01 it would read
+# as that machine's.
+check "no branch on a remote pane" "prod-01 › ssh" \
+  "$(ar_label '/home/u/dev/api' 'web' 'MC-13675' 'ssh' 'ssh prod-01')"
+# ... and neither does the local directory, for the same reason.
+check "no local directory either" "prod-01 › ssh" \
+  "$(ar_label '/home/u/dev/api' '' '' 'ssh' 'ssh prod-01')"
+# With no host to name, the tab still says it is remote.
+check "an unreadable destination still says ssh" "ssh" \
+  "$(ar_label '/home/u/dev/api' 'web' '' 'ssh' 'ssh -p')"
+# A command line is not shown for ssh even with SHOW_PROGRAM_ARGS on: the host
+# it carries is already the context, and the rest is the remote command.
+check "the command line is not repeated" "prod-01 › ssh" \
+  "$(SHOW_PROGRAM_ARGS=1 ar_label '/home/u/dev/api' 'web' '' 'ssh' 'ssh -p 2222 prod-01')"
+# With the context off, an ssh tab is named like any other program, as it was
+# before any of this existed.
+check "TAB_CONTEXT=0 leaves ssh to the program rules" "ssh -p 2222 prod-01" \
+  "$(TAB_CONTEXT=0 SHOW_PROGRAM_ARGS=1 ar_label '/home/u/dev/api' 'web' '' 'ssh' 'ssh -p 2222 prod-01')"
+
+# ---- ar_compose: joining the halves ----
+check "context and activity are joined" "api › nvim" "$(ar_compose 'api' '' 'nvim')"
+check "a branch sits between them" "api › feat/oauth › nvim" \
+  "$(ar_compose 'api' 'feat/oauth' 'nvim')"
+check "no context leaves the activity alone" "nvim" "$(ar_compose '' '' 'nvim')"
+check "a branch with no context still shows" "feat/oauth › nvim" \
+  "$(ar_compose '' 'feat/oauth' 'nvim')"
+# An empty activity is HIDE_SHELL asking for no label at all, and half a label is
+# not what it asked for: the tab is handed back to herdr whole.
+check "an empty activity empties the whole label" "" "$(ar_compose 'api' 'feat/x' '')"
+check "the separator is configurable" "api | nvim" \
+  "$(CONTEXT_SEP=' | ' ar_compose 'api' '' 'nvim')"
+# A directory may be named anything a filesystem accepts, and the shell hook
+# takes its context from a raw $PWD rather than from a value herdr's jq has
+# cleaned. A control character reaching the tab bar is the visible half of that;
+# the invisible half is herdr handing the label back normalized, which the
+# opt-out machine cannot tell from a name somebody typed.
+check "a control character in the context is scrubbed" "we b › nvim" \
+  "$(ar_compose "$(printf 'we\002b')" '' 'nvim')"
+check "a tab in the context is scrubbed" "we b › nvim" \
+  "$(ar_compose "$(printf 'we\tb')" '' 'nvim')"
 
 t_summary
