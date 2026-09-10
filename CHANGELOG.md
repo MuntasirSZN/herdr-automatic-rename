@@ -4,6 +4,8 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-10
+
 ### Added
 
 - Workspace labels can be shown under a shorter name than their directory carries. `WORKSPACE_SUBSTITUTE_SETS` is an ordered list of `sed -E` rewrites applied to the name herdr derives from the directory, so `'s|^worktree-|wt-|'` puts `worktree-feature` in the sidebar as `wt-feature`. The rewrite reaches the label and nothing else: the directory and the Git worktree keep their names, and a tab inside that directory still drops the workspace's name out of its own label rather than re-injecting the long spelling it was shortened to lose.
@@ -326,7 +328,8 @@ First public release.
 - Configuration via `~/.config/herdr-automatic-rename/config.sh` (or `$HERDR_AUTOMATIC_RENAME_CONFIG`), with a documented `config.example.sh`.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers, the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.8.0...v0.9.0
