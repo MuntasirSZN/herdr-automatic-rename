@@ -38,23 +38,79 @@
 # Anything else in brackets ("[wip] foo") is left alone, digits are the only
 # trigger.
 
-# Ordered `sed -E` rewrites for directory-derived workspace names. These change
-# only the label shown by herdr; they do not rename the directory or Git
-# worktree. A hand-entered name that differs from the derived directory name is
-# left unchanged. Herdr exposes no way to distinguish a hand-entered name that
-# exactly matches the derived name. For example, shorten "worktree-feature" to
-# "wt-feature":
-# WORKSPACE_SUBSTITUTE_SETS=(
-#   's|^worktree-|wt-|'
-# )
-
 # ---- naming knobs (only used when NAME_TABS=1) ----
+
+# 1 = put the CONTEXT in front of the program: the directory the pane sits in,
+# the branch it has checked out, the machine it reached over ssh, joined with
+# CONTEXT_SEP -- "api › MC-13675 › nvim". A tab says what is running; without
+# this half, five agent tabs across three checkouts read alike. 0 names by the
+# program alone.
+#
+# The directory is refused when it says nothing a tab bar has room for: your home
+# directory, the filesystem root, and the name of the workspace the tab is in
+# (herdr shows that above the tabs already, so repeating it there spends half the
+# width on what is on screen anyway). A worktree counts as the same place as its
+# workspace: herdr names one after the branch with the convention in front
+# stripped, so a "bugfix-proj-482-fix" directory under a "proj-482-fix" workspace
+# says nothing new.
+#
+# A directory too long for MAX_CONTEXT_LEN is reduced the way a branch is, not
+# cut through the middle: worktrees and branches are named the same way by the
+# same people, so "bugfix-proj-482-fix-rev-discrepancy" reads as "PROJ-482".
+# TAB_CONTEXT=1
+#
+# A pane running ssh is named after the machine it reached instead ("prod-01 ›
+# ssh"): its directory is the local one it was launched from, and the branch
+# checked out there would read as the remote machine's. The user is dropped,
+# because root@prod-01 and deploy@prod-01 are the same machine.
+
+# 1 = qualify the context with the branch the pane's repository has checked out:
+# "api › MC-13675 › nvim". It says which slice of a project a tab is on, where
+# the directory alone says only which project.
+#
+# The branch is read from the files under .git and never by running git, so it
+# costs no process. Three rules keep it quiet: the repository's own default
+# branch is left out (every tab would carry it alike, and which branch that is
+# comes from the repository rather than a list of names), a branch that fits is
+# shown whole, and one that does not is reduced -- to its issue key where it has
+# one ("bugfix-asa-cpanel-uapi-mc-13675" -> "MC-13675"), else to the part after
+# the last "/", cut at a whole word.
+# SHOW_BRANCH=1
+#
+# A branch that repeats what is already on screen is dropped as well: a worktree
+# named after its branch would otherwise say one thing three times ("auto-title >
+# auto-title > Rename the tabs"), since herdr shows the workspace above the tabs.
+
+# Longest branch a label may carry, in characters. 0 leaves branches out, the
+# same as SHOW_BRANCH=0. An issue key is shown whole even when it exceeds this:
+# half a key identifies nothing.
+# MAX_BRANCH_LEN=12
+
+# The branches treated as a trunk when the repository records no default of its
+# own -- one cloned without an origin/HEAD, or one that was never cloned. Without
+# this such a repository shows its branch on every tab alike, which is the column
+# of noise the trunk rule exists to prevent. A repository that DOES record a
+# default is believed over this list, so a team whose trunk is "release" is not
+# second-guessed. TRUNK_BRANCHES=() shows every branch in such a repository.
+# TRUNK_BRANCHES=(main master develop trunk)
+
+# Truncate the directory part to this many characters. It is a project name, not
+# a sentence, and the program beside it still needs the room MAX_NAME_LEN gives
+# it, so it has a budget of its own rather than eating that one.
+# MAX_CONTEXT_LEN=12
+
+# What joins the parts of a label. Written as a literal character; the default is
+# U+203A, a single right-pointing angle quote.
+# CONTEXT_SEP=' › '
 
 # 1 = a regular program shows its full command line ("psql -h db"); 0 = just its
 # name ("psql"). Default 0.
 # SHOW_PROGRAM_ARGS=0
 
-# Truncate the final label to this many characters (counted by codepoint).
+# Truncate the program name to this many characters (counted by codepoint). Each
+# part of a label has a budget of its own -- MAX_CONTEXT_LEN for the directory,
+# MAX_TITLE_LEN for an agent's task -- so the whole is bounded by the sum rather
+# than by a total you would have to keep in step with the parts.
 # MAX_NAME_LEN=20
 
 # 1 = name a tab running a coding agent after the task the agent reports in its
@@ -65,6 +121,54 @@
 # number are refused, and the tab falls back to the program name (aliases
 # included). 0 names every agent tab after its program.
 # AGENT_TITLES=1
+
+# What an agent tab shows once there is a task to show. "task" is the released
+# answer, the task alone. "name_and_task" keeps the agent in front of it,
+# "claude:auth-flow", or through PROGRAM_ALIASES "cc:auth-flow".
+#
+# Which agent is on a task is not otherwise recoverable from the tab: every agent
+# herdr detects draws the same robot glyph, and the title replaces the one place
+# the program name appeared. In a session running one agent that costs nothing; in
+# one running three, "cc:" and "oc:" are what tell two tabs apart.
+#
+# The name is charged to MAX_TITLE_LEN like everything else, so it comes out of
+# what the task may spend rather than making the tab wider -- though a label that
+# was under the budget does get longer: "auth flow" becomes "cc:auth flow".
+#
+# Where TITLE_CONDENSE is also on, the name is reserved before the keywords are
+# chosen, so condensing knows the prefix is coming and keeps whole words either
+# way.
+#
+# The prefix is all or nothing. Where the budget cannot seat the name, its colon
+# and MIN_TASK_LEN characters of task, the NAME goes: this asks for the task with
+# the name added, not the other way about, and a tab reading only "cursor-agent"
+# would be the one thing it must not do. The glyph and its space are part of that
+# budget where icons are on, so an iconned tab seats a shorter name than a plain
+# one. A refused title is not prefixed either -- the tab falls back to the program
+# name, and "cc:cc" says nothing twice.
+#
+# A PROGRAM_ALIASES value carrying a space is never used as a prefix, whatever
+# the budget: truncation cuts at the last space in the label, which for such a
+# name is inside the name, and the tab was left reading a fragment of it with no
+# task at all.
+# TITLE_STYLE=task
+
+# The least task worth printing beside a name, used by the rule above.
+# MIN_TASK_LEN=7
+
+# 1 = when a coding agent has NOT titled its terminal, read what its own session
+# says it is about. Claude Code derives that title from what you typed, so a
+# session you opened with a slash command and never typed a prompt into is never
+# given one, and its tab reads "claude" for as long as it runs. Only Claude Code
+# is read; any other agent is named from its terminal title exactly as before.
+#
+# What it reads is the title Claude Code generated for the session, or failing
+# that your first prompt -- which is what Claude Code's own session list shows
+# for an untitled session. It reads that out of the transcript file on disk, so
+# set this to 0 if you would rather nothing read it. herdr has to have told the
+# plugin which session the pane holds, which is what `herdr integration install
+# claude` sets up; without it there is nothing to read and this does nothing.
+# AGENT_TRANSCRIPT=1
 
 # Truncate a title to this many characters, at a word boundary when that leaves
 # most of the budget. A title is a sentence rather than a command name, so it
@@ -90,8 +194,78 @@
 # label changed on every status change. The brand is removed only at the very
 # front and only when a non-alphanumeric follows it, so a title that merely starts
 # with the same letter keeps it, and the case of ASCII letters is ignored.
+# opencode brands with letters rather than a glyph ("OC | Reviewing unpushed
+# commits"); adding "opencode=OC" strips that. It is not in the default, because
+# a brand is removed wherever a non-alphanumeric or the end of the string follows
+# it: the entry would also turn "OC-192 incident" into "192 incident".
 # Assigning the array replaces the default.
 # TITLE_BRANDS=("pi=π" "omp=π")
+
+# 1 = condense a title into its keywords instead of showing the agent's sentence
+# with the tail cut off. MAX_TITLE_LEN takes the END off a title, which is where
+# the words that say WHICH task this is tend to sit: "Investigate why the nightly
+# ETL job drops rows" becomes "Investigate why the nightly". Condensing drops a
+# leading verb and the filler and joins what is left, so the same budget carries
+# "nightly-ETL-job-drops-rows" instead.
+#
+# It selects rather than generates: the words are the agent's own, in the order it
+# wrote them, on the reasoning that it put the salient ones first. A title it
+# cannot shorten to anything (all filler) is left as the sentence, and so is one
+# whose label would come out LONGER than the prose or wearing a leading "[12]",
+# the shape a tab number has. The one exception is a first word longer than the
+# whole budget, which is cut rather than dropped, since dropping it would leave
+# no label at all.
+#
+# Off by default, so a config that does not name it gets exactly what
+# AGENT_TITLES has always rendered.
+# TITLE_CONDENSE=0
+
+# Verbs dropped when a title OPENS with one. Every agent tab reading "Fix ..." or
+# "Add ..." spends its first word on something the tab beside it also says. Only
+# at the front, so "the auth rewrite needs review" keeps its "review".
+#
+# Measured against the last title Claude Code generated in each of 65 titled
+# sessions on one machine over three weeks, which is the title the engine reads:
+# this list fires on 35 and 30 of those gain a content word in the same budget,
+# with no two DIFFERENT titles among the 65 colliding whether the rule is on or
+# off (two sessions share a title, and those condense alike). Where a session
+# was never titled the engine condenses the first typed prompt instead, and that
+# population is not covered by those numbers.
+#
+# It matches spelling rather than part of speech, so a title whose subject shares
+# a listed spelling loses it ("Plan needs approval" -> "needs-approval"), and
+# taking that word out is the answer. The failure worth knowing about is a
+# collision: "Review flashcard generation" and "Implement flashcard generation"
+# both reduce to "flashcard-generation". Assigning the array replaces the
+# default; TITLE_LEAD_VERBS=() drops nothing.
+# TITLE_LEAD_VERBS=(review adjust add fix update create make check investigate debug refactor implement write set setup configure explore improve build test run clean remove delete migrate rename draft plan research diagnose audit analyze troubleshoot optimize show)
+
+# Words dropped wherever they appear: a label is not a sentence, so articles,
+# prepositions and phrasal-verb particles only spend the budget. Assigning the
+# array replaces the default; TITLE_FILLER_WORDS=() drops nothing.
+# TITLE_FILLER_WORDS=(a an the to for of on in at and or with from into via why how what that if whether is are be it its this up out off down over back)
+
+# What joins the surviving words. The default fuses the label into one token, the
+# shape every other tab name has; " " reads as the phrase instead. Its length is
+# charged to MAX_TITLE_LEN like any other character, and a separator long enough
+# to make the label outgrow the sentence gets the sentence instead.
+#
+# TITLE_STYLE=name_and_task is charged to that budget as well, so the two knobs
+# together spend it on fewer keywords rather than cutting the last one: a tab
+# reads "<glyph> claude:nightly-ETL-job" where the task alone would have carried
+# "nightly-ETL-job-drops-rows".
+#
+# A separator of whitespace or a control character is squeezed to one space
+# before the label is stored, so a title that would then read as a tab number
+# ("Fix [12] parser") is left as the sentence rather than condensed.
+# TITLE_WORD_SEPARATOR=-
+
+# Casing. "fold" downcases every word except an all-caps-and-digits identifier: a
+# sentence-case capital is the agent writing a sentence rather than signal, while
+# the shape of "ETL" carries meaning. "lower" folds the identifiers too, "keep"
+# leaves the agent's casing alone. Only ASCII letters are folded, so a non-ASCII
+# capital reaches the label as written.
+# TITLE_CASE=fold
 
 # Name shown at a bare prompt. Defaults to your $SHELL's basename.
 # SHELL_NAME=zsh
@@ -127,12 +301,20 @@
 
 # Rename specific programs on the tab. "<program>=<label>" pairs; wins over every
 # rule except the bare-prompt shell name.
+#
+# The agents whose executable differs from herdr's own id for them, cursor-agent
+# (id "cursor"), kiro-cli (id "kiro"), and muse-cli / muse-code (id "muse"),
+# answer to either spelling, so one entry names such an agent however it was
+# installed. Muse's versioned binary (muse-bin-0.1.0-R708.1) is named "muse"
+# before any of this, so it takes a "muse=" entry too.
 # PROGRAM_ALIASES=(
 #   "lazygit=lg"
 #   "clx=hn"
 # )
 
-# Ordered `sed -E` rewrites applied to the final label.
+# Ordered `sed -E` rewrites applied to the program name or command line a tab
+# shows. They do not reach the directory, the branch, an agent's title, or a
+# workspace label.
 # SUBSTITUTE_SETS=(
 #   's|.*ipython([32])|ipython\1|'
 #   's|.*poetry shell.*|poetry|'

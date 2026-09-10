@@ -40,11 +40,9 @@ check "outside any repo"        "sub"   "$(ar_project_base "$PB/plain/sub")"
 check "trailing slash ignored"  "sub"   "$(ar_project_base "$PB/plain/sub/")"
 check "relative path: basename" "notes" "$(ar_project_base "some/notes")"
 check "empty path: empty base"  ""      "$(ar_project_base "")"
-
-WORKSPACE_SUBSTITUTE_SETS=('s|^worktree-|wt-|')
-check "workspace display rewrite" "wt-feature" "$(ar_workspace_subst "worktree-feature")"
-check "workspace rewrite nonmatch" "project-a" "$(ar_workspace_subst "project-a")"
-WORKSPACE_SUBSTITUTE_SETS=()
+mkdir -p "$PB/plain/$(printf 'ta\tb')"
+check "control char scrubbed" "ta b" "$(ar_project_base "$PB/plain/$(printf 'ta\tb')")"
+check "double space collapsed" "a b" "$(ar_project_base "some/a  b")"
 rm -rf "$PB"
 
 # Numbering only (NAME_TABS off, no tab/pane fixtures), so the rename log holds
@@ -395,124 +393,224 @@ check_absent   "pane dir ignored"  "$(log)" "from-pane"
 teardown
 
 # ======================================================================
-# Scenario 15: workspace substitutions change only the displayed, derived name
-# and compose with numbering.
+# Scenario 15: a cd in the shell moves the workspace name (issue #20). herdr
+#   emits no event for a cd, so the workspace label sat on the directory the
+#   workspace was created in until some unrelated event arrived, while the tab
+#   beside it followed every prompt: the shell hook renames the tab and nothing
+#   else. The hook knows the directory (its own $PWD) and the state file already
+#   says which base we own, so the same ownership rules apply from there.
+#   NAME_TABS is off here, which is the file's default: workspace tracking is
+#   governed by the workspace knobs, not by whether tabs are named.
 # ======================================================================
 setup
-printf '%s\n' "WORKSPACE_SUBSTITUTE_SETS=('s|^worktree-|wt-|')" \
-  >"$HERDR_AUTOMATIC_RENAME_CONFIG"
-workspaces "$(ws w1 worktree-feature)"
-session "w1=/home/u/worktree-feature"
-run_event workspace.created
-check_contains "numbered workspace display rewritten" "$(log)" "workspace rename w1 [1] wt-feature"
-
-clear_log
-workspaces "$(ws w1 '[1] wt-feature')"
-run_event pane.focused
-check "rewritten workspace settles" "" "$(log)"
-teardown
-
-# ======================================================================
-# Scenario 16: substitutions run without numbering when AUTO_INDEX is off.
-# ======================================================================
-setup
-export AUTO_INDEX=0
-printf '%s\n' "WORKSPACE_SUBSTITUTE_SETS=('s|^worktree-|wt-|')" \
-  >"$HERDR_AUTOMATIC_RENAME_CONFIG"
-workspaces "$(ws w1 worktree-feature)"
-session "w1=/home/u/worktree-feature"
-run_event workspace.created
-check_contains "unnumbered workspace display rewritten" "$(log)" "workspace rename w1 wt-feature"
-teardown
-
-# ======================================================================
-# Scenario 17: the list-command fallback derives a new workspace from its pane
-# before session.json has persisted it.
-# ======================================================================
-setup
-export AUTO_INDEX=0
-printf '%s\n' "WORKSPACE_SUBSTITUTE_SETS=('s|^worktree-|wt-|')" \
-  >"$HERDR_AUTOMATIC_RENAME_CONFIG"
-mkdir -p "$SB/home/worktree-feature"
-workspaces "$(ws w1 worktree-feature)"
-session "w9=/home/other"
-fixture panes.json <<JSON
-{"result":{"panes":[
-  {"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,
-   "foreground_cwd":"$SB/home/worktree-feature"}
-]}}
-JSON
-run_event workspace.created
-check_contains "fallback workspace display rewritten" "$(log)" "workspace rename w1 wt-feature"
-teardown
-
-# ======================================================================
-# Scenario 18: a matching pattern does not rewrite a name typed by the user.
-# ======================================================================
-setup
-export AUTO_INDEX=0
-printf '%s\n' "WORKSPACE_SUBSTITUTE_SETS=('s|^worktree-|wt-|')" \
-  >"$HERDR_AUTOMATIC_RENAME_CONFIG"
-workspaces "$(ws w1 '[1] worktree-incident')"
-session "w1=/home/u/project-a"
-run_event workspace.created
-check "manual workspace name not rewritten" "" "$(log)"
-teardown
-
-# ======================================================================
-# Scenario 19: removing the substitution restores the derived workspace label
-# even when global numbering is off and would not otherwise run this pass.
-# ======================================================================
-setup
-export AUTO_INDEX=0
-printf '%s\n' "WORKSPACE_SUBSTITUTE_SETS=('s|^worktree-|wt-|')" \
-  >"$HERDR_AUTOMATIC_RENAME_CONFIG"
-workspaces "$(ws w1 worktree-feature)"
-session "w1=/home/u/worktree-feature"
-run_event workspace.created
-
-clear_log
-: >"$HERDR_AUTOMATIC_RENAME_CONFIG"
-workspaces "$(ws w1 wt-feature)"
-run_event pane.focused
-check_contains "removed rewrite restores derived name" "$(log)" \
-  "workspace rename w1 worktree-feature"
-teardown
-
-# ======================================================================
-# Scenario 20: a substitution-only pass does not claim a workspace when no rule
-# changes its name, so removing the rules cannot leave stale ownership records.
-# ======================================================================
-setup
-export AUTO_INDEX=0
-printf '%s\n' "WORKSPACE_SUBSTITUTE_SETS=('s|^worktree-|wt-|')" \
-  >"$HERDR_AUTOMATIC_RENAME_CONFIG"
+mkdir -p "$SB/home/project-a" "$SB/home/project-b"
+export HERDR_TAB_ID=w1:t1 HERDR_PANE_ID=w1:p1
 workspaces "$(ws w1 project-a)"
-session "w1=/home/u/project-a"
-run_event workspace.created
-check "nonmatching rewrite does not rename" "" "$(log)"
-check "nonmatching rewrite claims no state" "" \
-  "$(jq -r '."ws:w1".auto // ""' "$XDG_STATE_HOME/herdr-automatic-rename/state.json" 2>/dev/null)"
+session "w1=/home/project-a"
+run_event workspace.created                       # adopt at project-a
+
+clear_log
+workspaces "$(ws w1 '[1] project-a')"             # as the adopt left it
+( cd "$SB/home/project-b" && /usr/bin/env bash "$ENGINE" precmd zsh )
+check_contains "the hook moves the workspace" "$(log)" "workspace rename w1 [1] project-b"
+
+# ...and settles: the next prompt in the same directory renames nothing.
+clear_log
+workspaces "$(ws w1 '[1] project-b')"
+( cd "$SB/home/project-b" && /usr/bin/env bash "$ENGINE" precmd zsh )
+check "settled: the next prompt is quiet" "" "$(log)"
 teardown
 
 # ======================================================================
-# Scenario 21: removing the last rewritten workspace also removes its pending
-# restoration state instead of scheduling an empty workspace pass forever.
+# Scenario 16: the hook obeys the same ownership rule the reconcile does. A name
+#   somebody typed is numbered and never retitled, and a prompt is not the place
+#   that changes.
 # ======================================================================
 setup
-export AUTO_INDEX=0
-printf '%s\n' "WORKSPACE_SUBSTITUTE_SETS=('s|^worktree-|wt-|')" \
-  >"$HERDR_AUTOMATIC_RENAME_CONFIG"
-workspaces "$(ws w1 worktree-feature)"
-session "w1=/home/u/worktree-feature"
-run_event workspace.created
+mkdir -p "$SB/home/project-a" "$SB/home/project-b"
+export HERDR_TAB_ID=w1:t1 HERDR_PANE_ID=w1:p1
+workspaces "$(ws w1 'incident room')"
+session "w1=/home/project-a"
+run_event workspace.created                       # numbered, and opted out
 
-: >"$HERDR_AUTOMATIC_RENAME_CONFIG"
-workspaces
-session "w9=/home/other"
-run_event workspace.closed
-check "closed rewritten workspace state pruned" "null" \
-  "$(jq -r '."ws:w1" | tostring' "$XDG_STATE_HOME/herdr-automatic-rename/state.json" 2>/dev/null)"
+clear_log
+workspaces "$(ws w1 '[1] incident room')"
+( cd "$SB/home/project-b" && /usr/bin/env bash "$ENGINE" precmd zsh )
+check "the hook leaves a typed name alone" "" "$(log)"
+teardown
+
+# ======================================================================
+# Scenario 17: the tab beside the workspace must not repeat its new name. The
+#   tab dedupes its context against the workspace base recorded on the tab, so
+#   naming the tab first and moving the workspace afterwards leaves the tab
+#   saying "project-b > zsh" under a workspace called project-b, at every prompt
+#   until a full reconcile refreshes the record. The workspace half runs first
+#   and hands the base it applied to the tab half.
+# ======================================================================
+setup
+export NAME_TABS=1 TAB_CONTEXT=1 HERDR_TAB_ID=w1:t1 HERDR_PANE_ID=w1:p1
+mkdir -p "$SB/home/project-a" "$SB/home/project-b"
+workspaces "$(ws w1 project-a)"
+session "w1=/home/project-a"
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"1","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_w1:p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"-zsh","cmdline":"-zsh"}]}}}
+JSON
+fixture "tab_w1:t1.json" <<'JSON'
+{"result":{"tab":{"tab_id":"w1:t1","label":"[1] zsh"}}}
+JSON
+run_event tab.focused                             # adopt both at project-a
+
+clear_log
+workspaces "$(ws w1 '[1] project-a')"
+( cd "$SB/home/project-b" && /usr/bin/env bash "$ENGINE" precmd zsh )
+state=$XDG_STATE_HOME/herdr-automatic-rename/state.json
+check_contains "the workspace moves" "$(log)" "workspace rename w1 [1] project-b"
+check "the tab records the new workspace base" "project-b" \
+  "$(jq -r '."w1:t1".ws // ""' "$state" 2>/dev/null)"
+check_absent "and does not repeat it in its own label" "$(log)" "tab rename w1:t1 [1] project-b"
+teardown
+
+# ======================================================================
+# Scenario 18: a prompt drawn in a tab the workspace is not on says nothing
+#   about where the workspace is. herdr moves identity_cwd with the active pane,
+#   so a background tab's cd would rename the workspace away from where the user
+#   is standing, and the next reconcile would undo it.
+# ======================================================================
+setup
+mkdir -p "$SB/home/project-a" "$SB/home/project-b"
+export HERDR_TAB_ID=w1:t2 HERDR_PANE_ID=w1:p2
+workspaces "$(ws w1 project-a)"
+session "w1=/home/project-a"
+run_event workspace.created                       # adopt at project-a
+
+clear_log
+# The workspace is on t1; this prompt is drawn in t2.
+printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] project-a","focused":false,"active_tab_id":"w1:t1"}]}}\n' \
+  >"$HERDR_MOCK_DIR/workspaces.json"
+( cd "$SB/home/project-b" && /usr/bin/env bash "$ENGINE" precmd zsh )
+check "a background tab does not move the workspace" "" "$(log)"
+
+# The active tab's own prompt still does.
+clear_log
+HERDR_TAB_ID=w1:t1 HERDR_PANE_ID=w1:p1 \
+  bash -c 'cd "$1" && /usr/bin/env bash "$2" precmd zsh' _ "$SB/home/project-b" "$ENGINE"
+check_contains "the active tab still does" "$(log)" "workspace rename w1 [1] project-b"
+teardown
+
+# ======================================================================
+# Scenario 19: the pass must not revert what the prompt just applied. herdr
+#   saves session.json on a 5-second debounce and our own workspace rename is an
+#   event we subscribe to, so the reconcile that rename triggers reads the
+#   directory the workspace LEFT and used to rename it straight back, once per
+#   prompt for as long as the file lagged. Where the panes still say what we last
+#   wrote, the file is behind rather than right.
+#   The counterpart is scenario 14, where the pane agrees with neither the file
+#   nor the record and the file stays the answer.
+# ======================================================================
+setup
+mkdir -p "$SB/home/project-a" "$SB/home/project-b"
+cat >"$HERDR_MOCK_DIR/snapshot.json" <<JSON
+{"result":{"snapshot":{"workspaces":[
+  {"workspace_id":"w1","label":"[1] project-b","focused":true,"active_tab_id":"w1:t1"}
+],"tabs":[],"panes":[
+  {"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,
+   "foreground_cwd":"$SB/home/project-b"}
+],"agents":[]}}}
+JSON
+session "w1=/home/project-a"                      # the file has not caught up
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"ws:w1":{"auto":"project-b","enabled":true}}\n' \
+  >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+run_event workspace.renamed
+check "the prompt's name survives the debounce" "" "$(log)"
+
+# Once herdr writes the file, both agree and nothing changes either.
+clear_log
+session "w1=/home/project-b"
+run_event pane.focused
+check "and still nothing once it catches up" "" "$(log)"
+teardown
+
+# ======================================================================
+# Scenario 20: the same on the fallback path. herdr 0.7.1 has no `api snapshot`,
+#   and a snapshot call can fail on any version, so the per-list path is a
+#   supported one rather than a curiosity. The panes were fetched there only
+#   where tabs were being named, which left the workspace pass with no pane rows
+#   at all: no directory for a workspace herdr has not persisted yet, and no way
+#   to tell the debounce apart from a stale name. NAME_TABS is off here.
+# ======================================================================
+setup
+mkdir -p "$SB/home/project-a" "$SB/home/project-b"
+workspaces "$(ws w1 '[1] project-b')"
+fixture panes.json <<JSON
+{"result":{"panes":[{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,
+  "foreground_cwd":"$SB/home/project-b"}]}}
+JSON
+session "w1=/home/project-a"                      # the file has not caught up
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"ws:w1":{"auto":"project-b","enabled":true}}\n' \
+  >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+run_event workspace.renamed
+check "no snapshot: the prompt's name still survives" "" "$(log)"
+teardown
+
+# ======================================================================
+# Scenario 21: the debounce rule asks for a pane herdr named, not a pane we
+#   picked. A background workspace has no focused pane to read, so a split
+#   active tab leaves the pane rows naming whichever pane came first. Letting
+#   that override identity_cwd would prefer an arbitrary pane over the real one
+#   for as long as the two disagreed, which is a wrong name that never corrects
+#   itself rather than a late file that does. So identity still wins, and the
+#   label goes back to what herdr says.
+# ======================================================================
+setup
+mkdir -p "$SB/home/project-a" "$SB/home/project-b"
+cat >"$HERDR_MOCK_DIR/snapshot.json" <<JSON
+{"result":{"snapshot":{"workspaces":[
+  {"workspace_id":"w1","label":"[1] project-b","focused":false,"active_tab_id":"w1:t1"}
+],"tabs":[],"panes":[
+  {"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1",
+   "foreground_cwd":"$SB/home/project-b"},
+  {"pane_id":"w1:p2","workspace_id":"w1","tab_id":"w1:t1",
+   "foreground_cwd":"$SB/home/project-a"}
+],"agents":[]}}}
+JSON
+session "w1=/home/project-a"
+mkdir -p "$XDG_STATE_HOME/herdr-automatic-rename"
+printf '{"ws:w1":{"auto":"project-b","enabled":true}}\n' \
+  >"$XDG_STATE_HOME/herdr-automatic-rename/state.json"
+run_event workspace.renamed
+check_contains "a guessed pane does not outrank identity" "$(log)" \
+  "workspace rename w1 [1] project-a"
+teardown
+
+# ======================================================================
+# Scenario 22: a tab dragged into another workspace keeps the id it was created
+#   with, so the workspace in front of its colon is the one it LEFT. A prompt in
+#   that tab says nothing about the workspace it is no longer in.
+# ======================================================================
+setup
+mkdir -p "$SB/home/project-a" "$SB/home/project-b"
+export HERDR_TAB_ID=w1:t1 HERDR_PANE_ID=w1:p1
+workspaces "$(ws w1 project-a)"
+session "w1=/home/project-a"
+run_event workspace.created                       # adopt w1 at project-a
+
+clear_log
+# t1 now heads w2; w1 is left with no active tab of its own.
+printf '{"result":{"workspaces":[
+  {"workspace_id":"w1","label":"[1] project-a","focused":false},
+  {"workspace_id":"w2","label":"[2] other","focused":true,"active_tab_id":"w1:t1"}]}}\n' \
+  >"$HERDR_MOCK_DIR/workspaces.json"
+( cd "$SB/home/project-b" && /usr/bin/env bash "$ENGINE" precmd zsh )
+check "a moved tab does not rename the workspace it left" "" "$(log)"
 teardown
 
 t_summary
