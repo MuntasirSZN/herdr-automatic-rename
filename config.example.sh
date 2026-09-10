@@ -38,6 +38,26 @@
 # Anything else in brackets ("[wip] foo") is left alone, digits are the only
 # trigger.
 
+# Ordered `sed -E` rewrites for the name a workspace takes from its directory.
+# They change the label herdr shows and nothing else: the directory keeps its
+# name, the Git worktree keeps its name, and a tab in that directory goes on
+# deduping against the directory's own name rather than the rewrite. Empty by
+# default. For example, shorten "worktree-feature" to "wt-feature":
+# WORKSPACE_SUBSTITUTE_SETS=(
+#   's|^worktree-|wt-|'
+# )
+#
+# Only a name this plugin derived is rewritten. Type a workspace name yourself
+# and it is left alone for good, the way the tab opt-out works -- except that
+# herdr offers no way to tell a hand-typed name from the derivation it happens
+# to match exactly, so a name you type that IS the directory name reads as ours.
+#
+# The rewrite is derived fresh on every pass rather than built out of the label
+# the last one wrote, so deleting the rules puts the derived names back at the
+# next herdr event. With workspace numbering off there is no next pass to do it,
+# and the labels keep their last rewrite until the `clear` action, which is what
+# that action is for.
+
 # ---- naming knobs (only used when NAME_TABS=1) ----
 
 # 1 = put the CONTEXT in front of the program: the directory the pane sits in,

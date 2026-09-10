@@ -107,6 +107,7 @@ To customize a config, write it to `~/.config/herdr-automatic-rename/config.sh` 
 | `HIDE_SHELL` | `0` | `1` shows nothing for a plain prompt, so herdr's own number shows through. |
 | `ICONS_ENABLED` | `0` | Show Nerd Font glyph in front of the name. |
 | `PROGRAM_ALIASES` | none | Rename programs on the tab: `"lazygit=lg"`. |
+| `WORKSPACE_SUBSTITUTE_SETS` | none | Rewrite the workspace label herdr derives from the directory: `'s\|^worktree-\|wt-\|'` shows `worktree-feature` as `wt-feature`. Display only, so the directory and the Git worktree keep their names. |
 | `MAX_NAME_LEN` `MAX_TITLE_LEN` `MAX_CONTEXT_LEN` `MAX_BRANCH_LEN` | `20` `MAX_NAME_LEN + 8` `12` `12` | Character budget per part of the tab name. |
 
 See [config.example.sh](config.example.sh) for the full configuration details.
