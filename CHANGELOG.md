@@ -4,6 +4,18 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- Workspace labels can be shown under a shorter name than their directory carries. `WORKSPACE_SUBSTITUTE_SETS` is an ordered list of `sed -E` rewrites applied to the name herdr derives from the directory, so `'s|^worktree-|wt-|'` puts `worktree-feature` in the sidebar as `wt-feature`. The rewrite reaches the label and nothing else: the directory and the Git worktree keep their names, and a tab inside that directory still drops the workspace's name out of its own label rather than re-injecting the long spelling it was shortened to lose.
+
+  Only a derived name is rewritten. A name you typed is left alone for good, the same promise the tab opt-out makes, with the same gap in it: herdr exposes no way to tell a typed name from the derivation it happens to match exactly.
+
+  Numbering and rewriting are separate reasons for the workspace pass to run, so a rewrite reaches a workspace whose numbering was never turned on. Delete the rules and the derived names come back at the next herdr event or shell prompt, after which the plugin lets those workspaces go and herdr labels them itself again.
+
+  `clear` hands back the derived name too, where it used to strip the number off the rewrite and leave that standing. It is documented as the last step before uninstall, after which the plugin that could have restored the label is gone.
+
+  Based on [#15](https://github.com/qu8n/herdr-automatic-rename/pull/15) by @engineersamuel.
+
 ## [0.10.0] - 2026-09-10
 
 ### Added
