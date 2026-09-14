@@ -533,9 +533,9 @@ ar_title_name_prefix() {
 #
 # Also refused: the name of the workspace the tab is in. herdr shows that above
 # the tabs, so a tab there spends half its width repeating what is already on
-# screen. Matched ignoring the case of ASCII letters, like every other compare in
-# this file, and exactly otherwise -- a tab whose directory has left its
-# workspace behind is exactly the one that keeps saying where it is.
+# screen. Matched ignoring the case of ASCII letters and which separator a name
+# was built out of (_AR_FOLD_IN), and exactly otherwise -- a tab whose directory
+# has left its workspace behind is exactly the one that keeps saying where it is.
 ar_context_dir() {
   local dir=$1 ws=$2 base
   AR_CONTEXT=""
@@ -557,15 +557,17 @@ ar_context_dir() {
     # which matters because the fold walks a string a character at a time on a
     # path that runs per tab and again per prompt.
     [ "$base" = "$ws" ] && return 0
-    ar_case "$base" "$_AR_UPPER" "$_AR_LOWER"
+    ar_case "$base" "$_AR_FOLD_IN" "$_AR_FOLD_OUT"
     folded=$AR_CASE
-    ar_case "$ws" "$_AR_UPPER" "$_AR_LOWER"
+    ar_case "$ws" "$_AR_FOLD_IN" "$_AR_FOLD_OUT"
     [ "$folded" = "$AR_CASE" ] && return 0
     # herdr names a worktree workspace after the branch with the convention in
     # front of it stripped, so the directory ends with the workspace's name and
     # the two are the same place. The separator is required, or a workspace
-    # called "api" would swallow a tab that really is in "legacy-api".
-    case $folded in *[-_.]"$AR_CASE") return 0 ;; esac
+    # called "api" would swallow a tab that really is in "legacy-api" -- and
+    # folding the separators does not weaken that: what stands between the
+    # convention and the name must still BE one, whichever of them was written.
+    case $folded in *-"$AR_CASE") return 0 ;; esac
   fi
   AR_CONTEXT=$(ar_shorten "$base" "${MAX_CONTEXT_LEN:-12}")
   printf '%s' "$AR_CONTEXT"
@@ -580,6 +582,32 @@ _AR_BRANCH_SEPS='-_./ '
 # event and again on every shell prompt, and `tr` is a process.
 _AR_LOWER='abcdefghijklmnopqrstuvwxyz'
 _AR_UPPER='ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+# The alphabet the two "is this already on screen?" compares fold through: ASCII
+# case AND the separators a name is built out of, in one ar_case pass.
+#
+# The separators go in because one name reaches this file in two spellings.
+# herdr's worktree manager labels a workspace after the BRANCH, slashes and all
+# (feature/proj-482-fix), while the worktree directory the branch is checked out
+# in gets those slashes flattened to hyphens (feature-proj-482-fix) -- a branch
+# cannot carry a path separator into a directory name. Compared character for
+# character the two disagree, and the tab then put the directory back in its
+# label beside the workspace already saying it: "PROJ-482 > claude" under a
+# "feature/proj-482-fix" workspace, which is the name twice.
+#
+# Which way they fold does not matter, only that both sides fold the same, so
+# they all become the hyphen, the separator nearly every name is written with.
+#
+# Folded in the alphabet rather than in a pass of its own because these compares
+# run per named tab on every herdr event and again on every shell prompt, and
+# ar_case walks a string one character at a time. One walk did the case, and one
+# walk now does the case and the separators both, so the fix costs nothing.
+#
+# Written out rather than built, because ar_case reads the two as one mapping and
+# they are only a mapping while they are the same length: a separator added to
+# the first needs a hyphen added to the second.
+_AR_FOLD_IN="$_AR_UPPER-_./"
+_AR_FOLD_OUT="$_AR_LOWER----"
 
 # An issue key: two to six letters and at least two digits, on its own rather
 # than inside a longer word. The bounds are what keep it clear of hyphenated
@@ -1073,14 +1101,16 @@ ar_ssh_host() {
 # corner: "auto-title > auto-title > Rename the tabs" says one thing three times.
 # Containment rather than equality, because the directory is usually the branch
 # with a convention wrapped round it ("bugfix-" in front, the ticket in the
-# middle). ASCII-folded, like every other compare in this file.
+# middle). Folded through _AR_FOLD_IN, like the context compare next door, and
+# for the same reason: a branch and the directory it is checked out in are one
+# name in two spellings, "feat/oauth" checked out in "feat-oauth".
 ar_branch_new() {
   local branch=$1 said
   AR_BRANCH_NEW=""
   [ -n "$branch" ] || return 0
-  ar_case "$2" "$_AR_UPPER" "$_AR_LOWER"
+  ar_case "$2" "$_AR_FOLD_IN" "$_AR_FOLD_OUT"
   said=$AR_CASE
-  ar_case "$branch" "$_AR_UPPER" "$_AR_LOWER"
+  ar_case "$branch" "$_AR_FOLD_IN" "$_AR_FOLD_OUT"
   case $said in *"$AR_CASE"*) return 0 ;; esac
   AR_BRANCH_NEW=$branch
   printf '%s' "$branch"

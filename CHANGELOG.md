@@ -4,6 +4,10 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Fixed
+
+- A tab no longer repeats a workspace whose name is the same as its directory's, spelled with a different separator. herdr's worktree manager labels a workspace after the branch, slashes and all, while the worktree directory the branch is checked out in gets those slashes flattened to hyphens. The two compares that ask whether a name is already on screen read them character for character, so `feature/fh-10390-frame-tests` and `feature-fh-10390-frame-tests` did not match, and the tab put the directory back in its label under a workspace already carrying it: `FH-10390 › claude`, the name twice. `-`, `_`, `.` and `/` now fold together in both compares, alongside the ASCII case fold that was already there. A separator is still required where the rule wanted one, so a tab in `legacy-api` under an `api` workspace still says where it is.
+
 ## [0.11.0] - 2026-09-10
 
 ### Added

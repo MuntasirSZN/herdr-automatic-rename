@@ -722,6 +722,21 @@ check "a worktree prefix is the same place" "" \
   "$(ar_context_dir '/Users/tester/dev/wt/bugfix-proj-482-fix' 'proj-482-fix')"
 check "and the separator is required" "aaaproj-482-fix" \
   "$(MAX_CONTEXT_LEN=20 ar_context_dir '/Users/tester/dev/wt/aaaproj-482-fix' 'proj-482-fix')"
+# The same place spelled with a different separator. herdr's worktree manager
+# names a workspace after the BRANCH, slashes and all, while the worktree
+# directory the branch is checked out in gets those slashes flattened to
+# hyphens -- so the two say one thing in two spellings, and a compare that read
+# them character for character put the directory back in the tab.
+check "a slash and a hyphen are the same separator" "" \
+  "$(ar_context_dir '/Users/tester/dev/wt/feature-proj-482-fix' 'feature/proj-482-fix')"
+check "so are a dot and an underscore" "" \
+  "$(ar_context_dir '/Users/tester/dev/api_docs' 'api.docs')"
+check "and a worktree prefix across spellings is still the same place" "" \
+  "$(ar_context_dir '/Users/tester/dev/wt/bugfix-proj-482-fix' 'proj/482/fix')"
+# Folding the separators does not weaken the rule that wanted one: what stands
+# between the prefix and the workspace's name must still BE a separator.
+check "the separator is still required across spellings" "aaaproj-482-fix" \
+  "$(MAX_CONTEXT_LEN=20 ar_context_dir '/Users/tester/dev/wt/aaaproj-482-fix' 'proj/482/fix')"
 # The other direction is a different directory, not a prefix convention: a tab in
 # api-docs under a workspace called api has genuinely gone somewhere.
 check "a longer name is not a prefix convention" "api-docs" \
@@ -843,6 +858,10 @@ check "the compare ignores ASCII case" "auto-title › claude" \
   "$(ar_label '/Users/tester/dev/wt/auto-title' 'other' 'AUTO-TITLE' 'claude' '')"
 check "a branch that says something new stays" "api › feat/oauth › claude" \
   "$(ar_label '/Users/tester/dev/api' 'other' 'feat/oauth' 'claude' '')"
+# Separators fold here for the same reason they fold in the context: a branch
+# and the directory it is checked out in are one name in two spellings.
+check "a branch the directory says in another spelling is dropped" "feat-oauth › claude" \
+  "$(ar_label '/Users/tester/dev/feat-oauth' 'other' 'feat/oauth' 'claude' '')"
 
 # ---- ar_ssh_host: the machine a pane reached ----
 # A pane running ssh is about the machine on the other end, not the directory it
