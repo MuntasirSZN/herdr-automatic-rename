@@ -4,6 +4,8 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-09-14
+
 ### Fixed
 
 - A tab no longer repeats a workspace whose name is the same as its directory's, spelled with a different separator. herdr's worktree manager labels a workspace after the branch, slashes and all, while the worktree directory the branch is checked out in gets those slashes flattened to hyphens. The two compares that ask whether a name is already on screen read them character for character, so `feature/fh-10390-frame-tests` and `feature-fh-10390-frame-tests` did not match, and the tab put the directory back in its label under a workspace already carrying it: `FH-10390 › claude`, the name twice. `-`, `_`, `.` and `/` now fold together in both compares, alongside the ASCII case fold that was already there. A separator is still required where the rule wanted one, so a tab in `legacy-api` under an `api` workspace still says where it is.
@@ -332,7 +334,8 @@ First public release.
 - Configuration via `~/.config/herdr-automatic-rename/config.sh` (or `$HERDR_AUTOMATIC_RENAME_CONFIG`), with a documented `config.example.sh`.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers, the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.9.0...v0.9.1
