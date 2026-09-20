@@ -38,6 +38,32 @@
 # Anything else in brackets ("[wip] foo") is left alone, digits are the only
 # trigger.
 
+# 1 = the first tab of each workspace carries this machine's hostname ahead of
+# its whole label -- tag, number, base: "HPmini: [1] api › nvim". herdr's tab
+# bar has a status area on its right edge only, so the first tab's label is
+# the left edge there is. The tag is derived fresh every pass (uname -n with
+# the DNS domain dropped, then the strip list below), never read back, so
+# switching the knob off takes an existing tag off again at the next event the
+# way numbering self-heals. 0 (the default) leaves tab labels untouched.
+# HOST_PREFIX=0
+#
+# What joins the host to the rest of the label. Kept plain: the same string
+# must come back off the front of a label for the strip, so it is not
+# decoration. Default ": ".
+# HOST_PREFIX_SEP=": "
+#
+# Substrings removed from the hostname before it is shown -- a fleet naming
+# prefix, so every machine called "Omarchy-<name>" shows as "<name>".
+# Removal is by substring, wherever it occurs. An evaluation that ends empty
+# (uname answering nothing, or the strip list eating the whole name) still
+# shows the separator alone on the first tab (": [1] fish"), which tells a
+# broken hostname apart from HOST_PREFIX being off; both hostname and
+# separator are skipped only when the knob itself is off. Changing the rules
+# leaves tags spelled the old way on first tabs until the next event
+# re-derives them, and a label no derivation matches any more is cleaned by
+# the `clear` action.
+# HOST_PREFIX_STRIP=("Omarchy-")
+
 # Ordered `sed -E` rewrites for the name a workspace takes from its directory.
 # They change the label herdr shows and nothing else: the directory keeps its
 # name, the Git worktree keeps its name, and a tab in that directory goes on

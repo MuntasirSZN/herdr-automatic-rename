@@ -303,6 +303,75 @@ ar_index_prefix() {
   esac
 }
 
+# ar_host_tag -> "HPmini: " -- this machine's short hostname joined to
+# HOST_PREFIX_SEP, or "" when `uname -n` answers nothing. The tag is computed
+# from config alone (the DNS domain dropped, then every HOST_PREFIX_STRIP
+# substring removed, so a fleet naming prefix such as "Omarchy-" keeps the
+# short machine name on the tab), which is what lets ar_tab_strip_prefix take
+# it back off a label -- even after HOST_PREFIX itself is switched off, or
+# under --clear, because whether the tag is PREPENDED is the caller's question
+# and this function always answers the same one. Cached in AR_HOST_TAG: one
+# uname per invocation however many tabs ask.
+ar_host_tag() {
+  local h s
+  if [ -n "${AR_HOST_TAG+x}" ]; then printf '%s' "$AR_HOST_TAG"; return; fi
+  AR_HOST_TAG=''
+  h=$(uname -n 2>/dev/null) || h=''
+  h=${h%%.*}
+  for s in ${HOST_PREFIX_STRIP[@]+"${HOST_PREFIX_STRIP[@]}"}; do
+    h=${h//"$s"/}
+  done
+  # The separator is composed even when the hostname is not, while the feature
+  # is on: an empty host is a diagnosis (uname answered nothing, or the strip
+  # list ate the whole name), and a bare ": " leading the first tab tells that
+  # apart from HOST_PREFIX being off -- which keeps the tag empty so a label
+  # nobody prefixed is never stripped of one. A non-empty host keeps the old
+  # contract: the spelling stays derivable with the knob off, so a tag written
+  # while it was on still comes back off at the next event.
+  if [ -n "$h" ] || [ "${HOST_PREFIX:-0}" = "1" ]; then
+    AR_HOST_TAG="${h}${HOST_PREFIX_SEP-": "}"
+  fi
+  printf '%s' "$AR_HOST_TAG"
+}
+
+# ar_tab_strip_prefix <label> -> label with host tags and "[N] " prefixes
+# removed, outermost first, until nothing plugin-shaped leads it. More than one
+# layer can sit there legitimately (tag, then number), and a tag whose SPELLING
+# changed between passes -- the host evaluated empty one pass and not the
+# next, strip rules edited -- leaves the label wearing spellings the current
+# tag alone no longer matches, so both spellings (host+separator, and the bare
+# separator, while the feature is on) are peeled alternately with the number
+# until the shape stops changing. A tag spelled under strip rules nobody can
+# recompute, with no number behind it, is the one residue left -- `clear`
+# cannot take off what it cannot derive either. Workspaces and agents never
+# carry the tag and keep calling ar_strip_prefix.
+ar_tab_strip_prefix() {
+  local s=$1 tag bare prev=''
+  tag=$(ar_host_tag)
+  if [ "${HOST_PREFIX:-0}" = "1" ]; then bare=${HOST_PREFIX_SEP-": "}; else bare=''; fi
+  while [ -n "$s" ] && [ "$s" != "$prev" ]; do
+    prev=$s
+    s=${s#"$tag"}
+    s=${s#"$bare"}
+    s=$(ar_strip_prefix "$s")
+    # A tag spelled under rules nobody can recompute (the host failed this
+    # pass, strip rules were edited, the whole config deleted on the way to
+    # disabling) still sits ahead of the plugin's own "[N] " marker, and that
+    # marker is the one boundary every spelling shares: when nothing else
+    # peeled, take everything through the first bracketed number off. Hand
+    # names pay the tax upstream already documents for a leading "[N] " --
+    # digits are the only trigger, "[wip] foo" is safe -- and only where a
+    # tag could have been written: while the feature is on, or under --clear,
+    # which is documented as the residue-free way out.
+    if [ "$s" = "$prev" ] && { [ "$CLEAR" = "1" ] || [ "${HOST_PREFIX:-0}" = "1" ]; }; then
+      case "$s" in
+        ?*\[[0-9]*\]\ *) s=${s#*\[[0-9]*\] } ;;
+      esac
+    fi
+  done
+  printf '%s' "$s"
+}
+
 # ar_desired <scope> <position> <base> -> the label this item should have.
 #   --clear              -> always the bare base (strip numbering)
 #   scope off            -> bare base (self-heals a stale prefix as items reconcile)
@@ -1756,7 +1825,7 @@ ar_reconcile_tabs() {
       [ -n "$tid" ] || continue
       i=$(( i + 1 ))
       AR_SEEN_TABS="$AR_SEEN_TABS $tid"
-      base0=$(ar_strip_prefix "$label")
+      base0=$(ar_tab_strip_prefix "$label")
       base=$base0
       named=0
       if [ "$CLEAR" != "1" ] && [ "$NAME_TABS" = "1" ]; then
@@ -1796,6 +1865,15 @@ ar_reconcile_tabs() {
         continue
       fi
       want=$(ar_desired tabs "$i" "$base")
+      # The first tab carries this machine's name ahead of everything else --
+      # the left-edge slot herdr's own tab bar offers no status area for. Tag
+      # first, number second, base third ("HPmini: [1] api › nvim"). Never
+      # under --clear: that is the path a switched-off tag comes back off by,
+      # and base0 above already read the label with the tag stripped.
+      if [ "$i" -eq 1 ] && [ "$CLEAR" != "1" ] && [ "${HOST_PREFIX:-0}" = "1" ] \
+         && tag=$(ar_host_tag) && [ -n "$tag" ]; then
+        want="$tag$want"
+      fi
       # Ownership is recorded for a name the tab actually CARRIES: the label is
       # already right, or the rename reported success. Recording it for a rename
       # that failed (herdr rejected the label, the socket blipped) left state
@@ -2191,8 +2269,8 @@ label: $label"
     printf 'trace, the whole pass:\n'
     cat "$AR_TRACE_FILE" 2>/dev/null
   fi
-  printf '\nknobs: NAME_TABS=%s AUTO_INDEX=%s TAB_CONTEXT=%s AGENT_TITLES=%s HIDE_SHELL=%s\n' \
-    "${NAME_TABS:-1}" "${AUTO_INDEX:-1}" "${TAB_CONTEXT:-1}" "${AGENT_TITLES:-1}" "${HIDE_SHELL:-0}"
+  printf '\nknobs: NAME_TABS=%s AUTO_INDEX=%s TAB_CONTEXT=%s AGENT_TITLES=%s HIDE_SHELL=%s HOST_PREFIX=%s\n' \
+    "${NAME_TABS:-1}" "${AUTO_INDEX:-1}" "${TAB_CONTEXT:-1}" "${AGENT_TITLES:-1}" "${HIDE_SHELL:-0}" "${HOST_PREFIX:-0}"
   if [ -n "$tab" ]; then ar_notify "Doctor: $tab" "$head"
   else ar_notify "Doctor: no tab resolved" "$head"
   fi
@@ -2367,6 +2445,7 @@ ar_fast_tab() {
   ar_trace "fast tab entered: $MODE, tab [${tab}]"
   [ -n "$tab" ] || { ar_trace "fast tab: no HERDR_TAB_ID"; return 0; }
   local prog="" cmd="" info name label raw prefix slabel enabled auto want ws
+  local tag hosttag core
   if [ "$MODE" = "preexec" ]; then
     if [ "${AR_FAST_SAMPLE:-}" = "1" ]; then
       info=$(ar_pane_program "${HERDR_PANE_ID:-}") || { ar_trace "$tab sampling failed, nothing renamed"; return 0; }
@@ -2386,8 +2465,21 @@ ar_fast_tab() {
   printf '%s' "$raw" | jq -e '(.result.tab // .tab) | has("label")' >/dev/null 2>&1 || { ar_trace "$tab tab get carried no label field"; return 0; }
   label=$(printf '%s' "$raw" | jq -r "$AR_JQ_CLEAN"'(.result.tab // .tab).label | clean' 2>/dev/null)
 
-  if ar_index_on tabs; then prefix=$(ar_index_prefix "$label"); else prefix=""; fi
-  slabel=$(ar_strip_prefix "$label")
+  # The fast path knows the tab it runs in, not the position that tab holds,
+  # so a host tag can only be CARRIED from the label already on it; the
+  # reconcile settles adds and removes when a tab moves to or from the first
+  # slot. Without the carry, every command typed in the first tab would flash
+  # the tag off until the next herdr event put it back. The tag comes off into
+  # $core so the number and the eligibility base are read from what follows
+  # it, while $label keeps the full string for the final compare.
+  tag=$(ar_host_tag)
+  hosttag=""
+  core=$label
+  if [ -n "$tag" ] && [ "${HOST_PREFIX:-0}" = "1" ]; then
+    case "$core" in "$tag"*) hosttag=$tag; core=${core#"$tag"} ;; esac
+  fi
+  if ar_index_on tabs; then prefix=$(ar_index_prefix "$core"); else prefix=""; fi
+  slabel=$(ar_strip_prefix "$core")
   ar_name_eligible "$tab" "$slabel" || return 0   # it says why
   # The context is this shell's own $PWD -- the hook backgrounds the engine from
   # the pane, so the directory arrives for free and a cd shows up at the next
@@ -2408,7 +2500,7 @@ ar_fast_tab() {
     [ "${HIDE_SHELL:-0}" = "1" ] || { ar_trace "$tab no name computed for [$prog]"; return 0; }
     prefix="${prefix% }"                        # "[3] " -> "[3]", "" stays ""
   fi
-  want="${prefix}${name}"
+  want="${hosttag}${prefix}${name}"
   if [ "$want" != "$label" ]; then
     "$HERDR" tab rename "$tab" "$want" >/dev/null 2>&1 || { ar_trace "$tab rename failed: [$want]"; return 0; }
     ar_trace "$tab rename issued: [$label] -> [$want]"

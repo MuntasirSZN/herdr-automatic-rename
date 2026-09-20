@@ -99,6 +99,7 @@ To customize a config, write it to `~/.config/herdr-automatic-rename/config.sh` 
 | --- | --- | --- |
 | `NAME_TABS` | `1` | Automatic tab naming (the core feature of this plugin). |
 | `AUTO_INDEX` | `1` | Prefix with their `1-9` prefix key. |
+| `HOST_PREFIX` | `0` | First tab of each workspace carries the machine's hostname ahead of its label (`HPmini: [1] api › nvim`); `HOST_PREFIX_SEP` joins it and `HOST_PREFIX_STRIP` shortens it. |
 | `TAB_CONTEXT` | `1` | Show the `<where>` half of a tab name: directory, branch, or ssh host. |
 | `SHOW_BRANCH` | `1` | Add the checked-out branch. Trunk branches and branches that repeat what is on screen are left out. |
 | `AGENT_TITLES` | `1` | Name an agent tab after the task it reports, not after the agent name (e.g. `claude`). |
