@@ -9,7 +9,7 @@ By default, herdr names your tabs `1`, `2`, `3`, etc. This plugin automatically 
 Some examples of tabs renamed by this plugin:
 
 ```text
-TAB NAME                                HOW TO READ IT
+TAB NAME                                WHAT IT MEANS
 -------------------------------------   --------------------------------
 [1] zsh                                 a plain shell
 [2] api › feat/oauth › nvim             directory › branch › program
@@ -17,7 +17,7 @@ TAB NAME                                HOW TO READ IT
 [4] PROJ-482 › Fix the revenue query    branch › what an agent is doing
 ```
 
-Tab names are highly configurable. See the Configuration section below for more info.
+This plugin is highly configurable. See the Configuration section below for more info.
 
 ## Quick start
 
@@ -115,9 +115,8 @@ See [config.example.sh](config.example.sh) for the full configuration details.
 
 ## Actions
 
-- `reset` re-adopts a tab you renamed by hand.
-- `clear` strips every `[N]` number prefix, restores base names, and reverts agents to detection.
-- `doctor` prints why the current tab has the name it has for troubleshooting.
+- `reset` - When you manually name a tab, the plugin respects that name and doesn't touch it. This action lets the plugin takes over renaming that tab.
+- `doctor` - For troubleshooting purposes. This action prints why the plugin named the current tab the way it did.
 
 Run one from the CLI, or bind it in `config.toml` as a `plugin_action`, like this:
 
