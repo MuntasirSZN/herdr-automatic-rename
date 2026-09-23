@@ -46,6 +46,21 @@ check "strip: mid-label bracket kept under clear" "notes [2] draft" "$(ar_tab_st
 check "strip: non-digit bracket safe under clear" "[wip] foo" "$(ar_tab_strip_prefix '[wip] foo' 1)"
 unset CLEAR
 
+# The residue reader behind the separator-edit heal, and the head test behind
+# the no-stack guard: both reduce ar_host_tag's spelling to the host name
+# itself, so the checks hold on whatever machine runs the suite. The
+# separators inside these strings are deliberately not the configured one.
+yn() { if "$@"; then printf 'yes'; else printf 'no'; fi; }
+H="$(uname -n 2>/dev/null)"; H="${H%%.*}"
+HOST_PREFIX=1
+check "residue: old separator plus marker reads as ours" "yes" "$(yn ar_tag_residue_p "${H} | [1] api" api)"
+check "residue: old separator without a marker reads as ours" "yes" "$(yn ar_tag_residue_p "${H} | api" api)"
+check "residue: a foreign host name does not" "no" "$(yn ar_tag_residue_p "oldhost: [1] api" api)"
+check "residue: a tail that is not the recorded base does not" "no" "$(yn ar_tag_residue_p "${H} | [1] web" api)"
+check "head: a hostname-headed base is detected" "yes" "$(yn ar_tag_head_p "${H}: [1] api")"
+check "head: a plain base is not" "no" "$(yn ar_tag_head_p "api")"
+unset HOST_PREFIX
+
 # ======================================================================
 # Integration harness (see tests/test_reconcile.sh for the shape).
 # ======================================================================
@@ -232,6 +247,118 @@ fixture tabs_w1.json <<'JSON'
 JSON
 run_engine tab.focused
 check "spelling change: heals to the current tag" "tab rename w1:t1 ${TAG}[1] api" "$(log)"
+teardown
+
+# ======================================================================
+# The separator was edited mid-session, so the tag on the label is spelled
+# the way the config no longer spells and no peel can take it off. A tab the
+# plugin still names must heal to the new spelling: the row's receipt plus
+# the exact recorded base says the head is ours. Without the residue reader
+# the mismatch read as a hand rename, opted the tab out, and the reconcile
+# stacked a fresh tag onto the old one, once per edit.
+# ======================================================================
+setup
+export HOST_PREFIX=1 HOST_PREFIX_SEP=" | "
+printf '{"w1:t1":{"auto":"fish","enabled":true,"tagged":true}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<JSON
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"${TAG}[1] fish","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"fish","cmdline":"fish"}]}}}
+JSON
+run_engine tab.focused
+check "separator edit: heals to the new spelling" "tab rename w1:t1 ${H} | [1] fish" "$(log)"
+check "separator edit: ownership kept" "fish true" \
+  "$(jq -r '.["w1:t1"] | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
+check "separator edit: tag still recorded" "true" \
+  "$(jq -r '.["w1:t1"].tagged // false' "$STATE" 2>/dev/null)"
+teardown
+
+# ======================================================================
+# The same heal with the knob off: the row's `tagged` is what allows the
+# strip, and the residue reader what recognizes the head, so the tag comes
+# off whole instead of leaving the tab opted out on a label it can no
+# longer derive.
+# ======================================================================
+setup
+export HOST_PREFIX_SEP=" | "
+printf '{"w1:t1":{"auto":"fish","enabled":true,"tagged":true}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<JSON
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"${TAG}[1] fish","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"fish","cmdline":"fish"}]}}}
+JSON
+run_engine tab.focused
+check "separator edit, knob off: tag comes off whole" "tab rename w1:t1 [1] fish" "$(log)"
+check "separator edit, knob off: not opted out" "fish true" \
+  "$(jq -r '.["w1:t1"] | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
+teardown
+
+# ======================================================================
+# A tab the plugin no longer names (opted out, the mark still on its row)
+# must not grow a tag per separator edit. Its base still starts with the
+# machine name, which is a tag in a spelling nobody can take off, so the
+# pass leaves the label and the row exactly as they are; reset is the way
+# out.
+# ======================================================================
+setup
+export HOST_PREFIX=1 HOST_PREFIX_SEP=" | "
+printf '{"w1:t1":{"auto":"","enabled":false,"tagged":true}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<JSON
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"${TAG}[1] fish","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+run_engine tab.focused
+check "stacked generations: nothing issued" "" "$(log)"
+check "stacked generations: row untouched" "false true" \
+  "$(jq -r '.["w1:t1"] | "\(.enabled) \(.tagged // false)"' "$STATE" 2>/dev/null)"
+teardown
+
+# ======================================================================
+# The same heal with numbering off, the shape with no marker behind the tag:
+# the reader needs no bracket, only the host-headed front and the exact
+# recorded base at the back.
+# ======================================================================
+setup
+export HOST_PREFIX=1 AUTO_INDEX=0 HOST_PREFIX_SEP=" | "
+printf '{"w1:t1":{"auto":"fish","enabled":true,"tagged":true}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture tabs_w1.json <<JSON
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"${TAG}fish","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":100,
+  "foreground_processes":[{"pid":100,"argv0":"fish","cmdline":"fish"}]}}}
+JSON
+run_engine tab.focused
+check "separator edit, no marker: heals without the bracket" "tab rename w1:t1 ${H} | fish" "$(log)"
+check "separator edit, no marker: ownership kept" "fish true" \
+  "$(jq -r '.["w1:t1"] | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
 teardown
 
 # ======================================================================
