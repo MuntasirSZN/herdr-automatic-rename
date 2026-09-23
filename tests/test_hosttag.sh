@@ -33,9 +33,17 @@ unset CLEAR
 HOST_PREFIX=1
 check "strip: exact tag + marker peels" "api" "$(ar_tab_strip_prefix "${TAG}[1] api" 1)"
 check "strip: mid-label bracket kept, knob on" "notes [2] draft" "$(ar_tab_strip_prefix 'notes [2] draft' 1)"
+# The separator an empty host evaluation writes, peeled by its own layer while
+# the knob is on and by the residue cut when it is off (a tagged row healing).
+check "strip: bare separator peels, knob on" "api" "$(ar_tab_strip_prefix ': [1] api' 1)"
+# A tag spelled under rules nobody can recompute still ends at the marker: the
+# cut takes everything through the first "<sep>[N] ", and only such a head.
+check "strip: unspellable tag heals through the marker" "api" "$(ar_tab_strip_prefix 'oldhost: [1] api' 1)"
 unset HOST_PREFIX
+check "strip: bare separator heals via the cut, knob off" "api" "$(ar_tab_strip_prefix ': [1] api' 1)"
 CLEAR=1
 check "strip: mid-label bracket kept under clear" "notes [2] draft" "$(ar_tab_strip_prefix 'notes [2] draft' 1)"
+check "strip: non-digit bracket safe under clear" "[wip] foo" "$(ar_tab_strip_prefix '[wip] foo' 1)"
 unset CLEAR
 
 # ======================================================================
@@ -71,15 +79,16 @@ teardown() { rm -rf "$SB" 2>/dev/null || true; }
 
 # ======================================================================
 # Review finding: the fast path froze a tagged tab when the knob went
-# off. The tag was written while HOST_PREFIX=1; the next preexec runs
-# with it off. The carry guard tested the knob, so core kept the tag,
-# slabel stopped matching the stored auto, and ar_name_eligible wrote
-# the user-renamed opt-out: the tab wore the stale tag until reset. The
-# tag must come off core either way, with only the carry for want=
-# waiting on the knob.
+# off. The tag was written while HOST_PREFIX=1 (the row says so, the
+# design qu8n picked); the next preexec runs with it off. The carry
+# guard tested the knob, so core kept the tag, slabel stopped matching
+# the stored auto, and ar_name_eligible wrote the user-renamed opt-out:
+# the tab wore the stale tag until reset. The tag must come off core
+# either way, with only the carry for want= waiting on the knob, and
+# the heal has to reach the store: the claim drops `tagged` again.
 # ======================================================================
 setup
-printf '{"t1":{"auto":"nvim","enabled":true}}\n' >"$STATE"
+printf '{"t1":{"auto":"nvim","enabled":true,"tagged":true}}\n' >"$STATE"
 export HERDR_TAB_ID=t1 HERDR_PANE_ID=p1
 fixture tab_t1.json <<JSON
 {"result":{"tab":{"tab_id":"t1","label":"${TAG}[1] nvim"}}}
@@ -87,6 +96,7 @@ JSON
 run_engine preexec "nvim README.md"
 check "toggle off: tag comes off in the fast path" "tab rename t1 [1] nvim" "$(log)"
 check "toggle off: tab not opted out" "true" "$(jq -r '.t1.enabled' "$STATE" 2>/dev/null)"
+check "toggle off: heal drops the tagged mark" "false" "$(jq -r '.t1.tagged // false' "$STATE" 2>/dev/null)"
 teardown
 
 # ======================================================================
@@ -113,6 +123,191 @@ fixture panes.json <<'JSON'
 JSON
 run_engine tab.focused
 check "hand host name kept, feature never on" "" "$(log)"
+teardown
+
+# ======================================================================
+# Toggle on: the first tab gains the tag and the row records it, so a later
+# pass with the knob off knows the tag is ours to take back off.
+# ======================================================================
+setup
+export HOST_PREFIX=1
+printf '{"w1:t1":{"auto":"nvim","enabled":true}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[1] nvim","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+run_engine tab.focused
+check "toggle on: tag goes on the first tab" "tab rename w1:t1 ${TAG}[1] nvim" "$(log)"
+check "toggle on: row records the tag" "true" "$(jq -r '.["w1:t1"].tagged // false' "$STATE" 2>/dev/null)"
+teardown
+
+# ======================================================================
+# A pass that moves the tag without computing a name (no process-info to be
+# had) must still reach the store: the label carries the tag either way, and
+# the row is the only memory that it is ours.
+# ======================================================================
+setup
+export HOST_PREFIX=1
+printf '{"w1:t1":{"auto":"nvim","enabled":true}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[1] nvim","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+# NOTE: no procinfo_p1.json -> no name computed -> the tag rides base0 alone.
+run_engine tab.focused
+check "nameless pass: tag still goes on" "tab rename w1:t1 ${TAG}[1] nvim" "$(log)"
+check "nameless pass: row still records the tag" "true" "$(jq -r '.["w1:t1"].tagged // false' "$STATE" 2>/dev/null)"
+check "nameless pass: ownership kept" "nvim true" "$(jq -r '.["w1:t1"] | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
+teardown
+
+# ======================================================================
+# Renumber: the tag follows the first slot. Pass 1 is the steady state (both
+# tabs correct, nothing issued). Pass 2 flips the order: the incoming first
+# tab gains the tag and its mark, the outgoing one loses both.
+# ======================================================================
+setup
+export HOST_PREFIX=1
+printf '{"w1:t1":{"auto":"api","enabled":true,"tagged":true},"w1:t2":{"auto":"web","enabled":true}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t1","focused":true},
+  {"pane_id":"p2","tab_id":"w1:t2","focused":false}
+]}}
+JSON
+fixture tabs_w1.json <<JSON
+{"result":{"tabs":[
+  {"tab_id":"w1:t1","label":"${TAG}[1] api","pane_count":1,"focused":true},
+  {"tab_id":"w1:t2","label":"[2] web","pane_count":1,"focused":false}
+]}}
+JSON
+run_engine tab.focused
+check "renumber: steady state issues nothing" "" "$(log)"
+fixture tabs_w1.json <<JSON
+{"result":{"tabs":[
+  {"tab_id":"w1:t2","label":"[2] web","pane_count":1,"focused":true},
+  {"tab_id":"w1:t1","label":"${TAG}[1] api","pane_count":1,"focused":false}
+]}}
+JSON
+run_engine tab.focused
+out=$(log)
+check_contains "renumber: incoming first tab tagged" "$out" "tab rename w1:t2 ${TAG}[1] web"
+check_contains "renumber: outgoing first tab untagged" "$out" "tab rename w1:t1 [2] api"
+check "renumber: marks follow the slots" "false true" \
+  "$(jq -r '[.["w1:t1"].tagged // false, .["w1:t2"].tagged // false] | "\(.[0]) \(.[1])"' "$STATE" 2>/dev/null)"
+teardown
+
+# ======================================================================
+# A tag whose spelling changed (the host evaluated differently, strip rules
+# edited) heals through the marker: the cut takes the unspellable head off a
+# row we tagged, and the label lands on the current spelling.
+# ======================================================================
+setup
+export HOST_PREFIX=1
+printf '{"w1:t1":{"auto":"api","enabled":true,"tagged":true}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"oldhost: [1] api","pane_count":1,"focused":true}]}}
+JSON
+run_engine tab.focused
+check "spelling change: heals to the current tag" "tab rename w1:t1 ${TAG}[1] api" "$(log)"
+teardown
+
+# ======================================================================
+# Residue nobody can derive (the separator config that named the tag is gone,
+# and no marker sits behind it) is tolerated, not guessed at: the label keeps
+# its text, the row drops the mark, and --clear or reset is the way out.
+# ======================================================================
+setup
+export AUTO_INDEX=0
+printf '{"w1:t1":{"auto":"api","enabled":true,"tagged":true}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"oldhost: api","pane_count":1,"focused":true}]}}
+JSON
+run_engine tab.focused
+check "underivable residue: label kept" "" "$(log)"
+check "underivable residue: mark dropped" "false" "$(jq -r '.["w1:t1"].tagged // false' "$STATE" 2>/dev/null)"
+teardown
+
+# ======================================================================
+# Default-off inertness: a session that never set the knob issues nothing and
+# leaves the store byte-identical across consecutive passes, which is what
+# "inert without configuration" has to mean for a state-carrying feature.
+# The first named pass records the workspace field (pre-existing behavior,
+# nothing to do with HOST_PREFIX), so the byte-identical claim starts from
+# the second pass.
+# ======================================================================
+setup
+printf '{"w1:t1":{"auto":"nvim","enabled":true}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<'JSON'
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[1] nvim","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture procinfo_p1.json <<'JSON'
+{"result":{"process_info":{"foreground_process_group_id":200,
+  "foreground_processes":[{"pid":200,"argv0":"nvim","cmdline":"nvim README.md"}]}}}
+JSON
+run_engine tab.focused
+: >"$HERDR_MOCK_LOG"
+cp "$STATE" "$SB/state.before"
+run_engine tab.focused
+check "knob off: nothing issued" "" "$(log)"
+check "knob off: state byte-identical" "same" \
+  "$(cmp -s "$SB/state.before" "$STATE" && printf same || printf changed)"
+teardown
+
+# ======================================================================
+# --clear is the residue-free way out for a tagged row with the knob off:
+# the tag comes off along with the number, and the mark goes with it.
+# ======================================================================
+setup
+export AUTO_INDEX=1
+printf '{"w1:t1":{"auto":"api","enabled":true,"tagged":true}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+fixture tabs_w1.json <<JSON
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"${TAG}[1] api","pane_count":1,"focused":true}]}}
+JSON
+run_engine --clear
+out=$(log)
+check_contains "clear: tag and number come off" "$out" "tab rename w1:t1 api"
+check "clear: mark dropped" "false" "$(jq -r '.["w1:t1"].tagged // false' "$STATE" 2>/dev/null)"
 teardown
 
 t_summary

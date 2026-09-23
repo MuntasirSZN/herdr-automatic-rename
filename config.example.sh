@@ -44,7 +44,10 @@
 # the left edge there is. The tag is derived fresh every pass (uname -n with
 # the DNS domain dropped, then the strip list below), never read back, so
 # switching the knob off takes an existing tag off again at the next event the
-# way numbering self-heals. 0 (the default) leaves tab labels untouched.
+# way numbering self-heals -- but only from tabs the plugin itself tagged: the
+# naming store records which labels carry a tag, and a hand-typed name that
+# happens to start with the machine name is never touched. 0 (the default)
+# leaves tab labels untouched.
 # HOST_PREFIX=0
 #
 # What joins the host to the rest of the label. Kept plain: the same string
@@ -59,9 +62,11 @@
 # shows the separator alone on the first tab (": [1] fish"), which tells a
 # broken hostname apart from HOST_PREFIX being off; both hostname and
 # separator are skipped only when the knob itself is off. Changing the rules
-# leaves tags spelled the old way on first tabs until the next event
-# re-derives them, and a label no derivation matches any more is cleaned by
-# the `clear` action.
+# re-derives every tag at the next event; a tag spelled under rules nobody
+# can recompute any more (the config deleted on the way to disabling, a
+# separator that no longer exists) comes off only while its outline still can
+# -- something ending at the separator ahead of the tab number -- and what
+# even that cannot bound is residue the `clear` action is the way out of.
 # HOST_PREFIX_STRIP=("Omarchy-")
 
 # Ordered `sed -E` rewrites for the name a workspace takes from its directory.
