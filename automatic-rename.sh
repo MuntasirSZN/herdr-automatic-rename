@@ -357,6 +357,37 @@ ar_tag_strip_ok() { # <tab_id>
   case "$row" in *"${AR_ROW_SEP}true") printf '1' ;; *) printf '0' ;; esac
 }
 
+# ar_tag_residue_p <label> <auto> -> 0 when <label> reads as this machine's
+# tag under a separator the config no longer spells: the head is the host
+# name ar_host_tag derives, the tail is the exact base the store remembers,
+# and at least one character joins them (the separator nobody can recompute).
+# Called only for a row whose `tagged` says we wrote a tag, which is the
+# receipt telling this apart from a hand name that happens to start with the
+# machine name and end like ours.
+ar_tag_residue_p() { # <label> <auto>
+  local h sep
+  sep=${HOST_PREFIX_SEP-": "}
+  h=$(ar_host_tag); h=${h%"$sep"}
+  [ -n "$h" ] || return 1
+  case "$1" in "$h"?*"$2") return 0 ;; esac
+  return 1
+}
+
+# ar_tag_head_p <base> -> 0 when <base> starts with this machine's host name:
+# a tag is sitting ahead of it in a spelling the strip could not take off, so
+# nothing may be prepended to it. A base that genuinely starts with the
+# machine name (a project named after the machine) reads the same and loses
+# the tag for as long as it does; the label alone cannot tell the two apart,
+# and this is the side that never stacks.
+ar_tag_head_p() { # <base>
+  local h sep
+  sep=${HOST_PREFIX_SEP-": "}
+  h=$(ar_host_tag); h=${h%"$sep"}
+  [ -n "$h" ] || return 1
+  case "$1" in "$h"?*|"$h") return 0 ;; esac
+  return 1
+}
+
 # ar_tab_strip_prefix <label> [tag_ok] -> label with the plugin's outer layers
 # removed, outermost first, until nothing plugin-shaped leads it. With tag_ok
 # falsy (the default, and every workspace and agent call) only the "[N] " number
@@ -1007,6 +1038,15 @@ ar_name_eligible() {
     # relabeling). Reading that as a hand rename would freeze the tab on the
     # number and stop naming it once a real program starts, so keep ownership.
     elif [ -z "$auto" ] && ar_is_placeholder "$slabel"; then ar_trace "$tab owned hidden tab, placeholder [$slabel] kept"; return 0
+    # A separator edited mid-session leaves our own tag on the label in a
+    # spelling no peel can take off, and reading that as a hand rename opted
+    # the tab out and let the pass stack a fresh tag onto the old one. The
+    # row's `tagged` is the receipt that a tag was written at all; with the
+    # head reading as this machine's name and the tail as the exact base the
+    # store remembers, the label is ours to rewrite on the current spelling.
+    elif [ "$tagged" = "true" ] && [ -n "$auto" ] && ar_tag_residue_p "$slabel" "$auto"; then
+      ar_trace "$tab owned, tag spelled under a separator we no longer hold: [$slabel] ends in [$auto]"
+      return 0
     else ar_trace "$tab owned user-renamed opt-out: label [$slabel] is not [$auto]"; ar_state_set "$tab" "" false; return 1 # user renamed -> opt out
     fi
   fi
@@ -1931,6 +1971,18 @@ ar_reconcile_tabs() {
       if [ "$CLEAR" != "1" ] && [ "$NAME_TABS" = "1" ] && [ "$named" = "0" ] \
          && [ -n "$base" ] && ar_is_placeholder "$base"; then
         ar_trace "$tid deferred placeholder: [$base]"
+        continue
+      fi
+      # A base still headed by this machine's name is a tag the strip could
+      # not take off, because the separator was edited mid-session and no
+      # peel spells the old one any more. Rewriting the label would stack
+      # the current tag onto it, generation on generation, so a pass that
+      # carries such a base (it computed no name of its own) leaves the
+      # label and the row exactly as they are; reset settles them. --clear
+      # stays exempt: it is the explicit instruction to take off what it
+      # can.
+      if [ "$CLEAR" != "1" ] && [ "$named" = "0" ] && ar_tag_head_p "$base"; then
+        ar_trace "$tid left alone: host tag ahead of the base in a spelling we cannot take off"
         continue
       fi
       want=$(ar_desired tabs "$i" "$base")

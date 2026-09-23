@@ -52,7 +52,11 @@
 #
 # What joins the host to the rest of the label. Kept plain: the same string
 # must come back off the front of a label for the strip, so it is not
-# decoration. Default ": ".
+# decoration. Default ": ". Editing it mid-session is safe: a tab the plugin
+# still names heals to the new spelling at the next event (the store remembers
+# the base the tag sat on), and a tab it no longer names keeps the tag it
+# carries instead of growing a fresh one per edit, with the `reset` action the
+# way out.
 # HOST_PREFIX_SEP=": "
 #
 # Substrings removed from the hostname before it is shown -- a fleet naming
