@@ -57,8 +57,9 @@ check "residue: old separator plus marker reads as ours" "yes" "$(yn ar_tag_resi
 check "residue: old separator without a marker reads as ours" "yes" "$(yn ar_tag_residue_p "${H} | api" api)"
 check "residue: a foreign host name does not" "no" "$(yn ar_tag_residue_p "oldhost: [1] api" api)"
 check "residue: a tail that is not the recorded base does not" "no" "$(yn ar_tag_residue_p "${H} | [1] web" api)"
-check "head: a hostname-headed base is detected" "yes" "$(yn ar_tag_head_p "${H}: [1] api")"
-check "head: a plain base is not" "no" "$(yn ar_tag_head_p "api")"
+check "head: a hostname-headed base is detected" "yes" "$(yn ar_tag_head_p "${H}: [1] api" 1)"
+check "head: a plain base is not" "no" "$(yn ar_tag_head_p "api" 1)"
+check "head: without strip permission it never fires" "no" "$(yn ar_tag_head_p "${H}: [1] api")"
 unset HOST_PREFIX
 
 # ======================================================================
@@ -359,6 +360,95 @@ run_engine tab.focused
 check "separator edit, no marker: heals without the bracket" "tab rename w1:t1 ${H} | fish" "$(log)"
 check "separator edit, no marker: ownership kept" "fish true" \
   "$(jq -r '.["w1:t1"] | "\(.auto) \(.enabled)"' "$STATE" 2>/dev/null)"
+teardown
+
+# ======================================================================
+# Review finding: the fast path peeled the exact tag off the label before
+# ar_tag_strip_ok was ever asked, so on a session that never set the knob a
+# hand-typed "host: name" lost its head at the next preexec -- the strip
+# below the peel was gated, the peel itself was not. The peel must carry the
+# same permission the strip does.
+# ======================================================================
+setup
+printf '{"t1":{"auto":"nvim","enabled":true}}\n' >"$STATE"
+export HERDR_TAB_ID=t1 HERDR_PANE_ID=p1
+fixture tab_t1.json <<JSON
+{"result":{"tab":{"tab_id":"t1","label":"${TAG}nvim"}}}
+JSON
+run_engine preexec "nvim README.md"
+check "fast path: hand host-looking name kept, feature never on" "" "$(log)"
+check "fast path: recorded as the hand rename it is" "false" "$(jq -r '.t1.enabled' "$STATE" 2>/dev/null)"
+teardown
+
+# ======================================================================
+# Review finding: the residue guard fired with the knob off, because
+# ar_tag_head_p never asked the setting or the row. On a machine called Mac
+# a hand-renamed "[2] Mac-notes" that moved to the first slot stayed
+# "[2] Mac-notes", which breaks the default-off promise: without strip
+# permission there is no tag interpretation at all, and the name is
+# renumbered like any hand name.
+# ======================================================================
+setup
+printf '{"w1:t1":{"auto":"","enabled":false}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<JSON
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[2] ${H}-notes","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+run_engine tab.focused
+check "default off: a hand name starting with the machine name is renumbered" \
+  "tab rename w1:t1 [1] ${H}-notes" "$(log)"
+teardown
+
+# ======================================================================
+# The same hand name with the knob on: the strip permission exists, but the
+# row was never tagged, so the head is the user's text and not residue. The
+# tab follows its number like any hand name and never gains the tag, where
+# the guard used to leave it frozen on the old slot.
+# ======================================================================
+setup
+export HOST_PREFIX=1
+printf '{"w1:t1":{"auto":"","enabled":false}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<JSON
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"[2] ${H}-notes","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+run_engine tab.focused
+check "hand host name, knob on: numbered, never tagged" "tab rename w1:t1 [1] ${H}-notes" "$(log)"
+check "hand host name, knob on: row keeps the opt-out" "false" \
+  "$(jq -r '.["w1:t1"].enabled' "$STATE" 2>/dev/null)"
+teardown
+
+# ======================================================================
+# The guard's row half, pinned from the knob-off side: strip permission
+# granted by a row we tagged (not by the knob) still means a host-headed
+# base is residue nobody can spell, and the label and row are left alone.
+# ======================================================================
+setup
+export HOST_PREFIX_SEP=" | "
+printf '{"w1:t1":{"auto":"","enabled":false,"tagged":true}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<JSON
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"${TAG}[1] fish","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+run_engine tab.focused
+check "knob off, tagged residue: still left alone" "" "$(log)"
+check "knob off, tagged residue: row untouched" "false true" \
+  "$(jq -r '.["w1:t1"] | "\(.enabled) \(.tagged // false)"' "$STATE" 2>/dev/null)"
 teardown
 
 # ======================================================================
