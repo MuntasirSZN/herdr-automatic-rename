@@ -373,18 +373,35 @@ ar_tag_residue_p() { # <label> <auto>
   return 1
 }
 
-# ar_tag_head_p <base> -> 0 when <base> starts with this machine's host name:
-# a tag is sitting ahead of it in a spelling the strip could not take off, so
-# nothing may be prepended to it. A base that genuinely starts with the
+# ar_tag_head_p <base> [tag_ok] -> 0 when a tag strip would be allowed on this
+# tab (tag_ok, the same permission ar_tab_strip_prefix takes) AND <base>
+# starts with this machine's host name: a tag is sitting ahead of it in a
+# spelling the strip could not take off, so nothing may be prepended to it.
+# Without the permission there is no tag interpretation at all, which is what
+# keeps a hand name starting with the machine name treated like any other on
+# a session that never set the knob. A base that genuinely starts with the
 # machine name (a project named after the machine) reads the same and loses
 # the tag for as long as it does; the label alone cannot tell the two apart,
 # and this is the side that never stacks.
-ar_tag_head_p() { # <base>
+ar_tag_head_p() { # <base> [tag_ok]
+  [ "${2:-}" = "1" ] || return 1
   local h sep
   sep=${HOST_PREFIX_SEP-": "}
   h=$(ar_host_tag); h=${h%"$sep"}
   [ -n "$h" ] || return 1
   case "$1" in "$h"?*|"$h") return 0 ;; esac
+  return 1
+}
+
+# ar_row_tagged_p <tab_id> -> 0 when the store row records that we tagged
+# this tab, independent of the knob and --clear (the two other reasons a tag
+# strip may be allowed). The residue guard uses it to tell a row carrying our
+# own unspellable tag from a hand name a knob-on session happens to start
+# with the machine name.
+ar_row_tagged_p() { # <tab_id>
+  ar_state_rows
+  [ -z "${AR_STATE_ROWS_BAD:-}" ] || return 1
+  case "$(ar_state_fields "$1")" in *"${AR_ROW_SEP}true") return 0 ;; esac
   return 1
 }
 
@@ -1883,7 +1900,7 @@ ar_ws_base() {
 }
 
 ar_reconcile_tabs() {
-  local wsjson=$1 w wslabel wsbase tjson rows tid label pcount foc base0 base named name i want
+  local wsjson=$1 w wslabel wsbase tjson rows tid label pcount foc base0 base named name i want notag tag
   [ -n "$wsjson" ] || return 0
   # The workspace's own label comes down with its id: a tab in the workspace
   # named after its own directory drops that half of its name (ar_context_dir),
@@ -1973,17 +1990,27 @@ ar_reconcile_tabs() {
         ar_trace "$tid deferred placeholder: [$base]"
         continue
       fi
-      # A base still headed by this machine's name is a tag the strip could
-      # not take off, because the separator was edited mid-session and no
-      # peel spells the old one any more. Rewriting the label would stack
-      # the current tag onto it, generation on generation, so a pass that
-      # carries such a base (it computed no name of its own) leaves the
-      # label and the row exactly as they are; reset settles them. --clear
-      # stays exempt: it is the explicit instruction to take off what it
-      # can.
-      if [ "$CLEAR" != "1" ] && [ "$named" = "0" ] && ar_tag_head_p "$base"; then
-        ar_trace "$tid left alone: host tag ahead of the base in a spelling we cannot take off"
-        continue
+      # A base still headed by this machine's name, on a tab whose tag strips
+      # are allowed, is a tag the strip could not take off -- the separator
+      # was edited mid-session, and no peel spells the old one any more --
+      # so prepending the current one would stack generation on generation.
+      # The permission is ar_tag_strip_ok's, so a session that never set the
+      # knob never reads a hand name this way at all. Where it does open, two
+      # cases part ways: a row we tagged (ar_row_tagged_p) carries residue
+      # nobody can spell, and the label and its row are left exactly as they
+      # are until reset; a row we never tagged is a hand name, which keeps
+      # its text and follows its number like any hand name, and simply never
+      # gains the tag. --clear stays exempt below: it is the explicit
+      # instruction to take off what it can.
+      notag=0
+      if [ "$CLEAR" != "1" ] && [ "$named" = "0" ] \
+         && ar_tag_head_p "$base" "$(ar_tag_strip_ok "$tid")"; then
+        if ar_row_tagged_p "$tid"; then
+          ar_trace "$tid left alone: host tag ahead of the base in a spelling we cannot take off"
+          continue
+        fi
+        ar_trace "$tid hand-named: host-headed base follows its number without a tag"
+        notag=1
       fi
       want=$(ar_desired tabs "$i" "$base")
       # The first tab carries this machine's name ahead of everything else --
@@ -1995,7 +2022,7 @@ ar_reconcile_tabs() {
       # the label carries a tag it may later have to take back off, which is
       # the one thing the label alone will not tell it once the knob is off.
       tagged=0
-      if [ "$i" -eq 1 ] && [ "$CLEAR" != "1" ] && [ "${HOST_PREFIX:-0}" = "1" ] \
+      if [ "$notag" = "0" ] && [ "$i" -eq 1 ] && [ "$CLEAR" != "1" ] && [ "${HOST_PREFIX:-0}" = "1" ] \
          && tag=$(ar_host_tag) && [ -n "$tag" ]; then
         want="$tag$want"
         tagged=1
@@ -2616,7 +2643,7 @@ ar_fast_tab() {
   tag=$(ar_host_tag)
   hosttag=""
   core=$label
-  if [ -n "$tag" ]; then
+  if [ -n "$tag" ] && [ "$(ar_tag_strip_ok "$tab")" = "1" ]; then
     case "$core" in
       "$tag"*) core=${core#"$tag"}; [ "${HOST_PREFIX:-0}" = "1" ] && hosttag=$tag ;;
     esac
