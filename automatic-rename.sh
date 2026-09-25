@@ -312,8 +312,8 @@ ar_index_prefix() {
 #
 # The tag answers with a non-empty hostname whether or not HOST_PREFIX is set:
 # whether a tag may be PREPENDED is the caller's question (the knob), and
-# whether one may be TAKEN OFF is a different one (ar_tag_strip_ok: the knob,
-# --clear, or a row the store says we tagged). Keeping the spelling derivable
+# whether one may be TAKEN OFF is a different one (ar_tag_strip_ok: --clear,
+# or a row the store says we tagged). Keeping the spelling derivable
 # with the knob off is what lets a tagged row heal without waiting for a
 # config that is no longer there.
 ar_host_tag() {
@@ -338,23 +338,19 @@ ar_host_tag() {
 }
 
 # ar_tag_strip_ok <tab_id> -> "1" or "0": may the host tag layers be taken off
-# this tab's label? Three answers say yes: --clear (the documented residue-free
-# way out), HOST_PREFIX on (the spelling ar_host_tag derives is the one the
-# engine would write), or the store row recording that WE wrote a tag on this
-# tab -- which is what tells a tag being healed after the knob went off apart
-# from a hand-typed name that happens to start with the machine name. A store
-# the pass could not read answers 0: stripping against an unreadable record is
-# how a hand rename gets eaten.
-#
-# The suffix test reads the row's last field without forking a read of its own:
-# ar_state_fields hands back the joined line, and only a `tagged` of true ends
-# it with the separator followed by true.
+# this tab's label? Two answers say yes: --clear (the documented residue-free
+# way out) and the store row recording that WE put a tag on this tab. The
+# knob is deliberately absent: it only ever licenses adding a tag, and a
+# label reading "host: something" on a tab the store never tagged is likelier
+# a hand name than residue -- the store is the one witness that can tell them
+# apart, and a hand rename cannot pre-record itself. A store the pass could
+# not read answers 0: stripping against an unreadable record is how a hand
+# rename gets eaten. The price sits in the opposite corner: a session that
+# lost its state file meets its own old tags as strangers, and keeps them
+# (numbered like any hand name, never stacked) until clear takes them off.
 ar_tag_strip_ok() { # <tab_id>
-  if [ "$CLEAR" = "1" ] || [ "${HOST_PREFIX:-0}" = "1" ]; then printf '1'; return; fi
-  ar_state_rows
-  local row=''
-  [ -z "${AR_STATE_ROWS_BAD:-}" ] && row=$(ar_state_fields "$1")
-  case "$row" in *"${AR_ROW_SEP}true") printf '1' ;; *) printf '0' ;; esac
+  if [ "$CLEAR" = "1" ]; then printf '1'; return; fi
+  ar_row_tagged_p "$1" && printf '1' || printf '0'
 }
 
 # ar_tag_residue_p <label> <auto> -> 0 when <label> reads as this machine's
@@ -1900,7 +1896,7 @@ ar_ws_base() {
 }
 
 ar_reconcile_tabs() {
-  local wsjson=$1 w wslabel wsbase tjson rows tid label pcount foc base0 base named name i want notag tag
+  local wsjson=$1 w wslabel wsbase tjson rows tid label pcount foc base0 base named name i want notag tag tagok
   [ -n "$wsjson" ] || return 0
   # The workspace's own label comes down with its id: a tab in the workspace
   # named after its own directory drops that half of its name (ar_context_dir),
@@ -1990,21 +1986,21 @@ ar_reconcile_tabs() {
         ar_trace "$tid deferred placeholder: [$base]"
         continue
       fi
-      # A base still headed by this machine's name, on a tab whose tag strips
-      # are allowed, is a tag the strip could not take off -- the separator
-      # was edited mid-session, and no peel spells the old one any more --
-      # so prepending the current one would stack generation on generation.
-      # The permission is ar_tag_strip_ok's, so a session that never set the
-      # knob never reads a hand name this way at all. Where it does open, two
-      # cases part ways: a row we tagged (ar_row_tagged_p) carries residue
-      # nobody can spell, and the label and its row are left exactly as they
-      # are until reset; a row we never tagged is a hand name, which keeps
-      # its text and follows its number like any hand name, and simply never
-      # gains the tag. --clear stays exempt below: it is the explicit
-      # instruction to take off what it can.
+      # A base still headed by this machine's name, where a tag may be about
+      # to go on (the knob) or owes to come off (the row), is either residue
+      # nobody can spell or a hand name that starts with the machine name,
+      # and prepending the current tag onto either would stack generation on
+      # generation. A row we tagged (ar_row_tagged_p) carries that residue:
+      # the label and its row are left exactly as they are until reset. A
+      # row we never tagged is a hand name, which keeps its text and follows
+      # its number like any hand name, and simply never gains the tag.
+      # --clear stays exempt below: it is the explicit instruction to take
+      # off what it can.
+      tagok=0
+      [ "${HOST_PREFIX:-0}" = "1" ] && tagok=1
+      [ "$(ar_tag_strip_ok "$tid")" = "1" ] && tagok=1
       notag=0
-      if [ "$CLEAR" != "1" ] && [ "$named" = "0" ] \
-         && ar_tag_head_p "$base" "$(ar_tag_strip_ok "$tid")"; then
+      if [ "$CLEAR" != "1" ] && [ "$named" = "0" ] && ar_tag_head_p "$base" "$tagok"; then
         if ar_row_tagged_p "$tid"; then
           ar_trace "$tid left alone: host tag ahead of the base in a spelling we cannot take off"
           continue
@@ -2632,10 +2628,10 @@ ar_fast_tab() {
   # the tag off until the next herdr event put it back. The tag comes off into
   # $core so the number and the eligibility base are read from what follows
   # it, while $label keeps the full string for the final compare. The peel
-  # itself is gated exactly like the reconcile's (ar_tag_strip_ok): the knob,
-  # --clear, or a row the store says we tagged. That gate is what keeps a
-  # hand-typed host-looking name intact on a session that never set the knob,
-  # and what lets a tagged tab heal after the knob went off instead of
+  # itself is gated exactly like the reconcile's (ar_tag_strip_ok): --clear,
+  # or a row the store says we tagged. That gate is what keeps a hand-typed
+  # host-looking name intact on any tab the store never tagged, and what lets
+  # a tagged tab heal after the knob went off instead of
   # freezing on a label the opt-out machine would call the user's. The strip
   # below $core also carries the residue cut, so a tag whose spelling changed
   # since it was written comes off through the number behind it and the base

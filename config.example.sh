@@ -45,9 +45,10 @@
 # the DNS domain dropped, then the strip list below), never read back, so
 # switching the knob off takes an existing tag off again at the next event the
 # way numbering self-heals -- but only from tabs the plugin itself tagged: the
-# naming store records which labels carry a tag, and a hand-typed name that
-# happens to start with the machine name is never touched. 0 (the default)
-# leaves tab labels untouched.
+# naming store records which labels carry a tag, a tag only ever comes off a
+# row the store says we tagged, and a hand-typed name that happens to start
+# with the machine name is never touched, with the knob on or off. 0 (the
+# default) leaves tab labels untouched.
 # HOST_PREFIX=0
 #
 # What joins the host to the rest of the label. Kept plain: the same string
