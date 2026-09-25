@@ -247,20 +247,28 @@ check "a missing state file still reads as empty" "{}" "$(ar_state_read)"
 # ======================================================================
 reset_state
 ar_state_set t9 "api" true "web"
-IFS=$AR_ROW_SEP read -r _en _au _ws <<< "$(ar_state_fields t9)"
+IFS=$AR_ROW_SEP read -r _en _au _ws _seeded _tagged <<< "$(ar_state_fields t9)"
 check "fields: enabled" "true" "$_en"
 check "fields: auto"    "api"  "$_au"
 check "fields: ws"      "web"  "$_ws"
+check "fields: tagged absent reads empty" "" "$_tagged"
 # A record written without a workspace has no ws key, and the field still has to
 # arrive EMPTY rather than shifting the ones before it.
 ar_state_set t9 "api" true
-IFS=$AR_ROW_SEP read -r _en _au _ws <<< "$(ar_state_fields t9)"
+IFS=$AR_ROW_SEP read -r _en _au _ws _seeded _tagged <<< "$(ar_state_fields t9)"
 check "fields: absent ws is empty" "" "$_ws"
 check "fields: auto unshifted"     "api" "$_au"
+# `tagged` marks a tab whose label the HOST_PREFIX feature prefixed, and it
+# travels the row like ws does: written only when true, absent otherwise, and
+# never shifting the fields ahead of it.
+ar_state_set t9 "api" true "web" "true"
+IFS=$AR_ROW_SEP read -r _en _au _ws _seeded _tagged <<< "$(ar_state_fields t9)"
+check "fields: tagged written reads true" "true" "$_tagged"
+check "fields: ws unshifted by tagged"    "web"  "$_ws"
 # An opted-out tab reads back as false, not as the empty string `//` would give:
 # empty is "never seen", which re-adopts a name somebody typed.
 ar_state_set t9 "" false
-IFS=$AR_ROW_SEP read -r _en _au _ws <<< "$(ar_state_fields t9)"
+IFS=$AR_ROW_SEP read -r _en _au _ws _seeded _tagged <<< "$(ar_state_fields t9)"
 check "fields: false is not empty" "false" "$_en"
 
 # Every caller must name a variable for EVERY field. bash gives the last variable

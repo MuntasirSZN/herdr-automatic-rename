@@ -38,6 +38,42 @@
 # Anything else in brackets ("[wip] foo") is left alone, digits are the only
 # trigger.
 
+# 1 = the first tab of each workspace carries this machine's hostname ahead of
+# its whole label -- tag, number, base: "HPmini: [1] api › nvim". herdr's tab
+# bar has a status area on its right edge only, so the first tab's label is
+# the left edge there is. The tag is derived fresh every pass (uname -n with
+# the DNS domain dropped, then the strip list below), never read back, so
+# switching the knob off takes an existing tag off again at the next event the
+# way numbering self-heals -- but only from tabs the plugin itself tagged: the
+# naming store records which labels carry a tag, a tag only ever comes off a
+# row the store says we tagged, and a hand-typed name that happens to start
+# with the machine name is never touched, with the knob on or off. 0 (the
+# default) leaves tab labels untouched.
+# HOST_PREFIX=0
+#
+# What joins the host to the rest of the label. Kept plain: the same string
+# must come back off the front of a label for the strip, so it is not
+# decoration. Default ": ". Editing it mid-session is safe: a tab the plugin
+# still names heals to the new spelling at the next event (the store remembers
+# the base the tag sat on), and a tab it no longer names keeps the tag it
+# carries instead of growing a fresh one per edit, with the `reset` action the
+# way out.
+# HOST_PREFIX_SEP=": "
+#
+# Substrings removed from the hostname before it is shown -- a fleet naming
+# prefix, so every machine called "Omarchy-<name>" shows as "<name>".
+# Removal is by substring, wherever it occurs. An evaluation that ends empty
+# (uname answering nothing, or the strip list eating the whole name) still
+# shows the separator alone on the first tab (": [1] fish"), which tells a
+# broken hostname apart from HOST_PREFIX being off; both hostname and
+# separator are skipped only when the knob itself is off. Changing the rules
+# re-derives every tag at the next event; a tag spelled under rules nobody
+# can recompute any more (the config deleted on the way to disabling, a
+# separator that no longer exists) comes off only while its outline still can
+# -- something ending at the separator ahead of the tab number -- and what
+# even that cannot bound is residue the `clear` action is the way out of.
+# HOST_PREFIX_STRIP=("Omarchy-")
+
 # Ordered `sed -E` rewrites for the name a workspace takes from its directory.
 # They change the label herdr shows and nothing else: the directory keeps its
 # name, the Git worktree keeps its name, and a tab in that directory goes on

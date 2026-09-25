@@ -303,6 +303,144 @@ ar_index_prefix() {
   esac
 }
 
+# ar_host_tag -> "HPmini: " -- this machine's short hostname joined to
+# HOST_PREFIX_SEP, or "" when `uname -n` answers nothing. The tag is computed
+# from config alone (the DNS domain dropped, then every HOST_PREFIX_STRIP
+# substring removed, so a fleet naming prefix such as "Omarchy-" keeps the
+# short machine name on the tab). Cached in AR_HOST_TAG: one uname per
+# invocation however many tabs ask.
+#
+# The tag answers with a non-empty hostname whether or not HOST_PREFIX is set:
+# whether a tag may be PREPENDED is the caller's question (the knob), and
+# whether one may be TAKEN OFF is a different one (ar_tag_strip_ok: --clear,
+# or a row the store says we tagged). Keeping the spelling derivable
+# with the knob off is what lets a tagged row heal without waiting for a
+# config that is no longer there.
+ar_host_tag() {
+  local h s
+  if [ -n "${AR_HOST_TAG+x}" ]; then printf '%s' "$AR_HOST_TAG"; return; fi
+  AR_HOST_TAG=''
+  h=$(uname -n 2>/dev/null) || h=''
+  h=${h%%.*}
+  for s in ${HOST_PREFIX_STRIP[@]+"${HOST_PREFIX_STRIP[@]}"}; do
+    h=${h//"$s"/}
+  done
+  # The separator is composed even when the hostname is not, while the feature
+  # is on: an empty host is a diagnosis (uname answered nothing, or the strip
+  # list ate the whole name), and a bare ": " leading the first tab tells that
+  # apart from HOST_PREFIX being off -- which keeps the tag empty so a label
+  # nobody prefixed is never stripped of one. A non-empty host keeps the old
+  # contract above.
+  if [ -n "$h" ] || [ "${HOST_PREFIX:-0}" = "1" ]; then
+    AR_HOST_TAG="${h}${HOST_PREFIX_SEP-": "}"
+  fi
+  printf '%s' "$AR_HOST_TAG"
+}
+
+# ar_tag_strip_ok <tab_id> -> "1" or "0": may the host tag layers be taken off
+# this tab's label? Two answers say yes: --clear (the documented residue-free
+# way out) and the store row recording that WE put a tag on this tab. The
+# knob is deliberately absent: it only ever licenses adding a tag, and a
+# label reading "host: something" on a tab the store never tagged is likelier
+# a hand name than residue -- the store is the one witness that can tell them
+# apart, and a hand rename cannot pre-record itself. A store the pass could
+# not read answers 0: stripping against an unreadable record is how a hand
+# rename gets eaten. The price sits in the opposite corner: a session that
+# lost its state file meets its own old tags as strangers, and keeps them
+# (numbered like any hand name, never stacked) until clear takes them off.
+ar_tag_strip_ok() { # <tab_id>
+  if [ "$CLEAR" = "1" ]; then printf '1'; return; fi
+  ar_row_tagged_p "$1" && printf '1' || printf '0'
+}
+
+# ar_tag_residue_p <label> <auto> -> 0 when <label> reads as this machine's
+# tag under a separator the config no longer spells: the head is the host
+# name ar_host_tag derives, the tail is the exact base the store remembers,
+# and at least one character joins them (the separator nobody can recompute).
+# Called only for a row whose `tagged` says we wrote a tag, which is the
+# receipt telling this apart from a hand name that happens to start with the
+# machine name and end like ours.
+ar_tag_residue_p() { # <label> <auto>
+  local h sep
+  sep=${HOST_PREFIX_SEP-": "}
+  h=$(ar_host_tag); h=${h%"$sep"}
+  [ -n "$h" ] || return 1
+  case "$1" in "$h"?*"$2") return 0 ;; esac
+  return 1
+}
+
+# ar_tag_head_p <base> [tag_ok] -> 0 when a tag strip would be allowed on this
+# tab (tag_ok, the same permission ar_tab_strip_prefix takes) AND <base>
+# starts with this machine's host name: a tag is sitting ahead of it in a
+# spelling the strip could not take off, so nothing may be prepended to it.
+# Without the permission there is no tag interpretation at all, which is what
+# keeps a hand name starting with the machine name treated like any other on
+# a session that never set the knob. A base that genuinely starts with the
+# machine name (a project named after the machine) reads the same and loses
+# the tag for as long as it does; the label alone cannot tell the two apart,
+# and this is the side that never stacks.
+ar_tag_head_p() { # <base> [tag_ok]
+  [ "${2:-}" = "1" ] || return 1
+  local h sep
+  sep=${HOST_PREFIX_SEP-": "}
+  h=$(ar_host_tag); h=${h%"$sep"}
+  [ -n "$h" ] || return 1
+  case "$1" in "$h"?*|"$h") return 0 ;; esac
+  return 1
+}
+
+# ar_row_tagged_p <tab_id> -> 0 when the store row records that we tagged
+# this tab, independent of the knob and --clear (the two other reasons a tag
+# strip may be allowed). The residue guard uses it to tell a row carrying our
+# own unspellable tag from a hand name a knob-on session happens to start
+# with the machine name.
+ar_row_tagged_p() { # <tab_id>
+  ar_state_rows
+  [ -z "${AR_STATE_ROWS_BAD:-}" ] || return 1
+  case "$(ar_state_fields "$1")" in *"${AR_ROW_SEP}true") return 0 ;; esac
+  return 1
+}
+
+# ar_tab_strip_prefix <label> [tag_ok] -> label with the plugin's outer layers
+# removed, outermost first, until nothing plugin-shaped leads it. With tag_ok
+# falsy (the default, and every workspace and agent call) only the "[N] " number
+# layers peel: a session that never set HOST_PREFIX leaves a hand-typed
+# "HPmini: fish" alone. With tag_ok truthy the host tag layers join in: the
+# exact tag, the bare separator while the knob is on (the spelling an empty
+# host evaluation writes), and a residue cut.
+#
+# The residue cut is for a tag spelled under rules nobody can recompute -- the
+# host evaluated differently one pass, strip rules edited, a separator the
+# config that named it no longer holds. Such a tag still sits ahead of the
+# plugin's own bracketed number, so everything through the first "<sep>[N] "
+# comes off; the separator ahead of the bracket is what makes the cut refuse a
+# plain hand name, where "notes [2] draft" keeps every word (a bracket in the
+# middle of a label is not residue). What the cut takes off had to look like a
+# tag: something joined to our number by the configured separator.
+#
+# The layers loop because more than one can sit there legitimately (tag, then
+# number), and because a healed spelling can reveal another beneath it.
+ar_tab_strip_prefix() {
+  local s=$1 tag='' bare='' sep='' prev=''
+  if [ "$2" = "1" ]; then
+    tag=$(ar_host_tag)
+    sep=${HOST_PREFIX_SEP-": "}
+    if [ "${HOST_PREFIX:-0}" = "1" ]; then bare=$sep; fi
+  fi
+  while [ -n "$s" ] && [ "$s" != "$prev" ]; do
+    prev=$s
+    s=${s#"$tag"}
+    s=${s#"$bare"}
+    s=$(ar_strip_prefix "$s")
+    if [ "$s" = "$prev" ] && [ "$2" = "1" ]; then
+      case "$s" in
+        *"$sep"\[[0-9]*\]\ *) s=${s#*"$sep"\[[0-9]*\] } ;;
+      esac
+    fi
+  done
+  printf '%s' "$s"
+}
+
 # ar_desired <scope> <position> <base> -> the label this item should have.
 #   --clear              -> always the bare base (strip numbering)
 #   scope off            -> bare base (self-heals a stale prefix as items reconcile)
@@ -628,7 +766,7 @@ ar_state_get() { # <tab_id> <field>
 # so the staleness costs at most the label a tab already had.
 # The whole store as one row per key, loaded once per pass. Every writer below
 # clears it, so a read after a write goes back to the file. The rows are the
-# same four fields ar_state_fields hands out, led by the key they belong to.
+# same five fields ar_state_fields hands out, led by the key they belong to.
 #
 # One jq for the pass rather than one per tab: a pass reads these fields for
 # every tab and every workspace it sees, and the file does not change between
@@ -664,7 +802,8 @@ ar_state_load() {
     | select(.value | type == "object") | .value as $r
     | [ .key, ($r.enabled | if . == null then "" else tostring end),
         (($r.auto // "") | tostring), (($r.ws // "") | tostring),
-        ($r.seeded | if . == true then "true" else "" end) ] | join([31] | implode)' \
+        ($r.seeded | if . == true then "true" else "" end),
+        ($r.tagged | if . == true then "true" else "" end) ] | join([31] | implode)' \
     2>/dev/null) || rc=$?
   case "$rc" in
     0 | [1-5]) ;;
@@ -678,19 +817,20 @@ ar_state_load() {
 # on the line before the substitution.
 ar_state_rows() { [ -n "${AR_STATE_ROWS_LOADED:-}" ] || ar_state_load; }
 
-# ar_state_fields <key> -> "<enabled><SEP><auto><SEP><ws><SEP><seeded>" for that
-# key, empty throughout when nothing is known about it. A scan of the loaded
-# rows, no fork: the four fields the opt-out machine reads together are read on
-# every tab of every pass.
+# ar_state_fields <key> -> "<enabled><SEP><auto><SEP><ws><SEP><seeded><SEP><tagged>"
+# for that key, empty throughout when nothing is known about it. A scan of the
+# loaded rows, no fork: the five fields the opt-out machine reads together are
+# read on every tab of every pass.
 #
 # `read -r k rest` with the row separator as IFS: `rest` keeps the remaining
 # fields WITH their separators, which is the line the callers' own read splits.
-# A non-whitespace IFS keeps a trailing empty field (`seeded` usually is), so
-# the separator must never become a tab.
+# A non-whitespace IFS keeps a trailing empty field (`seeded` and `tagged`
+# usually are), so the separator must never become a tab.
 #
-# `seeded` goes last so a reader that names fewer variables collects it in its
-# own final one and discards it there, rather than appending it to a field it
-# compares against.
+# `seeded` and `tagged` go last so a reader that names fewer variables collects
+# what follows in its own final one and discards it there, rather than
+# appending it to a field it compares against. `tagged` rides after `seeded`
+# for the same reason one more level down.
 #
 # `enabled` is emitted as its own text rather than through `//`, which treats a
 # boolean false as absent: an opted-out tab would read back as first-seen on
@@ -705,18 +845,51 @@ ar_state_fields() { # <key>
   done <<< "$AR_STATE_ROWS"
   return 0
 }
-ar_state_set() { # <tab_id> <auto-name> <enabled true|false> [ws]
+ar_state_set() { # <tab_id> <auto-name> <enabled true|false> [ws] [tagged true|""]
   local base tmp
   AR_STATE_ROWS_LOADED=""                  # the loaded rows are about to be stale
   base=$(ar_state_read) || return 1        # unreadable: leave the file alone
   # A write that did not land reports it. Ownership IS this file, so swallowing a
   # full disk or an unwritable state directory told the reset action a tab was
   # re-adopted while the next pass, finding no entry, opted it straight back out.
+  # The row is written whole, so a claim that carries no `tagged` drops the key
+  # from a row that had it: that is how a healed tab stops being strippable.
+  # Rows the feature never touches keep their exact old shape, and a state file
+  # from before HOST_PREFIX reads every `tagged` as false by its absence.
   tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 1
-  if printf '%s' "$base" | jq --arg t "$1" --arg a "$2" --argjson e "$3" --arg w "${4:-}" \
-       '.[$t] = (if $w == "" then {auto: $a, enabled: $e}
-                 else {auto: $a, enabled: $e, ws: $w} end)' > "$tmp" 2>/dev/null; then
+  if printf '%s' "$base" | jq --arg t "$1" --arg a "$2" --argjson e "$3" --arg w "${4:-}" --arg g "${5:-}" \
+       '.[$t] = ({auto: $a, enabled: $e}
+                  + (if $w == "" then {} else {ws: $w} end)
+                  + (if $g == "true" then {tagged: true} else {} end))' > "$tmp" 2>/dev/null; then
     mv "$tmp" "$STATE_FILE" || return 1
+  else
+    rm -f "$tmp"
+    return 1
+  fi
+}
+# ar_state_retag <tab_id> <0|1> - mark or unmark the row's `tagged` while every
+# other field stays as it is. The reconcile calls this on passes that moved a
+# tag without computing a name (a procinfo blip on an owned tab, a first tab
+# still on herdr's placeholder): the label carries the tag either way, and the
+# row is the only record that lets a later pass with the knob off take it back
+# off instead of reading it as the user's text. Unmarking drops the key rather
+# than writing false, so a row the feature healed keeps the shape it had before
+# it was ever tagged. Skipped when the row already says it: this runs on every
+# nameless pass, and a quiet session must not rewrite the store per tab.
+ar_state_retag() { # <tab_id> <0|1>
+  local base tmp cur=0 filter
+  case "$(ar_state_fields "$1")" in *"${AR_ROW_SEP}true") cur=1 ;; esac
+  [ "$cur" = "$2" ] && return 0
+  AR_STATE_ROWS_LOADED=""                  # the loaded rows are about to be stale
+  base=$(ar_state_read) || return 1        # unreadable: leave the file alone
+  tmp=$(mktemp "$STATE_DIR/.state.XXXXXX") || return 1
+  # The two filters are jq programs: $t is jq's --arg variable, not a shell
+  # expansion, so the single quotes are the point.
+  # shellcheck disable=SC2016
+  if [ "$2" = "1" ]; then filter='.[$t] = ((.[$t] // {}) + {tagged: true})'
+  else filter='if (.[$t] | type) == "object" then del(.[$t].tagged) else . end'; fi
+  if printf '%s' "$base" | jq --arg t "$1" "$filter" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$STATE_FILE" || { rm -f "$tmp"; return 1; }
   else
     rm -f "$tmp"
     return 1
@@ -766,13 +939,18 @@ ar_state_prune() { # <keep tab_ids...> - drop entries for tabs that no longer ex
   if printf '%s' "$pruned" > "$tmp"; then mv "$tmp" "$STATE_FILE"; else rm -f "$tmp"; fi
 }
 
-# ar_state_claim <tab_id> <name> <named 0|1> [ws] - record that we own <tab_id> at
-# <name>, unless nothing has changed. State already saying exactly this is the
-# steady state -- every named tab, on every pass -- and ar_state_set rewrites the
-# whole file, so the guard keeps a quiet session from rewriting it per tab per
-# event. Reads what ar_name_eligible published for this same tab.
+# ar_state_claim <tab_id> <name> <named 0|1> [ws] [tagged 0|1] - record that we
+# own <tab_id> at <name>, unless nothing has changed. State already saying
+# exactly this is the steady state -- every named tab, on every pass -- and
+# ar_state_set rewrites the whole file, so the guard keeps a quiet session from
+# rewriting it per tab per event. Reads what ar_name_eligible published for this
+# same tab, `tagged` included: without it in the compare, the pass that heals a
+# tagged tab (knob off, tag taken back off) would skip its write as a no-op and
+# leave the row claiming a tag the label no longer carries.
 ar_state_claim() {
   [ "$3" = "1" ] || return 0
+  local g=''
+  [ "${5:-}" = "1" ] && g=true
   # Ownership has to be RECORDED, not merely computed, before a reset can say the
   # tab is back under naming: reporting it any earlier told the user it worked when
   # the rename failed, or when the state write did, and a tab in either position
@@ -781,9 +959,10 @@ ar_state_claim() {
   # globals describe whichever tab ar_name_eligible examined last, and a claim
   # for another tab must not skip its write on them.
   if [ "${AR_STATE_KEY:-}" = "$1" ] && [ "${AR_STATE_ENABLED:-}" = "true" ] \
-     && [ "${AR_STATE_AUTO:-}" = "$2" ] && [ "${AR_STATE_WS:-}" = "${4:-}" ]; then
+     && [ "${AR_STATE_AUTO:-}" = "$2" ] && [ "${AR_STATE_WS:-}" = "${4:-}" ] \
+     && [ "${AR_STATE_TAGGED:-}" = "$g" ]; then
     :                                    # state already says this; nothing to write
-  elif ! ar_state_set "$1" "$2" true "${4:-}"; then
+  elif ! ar_state_set "$1" "$2" true "${4:-}" "$g"; then
     return 1
   fi
   [ -n "${AR_FORCE_TAB:-}" ] && [ "$1" = "$AR_FORCE_TAB" ] && AR_FORCE_ADOPTED=1
@@ -796,17 +975,17 @@ ar_state_claim() {
 # computed name, so an opted-out tab costs no process-info call.
 #
 # The fields it reads are published as AR_STATE_ENABLED / AR_STATE_AUTO /
-# AR_STATE_WS for the tab just examined, so a caller about to record ownership
-# can tell an unchanged claim (the steady state, every pass, for every named tab)
-# from one worth writing -- ar_state_set rewrites the whole state file. The shell
-# hook reads AR_STATE_WS for the dedupe as well.
+# AR_STATE_WS / AR_STATE_TAGGED for the tab just examined, so a caller about to
+# record ownership can tell an unchanged claim (the steady state, every pass,
+# for every named tab) from one worth writing -- ar_state_set rewrites the whole
+# state file. The shell hook reads AR_STATE_WS for the dedupe as well.
 ar_name_eligible() {
-  local tab=$1 slabel=$2 enabled auto ws seeded
+  local tab=$1 slabel=$2 enabled auto ws seeded tagged
   ar_state_rows
   # A store the pass could not read says nothing about this tab, and writing an
   # opt-out against nothing is how a record gets lost. Leave the tab as it is.
   [ -z "${AR_STATE_ROWS_BAD:-}" ] || { ar_trace "$tab state unreadable: left alone"; return 1; }
-  IFS=$AR_ROW_SEP read -r enabled auto ws seeded <<< "$(ar_state_fields "$tab")"
+  IFS=$AR_ROW_SEP read -r enabled auto ws seeded tagged <<< "$(ar_state_fields "$tab")"
   # A seeded record is ar_state_seed's guess that this tab is one the shared
   # store already owned, and the label is the only thing that can confirm it.
   # Where it does not, the guess was about another session's tab of the same id
@@ -824,10 +1003,13 @@ ar_name_eligible() {
   fi
   # The key goes with the fields so ar_state_claim can tell they describe the
   # tab it is about to claim, rather than whichever tab was examined last.
+  # `tagged` rides along as "" / "true" so the claim's guard compares it without
+  # a spelling change of its own.
   AR_STATE_KEY=$tab
   AR_STATE_ENABLED=$enabled
   AR_STATE_AUTO=$auto
   AR_STATE_WS=$ws
+  AR_STATE_TAGGED=$tagged
   if [ -n "${AR_FORCE_TAB:-}" ] && [ "$tab" = "$AR_FORCE_TAB" ]; then
     ar_trace "$tab forced by reset"
     return 0                                    # reset forces re-adoption
@@ -869,6 +1051,15 @@ ar_name_eligible() {
     # relabeling). Reading that as a hand rename would freeze the tab on the
     # number and stop naming it once a real program starts, so keep ownership.
     elif [ -z "$auto" ] && ar_is_placeholder "$slabel"; then ar_trace "$tab owned hidden tab, placeholder [$slabel] kept"; return 0
+    # A separator edited mid-session leaves our own tag on the label in a
+    # spelling no peel can take off, and reading that as a hand rename opted
+    # the tab out and let the pass stack a fresh tag onto the old one. The
+    # row's `tagged` is the receipt that a tag was written at all; with the
+    # head reading as this machine's name and the tail as the exact base the
+    # store remembers, the label is ours to rewrite on the current spelling.
+    elif [ "$tagged" = "true" ] && [ -n "$auto" ] && ar_tag_residue_p "$slabel" "$auto"; then
+      ar_trace "$tab owned, tag spelled under a separator we no longer hold: [$slabel] ends in [$auto]"
+      return 0
     else ar_trace "$tab owned user-renamed opt-out: label [$slabel] is not [$auto]"; ar_state_set "$tab" "" false; return 1 # user renamed -> opt out
     fi
   fi
@@ -1705,7 +1896,7 @@ ar_ws_base() {
 }
 
 ar_reconcile_tabs() {
-  local wsjson=$1 w wslabel wsbase tjson rows tid label pcount foc base0 base named name i want
+  local wsjson=$1 w wslabel wsbase tjson rows tid label pcount foc base0 base named name i want notag tag tagok
   [ -n "$wsjson" ] || return 0
   # The workspace's own label comes down with its id: a tab in the workspace
   # named after its own directory drops that half of its name (ar_context_dir),
@@ -1756,7 +1947,7 @@ ar_reconcile_tabs() {
       [ -n "$tid" ] || continue
       i=$(( i + 1 ))
       AR_SEEN_TABS="$AR_SEEN_TABS $tid"
-      base0=$(ar_strip_prefix "$label")
+      base0=$(ar_tab_strip_prefix "$label" "$(ar_tag_strip_ok "$tid")")
       base=$base0
       named=0
       if [ "$CLEAR" != "1" ] && [ "$NAME_TABS" = "1" ]; then
@@ -1795,7 +1986,43 @@ ar_reconcile_tabs() {
         ar_trace "$tid deferred placeholder: [$base]"
         continue
       fi
+      # A base still headed by this machine's name, where a tag may be about
+      # to go on (the knob) or owes to come off (the row), is either residue
+      # nobody can spell or a hand name that starts with the machine name,
+      # and prepending the current tag onto either would stack generation on
+      # generation. A row we tagged (ar_row_tagged_p) carries that residue:
+      # the label and its row are left exactly as they are until reset. A
+      # row we never tagged is a hand name, which keeps its text and follows
+      # its number like any hand name, and simply never gains the tag.
+      # --clear stays exempt below: it is the explicit instruction to take
+      # off what it can.
+      tagok=0
+      [ "${HOST_PREFIX:-0}" = "1" ] && tagok=1
+      [ "$(ar_tag_strip_ok "$tid")" = "1" ] && tagok=1
+      notag=0
+      if [ "$CLEAR" != "1" ] && [ "$named" = "0" ] && ar_tag_head_p "$base" "$tagok"; then
+        if ar_row_tagged_p "$tid"; then
+          ar_trace "$tid left alone: host tag ahead of the base in a spelling we cannot take off"
+          continue
+        fi
+        ar_trace "$tid hand-named: host-headed base follows its number without a tag"
+        notag=1
+      fi
       want=$(ar_desired tabs "$i" "$base")
+      # The first tab carries this machine's name ahead of everything else --
+      # the left-edge slot herdr's own tab bar offers no status area for. Tag
+      # first, number second, base third ("HPmini: [1] api › nvim"). Never
+      # under --clear: that is the path a switched-off tag comes back off by,
+      # and base0 above already read the label with the tag stripped. The same
+      # condition is what the claim records as `tagged`: the store has to know
+      # the label carries a tag it may later have to take back off, which is
+      # the one thing the label alone will not tell it once the knob is off.
+      tagged=0
+      if [ "$notag" = "0" ] && [ "$i" -eq 1 ] && [ "$CLEAR" != "1" ] && [ "${HOST_PREFIX:-0}" = "1" ] \
+         && tag=$(ar_host_tag) && [ -n "$tag" ]; then
+        want="$tag$want"
+        tagged=1
+      fi
       # Ownership is recorded for a name the tab actually CARRIES: the label is
       # already right, or the rename reported success. Recording it for a rename
       # that failed (herdr rejected the label, the socket blipped) left state
@@ -1816,7 +2043,14 @@ ar_reconcile_tabs() {
         ar_trace "$tid rename failed: [$want]"
         continue
       fi
-      ar_state_claim "$tid" "$name" "$named" "$wsbase"
+      # Ownership rides the name the pass computed; a pass without one still has
+      # to keep the row's `tagged` honest, because the label above carries (or
+      # just lost) the tag either way and the row is the only memory of it.
+      if [ "$named" = "1" ]; then
+        ar_state_claim "$tid" "$name" 1 "$wsbase" "$tagged"
+      else
+        ar_state_retag "$tid" "$tagged"
+      fi
     done <<< "$rows"
   done <<< "$wsrows"
 }
@@ -2191,8 +2425,8 @@ label: $label"
     printf 'trace, the whole pass:\n'
     cat "$AR_TRACE_FILE" 2>/dev/null
   fi
-  printf '\nknobs: NAME_TABS=%s AUTO_INDEX=%s TAB_CONTEXT=%s AGENT_TITLES=%s HIDE_SHELL=%s\n' \
-    "${NAME_TABS:-1}" "${AUTO_INDEX:-1}" "${TAB_CONTEXT:-1}" "${AGENT_TITLES:-1}" "${HIDE_SHELL:-0}"
+  printf '\nknobs: NAME_TABS=%s AUTO_INDEX=%s TAB_CONTEXT=%s AGENT_TITLES=%s HIDE_SHELL=%s HOST_PREFIX=%s\n' \
+    "${NAME_TABS:-1}" "${AUTO_INDEX:-1}" "${TAB_CONTEXT:-1}" "${AGENT_TITLES:-1}" "${HIDE_SHELL:-0}" "${HOST_PREFIX:-0}"
   if [ -n "$tab" ]; then ar_notify "Doctor: $tab" "$head"
   else ar_notify "Doctor: no tab resolved" "$head"
   fi
@@ -2367,6 +2601,7 @@ ar_fast_tab() {
   ar_trace "fast tab entered: $MODE, tab [${tab}]"
   [ -n "$tab" ] || { ar_trace "fast tab: no HERDR_TAB_ID"; return 0; }
   local prog="" cmd="" info name label raw prefix slabel enabled auto want ws
+  local tag hosttag core
   if [ "$MODE" = "preexec" ]; then
     if [ "${AR_FAST_SAMPLE:-}" = "1" ]; then
       info=$(ar_pane_program "${HERDR_PANE_ID:-}") || { ar_trace "$tab sampling failed, nothing renamed"; return 0; }
@@ -2386,8 +2621,31 @@ ar_fast_tab() {
   printf '%s' "$raw" | jq -e '(.result.tab // .tab) | has("label")' >/dev/null 2>&1 || { ar_trace "$tab tab get carried no label field"; return 0; }
   label=$(printf '%s' "$raw" | jq -r "$AR_JQ_CLEAN"'(.result.tab // .tab).label | clean' 2>/dev/null)
 
-  if ar_index_on tabs; then prefix=$(ar_index_prefix "$label"); else prefix=""; fi
-  slabel=$(ar_strip_prefix "$label")
+  # The fast path knows the tab it runs in, not the position that tab holds,
+  # so a host tag can only be CARRIED from the label already on it; the
+  # reconcile settles adds and removes when a tab moves to or from the first
+  # slot. Without the carry, every command typed in the first tab would flash
+  # the tag off until the next herdr event put it back. The tag comes off into
+  # $core so the number and the eligibility base are read from what follows
+  # it, while $label keeps the full string for the final compare. The peel
+  # itself is gated exactly like the reconcile's (ar_tag_strip_ok): --clear,
+  # or a row the store says we tagged. That gate is what keeps a hand-typed
+  # host-looking name intact on any tab the store never tagged, and what lets
+  # a tagged tab heal after the knob went off instead of
+  # freezing on a label the opt-out machine would call the user's. The strip
+  # below $core also carries the residue cut, so a tag whose spelling changed
+  # since it was written comes off through the number behind it and the base
+  # still reads as ours.
+  tag=$(ar_host_tag)
+  hosttag=""
+  core=$label
+  if [ -n "$tag" ] && [ "$(ar_tag_strip_ok "$tab")" = "1" ]; then
+    case "$core" in
+      "$tag"*) core=${core#"$tag"}; [ "${HOST_PREFIX:-0}" = "1" ] && hosttag=$tag ;;
+    esac
+  fi
+  if ar_index_on tabs; then prefix=$(ar_index_prefix "$core"); else prefix=""; fi
+  slabel=$(ar_tab_strip_prefix "$core" "$(ar_tag_strip_ok "$tab")")
   ar_name_eligible "$tab" "$slabel" || return 0   # it says why
   # The context is this shell's own $PWD -- the hook backgrounds the engine from
   # the pane, so the directory arrives for free and a cd shows up at the next
@@ -2408,14 +2666,16 @@ ar_fast_tab() {
     [ "${HIDE_SHELL:-0}" = "1" ] || { ar_trace "$tab no name computed for [$prog]"; return 0; }
     prefix="${prefix% }"                        # "[3] " -> "[3]", "" stays ""
   fi
-  want="${prefix}${name}"
+  want="${hosttag}${prefix}${name}"
   if [ "$want" != "$label" ]; then
     "$HERDR" tab rename "$tab" "$want" >/dev/null 2>&1 || { ar_trace "$tab rename failed: [$want]"; return 0; }
     ar_trace "$tab rename issued: [$label] -> [$want]"
   else
     ar_trace "$tab label already correct: [$want]"
   fi
-  ar_state_claim "$tab" "$name" 1 "$ws"
+  # `tagged` is whether the label just written carries the tag, which here is
+  # the carry and nothing else: the fast path cannot add one, only keep it.
+  if [ -n "$hosttag" ]; then ar_state_claim "$tab" "$name" 1 "$ws" 1; else ar_state_claim "$tab" "$name" 1 "$ws" 0; fi
 }
 
 # The workspace half: keep the workspace's own label on the directory the shell
