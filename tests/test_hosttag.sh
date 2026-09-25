@@ -452,6 +452,89 @@ check "knob off, tagged residue: row untouched" "false true" \
 teardown
 
 # ======================================================================
+# Review finding: with the knob ON, ar_tag_strip_ok answered yes without
+# reading the row's tagged, so a hand-typed "host: customer" on a tab the
+# plugin never tagged lost its head -- the store is the one witness that can
+# tell our residue from a hand name, and a hand rename cannot pre-record
+# itself. A tag may now come off only a row the store says we tagged (or
+# under clear); the knob only ever puts one on.
+# ======================================================================
+setup
+export HOST_PREFIX=1
+printf '{"w1:t1":{"auto":"api","enabled":true,"tagged":true}}\n' >"$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<JSON
+{"result":{"tabs":[
+  {"tab_id":"w1:t1","label":"${TAG}[1] api","pane_count":1,"focused":true},
+  {"tab_id":"w1:t2","label":"${TAG}customer","pane_count":1,"focused":false}
+]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[
+  {"pane_id":"p1","tab_id":"w1:t1","focused":true},
+  {"pane_id":"p2","tab_id":"w1:t2","focused":false}
+]}}
+JSON
+run_engine tab.focused
+check "knob on: hand-typed host name on an untagged tab keeps its head" \
+  "tab rename w1:t2 [2] ${TAG}customer" "$(log)"
+# And the pass after the opt-out: the numbered hand name is already right, so
+# nothing is issued again (idempotent, not just lucky once).
+fixture tabs_w1.json <<JSON
+{"result":{"tabs":[
+  {"tab_id":"w1:t1","label":"${TAG}[1] api","pane_count":1,"focused":true},
+  {"tab_id":"w1:t2","label":"[2] ${TAG}customer","pane_count":1,"focused":false}
+]}}
+JSON
+: >"$HERDR_MOCK_LOG"
+run_engine tab.focused
+check "knob on: the kept hand name is steady on the next pass" "" "$(log)"
+teardown
+
+# ======================================================================
+# The same finding through the fast path: the peel carried the same knob-only
+# permission, so a hand-typed "host: nvim" on an owned untagged tab matched
+# the stored auto once the head was off, and the preexec renamed the tab
+# under the user's name.
+# ======================================================================
+setup
+export HOST_PREFIX=1
+printf '{"t1":{"auto":"nvim","enabled":true}}\n' >"$STATE"
+export HERDR_TAB_ID=t1 HERDR_PANE_ID=p1
+fixture tab_t1.json <<JSON
+{"result":{"tab":{"tab_id":"t1","label":"${TAG}nvim"}}}
+JSON
+run_engine preexec "nvim README.md"
+check "knob on, fast path: hand host-looking name kept" "" "$(log)"
+check "knob on, fast path: recorded as the hand rename it is" "false" "$(jq -r '.t1.enabled' "$STATE" 2>/dev/null)"
+teardown
+
+# ======================================================================
+# The price of the row-licensed strip, pinned rather than hidden: a session
+# that lost its state file meets its own old tags as strangers. The label is
+# numbered like any hand name, keeps the tag it carries, and never grows
+# another; clear takes the whole thing off.
+# ======================================================================
+setup
+export HOST_PREFIX=1
+rm -f "$STATE"
+fixture workspaces.json <<'JSON'
+{"result":{"workspaces":[{"workspace_id":"w1","label":"[1] api"}]}}
+JSON
+fixture tabs_w1.json <<JSON
+{"result":{"tabs":[{"tab_id":"w1:t1","label":"${TAG}[1] api","pane_count":1,"focused":true}]}}
+JSON
+fixture panes.json <<'JSON'
+{"result":{"panes":[{"pane_id":"p1","tab_id":"w1:t1","focused":true}]}}
+JSON
+run_engine tab.focused
+check "state loss: numbered once, tag kept, nothing stacked" \
+  "tab rename w1:t1 [1] ${TAG}[1] api" "$(log)"
+teardown
+
+# ======================================================================
 # Residue nobody can derive (the separator config that named the tag is gone,
 # and no marker sits behind it) is tolerated, not guessed at: the label keeps
 # its text, the row drops the mark, and --clear or reset is the way out.
