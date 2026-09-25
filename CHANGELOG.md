@@ -4,6 +4,8 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-25
+
 ### Added
 
 - The first tab of each workspace can carry this machine's hostname ahead of its whole label (`HPmini: [1] api › nvim`), the left-edge slot herdr's own tab bar offers no status area for. `HOST_PREFIX` enables it; `HOST_PREFIX_SEP` (default `": "`) joins the host to the label, and `HOST_PREFIX_STRIP` removes substrings from the hostname first, so a fleet naming prefix (`Omarchy-`) keeps the short machine name on the tab. While the knob is on, an evaluation that ends with no hostname still shows the separator alone (`": [1] fish"`), telling a broken hostname apart from the feature being off. The tag is derived from `uname -n` and the config on every pass and never read back, and the naming store records which labels carry a tag: a tag comes off again only a row the store says we tagged, or everything does under `clear`, so switching the knob off takes it back off exactly the tabs the plugin tagged and a hand-typed name that happens to start with the machine name is never touched, with the knob on or off. A tag spelled under rules nobody can recompute any more (a deleted config, a changed separator) comes off while its outline still ends at the separator ahead of the tab number, or not until `clear`. Editing the separator mid-session is safe: a tab the plugin still names heals to the new spelling at the next event, and one it no longer names keeps the tag it carries rather than gaining another per edit, with `reset` the way out. The preexec fast path peels and carries the tag by the same rule, so the first tab neither flashes it off between a command and the next reconcile nor freezes on it once the knob goes off.
@@ -338,7 +340,8 @@ First public release.
 - Configuration via `~/.config/herdr-automatic-rename/config.sh` (or `$HERDR_AUTOMATIC_RENAME_CONFIG`), with a documented `config.example.sh`.
 - A self-contained test suite (bash + jq only) covering naming, prefix helpers, the state machine, the shell hooks, and a full reconcile against a fake herdr.
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.9.1...v0.10.0
