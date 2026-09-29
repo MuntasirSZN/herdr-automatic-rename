@@ -66,7 +66,7 @@ HERDR="${HERDR_BIN_PATH:-herdr}"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/herdr-automatic-rename"
 AR_LEGACY_STATE_FILE="$STATE_DIR/state.json"
 # One store per herdr session, because every server numbers its tabs from w1:t1
-# (docs/ARCHITECTURE.md, "Why config and state sit at fixed paths"). The name is
+# and two servers on one file would prune each other's records. The name is
 # read the way the herdr CLI picks its server: from the `sessions/<name>/`
 # directory in $HERDR_SOCKET_PATH whenever that is set, the same directory
 # ar_herdr_session_dir reads, and from $HERDR_SESSION only when it is not. herdr
@@ -1076,8 +1076,7 @@ ar_name_eligible() {
 # tab and carried on its row (which is why this costs no herdr call and no jq of
 # its own): the tab's own focused pane, or the agent at work in it. herdr
 # publishes one layout per tab, so it answers for every tab, and it is why a
-# background multi-pane tab can be named at all. See "Which pane names a tab" in
-# docs/ARCHITECTURE.md.
+# background multi-pane tab can be named at all.
 #
 # Everything below is the fallback for a herdr whose snapshot carries no layouts
 # and for the per-list path, which has none: the sole pane of a single-pane tab,
@@ -1701,8 +1700,7 @@ ar_ws_track_eligible() {
   # from the workspace's active pane, so the pane's directory is the value the
   # file is about to carry. Only that exact agreement counts, so a pane guess
   # that matches neither the file nor our record changes nothing and the file
-  # stays the answer -- which is the case a live session paid for (see the
-  # identity_cwd note in docs/ARCHITECTURE.md).
+  # stays the answer -- which is the case a live session paid for.
   #
   # The record is compared against the pane's base REWRITTEN, because that is
   # the shape the record is in: what we last wrote is a label, and a label has

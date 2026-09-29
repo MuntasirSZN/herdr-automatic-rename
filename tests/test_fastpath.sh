@@ -184,9 +184,8 @@ teardown
 
 
 # ======================================================================
-# The two naming paths on an agent tab. docs/ARCHITECTURE.md, "The two paths
-# have to agree": a hook that named a tab differently from the reconcile would
-# flip it on every prompt, the flicker the fast path exists to avoid. This is
+# The two naming paths on an agent tab. Both paths must agree: a hook that
+# named a tab differently from the reconcile would flip it on every prompt, the flicker the fast path exists to avoid. This is
 # the one known exception, and it is recorded here rather than hidden. The fast
 # path names by the command word the moment it starts, and no title exists yet,
 # so the tab reads "claude" (or its alias). The reconcile that follows reads the

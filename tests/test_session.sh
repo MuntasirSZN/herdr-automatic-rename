@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Unit tests for where the state store lives: one per herdr session, resolved
-# the way the herdr CLI picks its server (docs/ARCHITECTURE.md, "Why config and
-# state sit at fixed paths"), and seeded once from the shared store it replaces.
+# the way the herdr CLI picks its server, and seeded once from the shared store it replaces.
 
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=tests/lib.sh

@@ -269,8 +269,8 @@ check "and released cleanly afterwards" "no" \
 # Contenders racing one stale lock: reported, NOT asserted.
 #
 # This block used to fail the suite when a trial produced two winners or none. It
-# cannot: the property is not 100% true. The residual race is documented in
-# docs/ARCHITECTURE.md and one review harness measured it at roughly one burst in
+# cannot: the property is not 100% true. A rare double-holder race remains, and
+# one review harness measured it at roughly one burst in
 # a hundred, so a 20-trial gate flakes a few percent of runs, on two CI runners
 # each. A test that fails a few percent of the time teaches people to re-run CI.
 #
