@@ -1,7 +1,8 @@
 {
   "customRules": [
     ".github/markdownlint-rules/no-hard-wrap.js",
-    ".github/markdownlint-rules/no-em-dash.js"
+    ".github/markdownlint-rules/no-em-dash.js",
+    ".github/markdownlint-rules/concise-changelog.js"
   ],
   "globs": ["**/*.md"],
   "ignores": ["tmp/**", "plans/**", ".claude/**", "node_modules/**"],
@@ -19,6 +20,7 @@
     // The README's screenshot is an <img> for its width and height attributes.
     "MD033": false,
     "no-hard-wrap": true,
-    "no-em-dash": true
+    "no-em-dash": true,
+    "concise-changelog": true
   }
 }
