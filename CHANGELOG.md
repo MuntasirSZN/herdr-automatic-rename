@@ -12,7 +12,7 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ### Added
 
-- `HOST_PREFIX` puts the machine's hostname in front of each workspace's first tab (`HPmini: [1] api › nvim`). `HOST_PREFIX_SEP` sets the separator and `HOST_PREFIX_STRIP` trims the hostname. Turning it off removes the tag only from tabs the plugin tagged, so a hand-typed name is never touched.
+- `HOST_PREFIX` puts the machine's hostname in front of each workspace's first tab (`HPmini: [1] api › nvim`). `HOST_PREFIX_SEP` sets the separator and `HOST_PREFIX_STRIP` trims the hostname. Turning it off removes the tag only from tabs the plugin tagged, so a hand-typed name is never touched ([#24](https://github.com/qu8n/herdr-automatic-rename/pull/24), thanks @farangkao).
 
 ## [0.11.1] - 2026-09-14
 
@@ -24,7 +24,7 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ### Added
 
-- `WORKSPACE_SUBSTITUTE_SETS` rewrites workspace labels with `sed -E` rules, so `'s|^worktree-|wt-|'` shows `worktree-feature` as `wt-feature`. Only names herdr derived from the directory are rewritten, never one you typed. `clear` restores the derived name (based on [#15](https://github.com/qu8n/herdr-automatic-rename/pull/15) by @engineersamuel).
+- `WORKSPACE_SUBSTITUTE_SETS` rewrites workspace labels with `sed -E` rules, so `'s|^worktree-|wt-|'` shows `worktree-feature` as `wt-feature`. Only names herdr derived from the directory are rewritten, never one you typed. `clear` restores the derived name ([#15](https://github.com/qu8n/herdr-automatic-rename/pull/15), thanks @engineersamuel).
 
 ## [0.10.0] - 2026-09-10
 
@@ -56,14 +56,15 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ### Added
 
-- `TITLE_CONDENSE=1` shortens an agent's title to its keywords instead of cutting off the end, so "Investigate why the nightly ETL job drops rows" becomes "nightly-ETL-job-drops-rows". `TITLE_LEAD_VERBS`, `TITLE_FILLER_WORDS`, `TITLE_WORD_SEPARATOR` and `TITLE_CASE` tune it. Off by default.
-- `TITLE_STYLE=name_and_task` shows the agent next to its task, such as `cc:auth-flow`, which tells apart tabs running different agents. The prefix fits inside `MAX_TITLE_LEN`. Off by default.
+- `TITLE_CONDENSE=1` shortens an agent's title to its keywords instead of cutting off the end, so "Investigate why the nightly ETL job drops rows" becomes "nightly-ETL-job-drops-rows". `TITLE_LEAD_VERBS`, `TITLE_FILLER_WORDS`, `TITLE_WORD_SEPARATOR` and `TITLE_CASE` tune it. Off by default ([#17](https://github.com/qu8n/herdr-automatic-rename/pull/17), thanks @cspipaon).
+- `TITLE_STYLE=name_and_task` shows the agent next to its task, such as `cc:auth-flow`, which tells apart tabs running different agents. The prefix fits inside `MAX_TITLE_LEN`. Off by default ([#18](https://github.com/qu8n/herdr-automatic-rename/pull/18), thanks @cspipaon).
 
 ### Fixed
 
 - The workspace name follows the shell's directory after a `cd` ([#20](https://github.com/qu8n/herdr-automatic-rename/issues/20)). The shell hook now renames the workspace at the next prompt, using the same rules as a full reconcile.
 - One `PROGRAM_ALIASES` entry now covers both spellings of `cursor-agent`/`cursor` and `kiro-cli`/`kiro` ([#19](https://github.com/qu8n/herdr-automatic-rename/issues/19)).
-- Two herdr sessions no longer share one state store ([#22](https://github.com/qu8n/herdr-automatic-rename/issues/22)). Each named session keeps its own under `sessions/<name>/`, so one session no longer prunes the other's tabs and freezes their names.
+- Two herdr sessions no longer share one state store ([#22](https://github.com/qu8n/herdr-automatic-rename/issues/22), [#21](https://github.com/qu8n/herdr-automatic-rename/pull/21), thanks @gillesdandrea). Each named session keeps its own under `sessions/<name>/`, so one session no longer prunes the other's tabs and freezes their names.
+- A label that fits its budget is no longer shortened when herdr runs the plugin under a C locale ([#16](https://github.com/qu8n/herdr-automatic-rename/pull/16), thanks @cspipaon).
 
 ## [0.8.0] - 2026-08-28
 
@@ -132,7 +133,7 @@ Upgrade note: `AGENT_TITLES` is on by default, so agent tabs show the task inste
 
 ### Fixed
 
-- An agent installed through npm or pip is named after the agent, not `node` or `python`. When the foreground program is in `WRAPPER_PROGRAMS` and herdr detected an agent in the pane, the plugin uses herdr's answer.
+- An agent installed through npm or pip is named after the agent, not `node` or `python`. When the foreground program is in `WRAPPER_PROGRAMS` and herdr detected an agent in the pane, the plugin uses herdr's answer ([#9](https://github.com/qu8n/herdr-automatic-rename/pull/9), thanks @cspipaon).
 
 ## [0.6.0] - 2026-08-13
 
@@ -150,7 +151,7 @@ Upgrade note: with `ICONS_ENABLED=1`, programs outside the icon map now show `?`
 
 ### Added
 
-- The icon map moved to `icons.sh` and grew from 9 to about 170 programs, taken from `tmux-nerd-font-window-name`.
+- The icon map moved to `icons.sh` and grew from 9 to about 170 programs, taken from `tmux-nerd-font-window-name` ([#7](https://github.com/qu8n/herdr-automatic-rename/pull/7), thanks @MuntasirSZN).
 - `ICON_FALLBACK` (default `?`) sets the glyph for programs the map does not know.
 - `ICON_MAP` overrides icons per program, such as `ICON_MAP=("claude=󰚩")`.
 - Shell labels get no icon, so an idle tab does not flip between `zsh` and a glyph.
@@ -195,6 +196,7 @@ Upgrade note: with `ICONS_ENABLED=1`, programs outside the icon map now show `?`
 ### Fixed
 
 - `ICONS_ENABLED=1` now shows a Nerd Font glyph. The glyphs were missing from every release up to 0.2.1 ([#3](https://github.com/qu8n/herdr-automatic-rename/issues/3)).
+- The lock works on NixOS, where `stat` is a bash builtin, and the tests run without `/bin/bash` ([#4](https://github.com/qu8n/herdr-automatic-rename/pull/4), thanks @MuntasirSZN).
 
 ## [0.2.1] - 2026-07-26
 
