@@ -40,6 +40,7 @@ CI installs the exact shellcheck release named by `SHELLCHECK_VERSION` in the Ma
 - **No em dashes in comments or docs.**
 - **A shellcheck suppression names its code and its reason.** `make lint` and CI both run `shellcheck -x` over the bash sources, and it passes clean. Where the linter is wrong about something deliberate, put `# shellcheck disable=SCxxxx` on the line or compound command it applies to, never at file scope, with a comment saying why the code is right. A sourced file whose path is computed gets `# shellcheck source=<the real file>` instead, so `-x` reads it rather than skipping it.
 - **Never hard-wrap prose in markdown.** One paragraph per line. Release notes are copied out of `CHANGELOG.md` and GitHub soft-wraps prose itself, so a wrapped source ships its line breaks. CI enforces this with a custom markdownlint rule (`.github/markdownlint-rules/no-hard-wrap.js`); run it locally with `make lint-md`.
+- **Keep changelog entries short.** Each entry in `CHANGELOG.md` is one line of one to three sentences that says what changed for the user. The release workflow copies these entries into the GitHub Release, so the reasoning goes in the commit message or `docs/ARCHITECTURE.md` instead. A custom markdownlint rule (`.github/markdownlint-rules/concise-changelog.js`) enforces this in CI and in the pre-commit hook.
 
 ## Submitting
 
