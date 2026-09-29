@@ -30,12 +30,13 @@ check "git is name-only" "git" "$(ar_format 'git' 'git status')"
 
 # NAME_ONLY_PROGRAMS only bites with SHOW_PROGRAM_ARGS=1 (0 is the default and
 # already renders bare names), so assert these there. Covers the agents herdr
-# 0.9.0 detects, including the three whose executable differs from its --kind id.
+# 0.9.2 detects, including the four whose executable differs from its --kind id.
 check "grok is name-only" "grok" "$(SHOW_PROGRAM_ARGS=1 ar_format 'grok' 'grok --model x')"
 check "agy is name-only" "agy" "$(SHOW_PROGRAM_ARGS=1 ar_format 'agy' 'agy --conversation 12')"
 check "opencode is name-only" "opencode" "$(SHOW_PROGRAM_ARGS=1 ar_format 'opencode' 'opencode run x')"
 check "cursor-agent name-only" "cursor-agent" "$(SHOW_PROGRAM_ARGS=1 ar_format 'cursor-agent' 'cursor-agent -p x')"
 check "kiro-cli is name-only" "kiro-cli" "$(SHOW_PROGRAM_ARGS=1 ar_format 'kiro-cli' 'kiro-cli chat')"
+check "letta-code is name-only" "letta-code" "$(SHOW_PROGRAM_ARGS=1 ar_format 'letta-code' 'letta-code --backend local')"
 check "gemini is name-only" "gemini" "$(SHOW_PROGRAM_ARGS=1 ar_format 'gemini' 'gemini -p hi')"
 check "muse is name-only" "muse" "$(SHOW_PROGRAM_ARGS=1 ar_format 'muse' 'muse --resume')"
 check "muse-cli is name-only" "muse-cli" "$(SHOW_PROGRAM_ARGS=1 ar_format 'muse-cli' 'muse-cli chat')"
