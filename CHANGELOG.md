@@ -4,6 +4,8 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-29
+
 ### Changed
 
 - With `ICONS_ENABLED=1`, a program missing from the icon map now shows its plain name instead of `? name`. The `?` looked like an error, while a tab with no glyph already marks an unmapped program. Set `ICON_FALLBACK='?'` to get the old look back.
@@ -239,7 +241,8 @@ First public release.
 - Configuration via `~/.config/herdr-automatic-rename/config.sh` (or `$HERDR_AUTOMATIC_RENAME_CONFIG`), with a documented `config.example.sh`.
 - A self-contained test suite (bash and jq only).
 
-[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/qu8n/herdr-automatic-rename/compare/v0.10.0...v0.11.0
