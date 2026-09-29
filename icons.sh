@@ -57,7 +57,7 @@ ar_icon() {
   aider | claude | codex | pi | gemini | cursor | cursor-agent | devin | cline | \
     agy | antigravity | omp | mastracode | opencode | copilot | kimi | droid | amp | \
     kiro | kiro-cli | grok | hermes | kilo | qodercli | qwen | maki | \
-    muse | muse-cli | muse-code) \
+    letta | letta-code | muse | muse-cli | muse-code) \
     printf '\363\260\232\251' ;;                                                        # U+F06A9
   alacritty | gnome-terminal | iterm2) printf '\357\204\240' ;;                         # U+F120
   ansible) printf '\357\227\247' ;;                                                     # U+F5E7

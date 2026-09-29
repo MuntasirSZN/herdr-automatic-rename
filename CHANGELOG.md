@@ -4,6 +4,10 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Fixed
+
+- A Letta tab is named like every other agent. herdr detects Letta, but the plugin's own agent lists left it out, so a Letta pane herdr had not detected yet drew the unknown-program glyph and, under `SHOW_PROGRAM_ARGS=1`, showed its whole command line. `letta` and `letta-code` now get the robot glyph and read as the program name alone.
+
 ## [0.12.0] - 2026-09-25
 
 ### Added
