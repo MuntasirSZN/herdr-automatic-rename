@@ -237,9 +237,9 @@
 # ICON_STYLE=name_and_icon
 
 # Glyph for a program missing from the built-in map (about 170 programs, from
-# tmux-nerd-font-window-name). '' turns it off. Under ICON_STYLE=icon the
-# fallback counts as no glyph, so the name shows instead. Shell labels never get
-# an icon.
+# tmux-nerd-font-window-name). Empty by default, so such a program shows its
+# plain name. Under ICON_STYLE=icon the fallback counts as no glyph, so the name
+# shows instead. Shell labels never get an icon.
 # ICON_FALLBACK='?'
 
 # Per-program glyphs, as "<program>=<glyph>" pairs. They win over the built-in

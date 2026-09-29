@@ -4,6 +4,10 @@ All notable changes to herdr-automatic-rename are documented here. The format fo
 
 ## [Unreleased]
 
+### Changed
+
+- With `ICONS_ENABLED=1`, a program missing from the icon map now shows its plain name instead of `? name`. The `?` looked like an error, while a tab with no glyph already marks an unmapped program. Set `ICON_FALLBACK='?'` to get the old look back.
+
 ### Fixed
 
 - Letta tabs are named like other agents. `letta` and `letta-code` now get the robot glyph and show only the program name under `SHOW_PROGRAM_ARGS=1`.

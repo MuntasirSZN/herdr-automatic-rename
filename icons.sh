@@ -26,16 +26,16 @@
 : "${ICON_STYLE:=name_and_icon}" # name_and_icon (icon+name) | name (name only) | icon (icon only)
 
 # Glyph shown when a program is missing from the map, like upstream's
-# fallback-icon. An EMPTY string turns the fallback off (unknown programs get
-# no icon, as before). The `+x` guard lets config.sh set ICON_FALLBACK=''
-# deliberately; `:=` would silently re-fill it.
-if [ -z "${ICON_FALLBACK+x}" ]; then ICON_FALLBACK='?'; fi
+# fallback-icon. Empty by default: with icons on, a tab with no glyph already
+# marks an unmapped program, and a "?" there reads as an error. The `+x` guard
+# keeps a value config.sh set, empty or not.
+if [ -z "${ICON_FALLBACK+x}" ]; then ICON_FALLBACK=''; fi
 
 # Per-program icon overrides: "<program>=<glyph>" pairs, checked before the
 # builtin map. Set this in config.sh, e.g. ICON_MAP=("nvim=...").
 declare -p ICON_MAP >/dev/null 2>&1 || ICON_MAP=()
 
-# ar_icon <program> -> a Nerd Font glyph, or $ICON_FALLBACK ("" when disabled).
+# ar_icon <program> -> a Nerd Font glyph, or $ICON_FALLBACK ("" by default).
 # Lookup order: user ICON_MAP override -> builtin map -> fallback. An empty
 # argument returns empty on purpose; ar_format only prepends when the glyph is
 # non-empty, so with the fallback off an unknown program keeps a clean,

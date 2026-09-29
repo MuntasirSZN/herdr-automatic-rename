@@ -203,10 +203,11 @@ for _prog in "${NAME_ONLY_PROGRAMS[@]}"; do
     "$([ -n "$(ICON_FALLBACK='' ar_icon "$_prog")" ] && echo mapped || echo unmapped)"
 done
 
-# A program missing from the map gets the fallback glyph by default; an empty
-# ICON_FALLBACK turns that off and restores the old empty-returning contract.
-check "ar_icon unknown -> fallback" "?" "$(ar_icon nosuchprog)"
-check "ar_icon unknown, fallback off -> empty" "" "$(ICON_FALLBACK='' ar_icon nosuchprog)"
+# A program missing from the map gets no glyph by default, since a tab with no
+# icon already says "unmapped" and a "?" reads as an error. ICON_FALLBACK opts
+# back in to a glyph.
+check "ar_icon unknown -> empty" "" "$(ar_icon nosuchprog)"
+check "ar_icon unknown, fallback set -> fallback" "?" "$(ICON_FALLBACK='?' ar_icon nosuchprog)"
 # The fallback must never apply to the empty argument (ar_format only asks for
 # a real program; ar_icon '' is a guard, not a lookup).
 check "ar_icon empty arg -> empty" "" "$(ar_icon '')"
@@ -236,12 +237,12 @@ check "icon style 'name' suppresses glyph" "nvim" \
 
 # Icons off (the default) never prepends a glyph, even for a known program.
 check "icons off -> no glyph" "nvim" "$(ar_format 'nvim' 'nvim')"
-# Unknown program with icons on and the fallback off: plain name, no glyph.
-check "icons on, fallback off, unknown -> plain name" "nosuchprog" \
-  "$(ICONS_ENABLED=1 ICON_FALLBACK='' SHOW_PROGRAM_ARGS=0 ar_format 'nosuchprog' 'nosuchprog -d 5')"
-# Unknown program with icons on: fallback glyph + name.
-check "icons on, unknown -> fallback glyph + name" "? nosuchprog" \
+# Unknown program with icons on: plain name, no glyph.
+check "icons on, unknown -> plain name" "nosuchprog" \
   "$(ICONS_ENABLED=1 SHOW_PROGRAM_ARGS=0 ar_format 'nosuchprog' 'nosuchprog -d 5')"
+# Unknown program with icons on and a fallback set: fallback glyph + name.
+check "icons on, fallback set, unknown -> fallback glyph + name" "? nosuchprog" \
+  "$(ICONS_ENABLED=1 ICON_FALLBACK='?' SHOW_PROGRAM_ARGS=0 ar_format 'nosuchprog' 'nosuchprog -d 5')"
 # An ignored program keeps showing the shell, so it gets no icon either --
 # even though sudo has a real glyph in the map and ls would hit the fallback.
 check "icons on, ignored program -> shell name, no icon" "zsh" \
@@ -276,7 +277,7 @@ check "idle and odd-shell reconcile agree with args on" \
 # is suppressed and the plain name kept; name_and_icon still shows "? name"
 # (pinned above).
 check "icon style 'icon' with unknown program -> plain name" "nosuchprog" \
-  "$(ICONS_ENABLED=1 ICON_STYLE=icon SHOW_PROGRAM_ARGS=0 ar_format 'nosuchprog' 'nosuchprog -d 5')"
+  "$(ICONS_ENABLED=1 ICON_STYLE=icon ICON_FALLBACK='?' SHOW_PROGRAM_ARGS=0 ar_format 'nosuchprog' 'nosuchprog -d 5')"
 # ICON_MAP works end to end through ar_format.
 check "ICON_MAP override end to end" "$g_agent nosuchprog" \
   "$(

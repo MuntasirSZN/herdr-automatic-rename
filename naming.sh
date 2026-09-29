@@ -1242,7 +1242,7 @@ ar_format() {
     ic=$(ar_icon "$prog")
     # A lone fallback glyph says nothing about the program, so under
     # ICON_STYLE=icon it is skipped and the plain name is kept: rg -> "rg",
-    # not "?". (name_and_icon still shows "? rg".)
+    # not "?". (name_and_icon still shows "? rg" with ICON_FALLBACK='?'.)
     if [ "${ICON_STYLE:-name_and_icon}" = "icon" ] && [ -n "$ic" ] && [ "$ic" = "$ICON_FALLBACK" ]; then
       ic=""
     fi
